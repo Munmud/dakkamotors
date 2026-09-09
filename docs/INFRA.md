@@ -34,7 +34,7 @@ The exceptions above always carry an explicit `--region us-east-1`.
 
 | | |
 |---|---|
-| CloudFront distribution | `E2IW2C27CUGP1D` — `d2y8zvbmyas7y1.cloudfront.net` |
+| CloudFront distribution | `E2IW2C27CUGP1D` — `dakkamotors.com`, `www.dakkamotors.com`, `d2y8zvbmyas7y1.cloudfront.net` |
 | API Gateway (Zappa) | `https://q0zvyay9pa.execute-api.ap-northeast-1.amazonaws.com/production` |
 | Aurora writer endpoint | `dakkamotors-core-dbcluster-xaurpfprbqso.cluster-cnicq6qeyk3e.ap-northeast-1.rds.amazonaws.com` |
 | Route53 hosted zone | `Z051521126KCXW6R2RVF8` |

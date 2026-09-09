@@ -82,9 +82,9 @@ Future features are out of scope for v1 — not listed here on purpose.
   3. `aws cloudfront create-invalidation`
 
 ## Phase 6 — Go live
-- [ ] DNS cutover confirmed (dig/nslookup `dakkamotors.com` resolves to CloudFront)
-- [ ] ACM cert shows "Issued", HTTPS works, HTTP redirects to HTTPS
-- [ ] Smoke test: home page loads and lists cars, detail page loads, images load, Call Us button dials the correct number, language toggle works, Django admin login works at `/api/admin/` (or chosen path)
+- [x] DNS cutover confirmed (dig/nslookup `dakkamotors.com` resolves to CloudFront)
+- [x] ACM cert shows "Issued", HTTPS works, HTTP redirects to HTTPS
+- [x] Smoke test: home page loads and lists cars, detail page loads, images load, Call Us button dials the correct number, language toggle works, Django admin login works at `/api/admin/` (or chosen path)
 - [x] Add the sample Daihatsu Tanto (and any other real inventory) as the first live listings
 - [ ] Announce / start marketing
 
@@ -95,64 +95,58 @@ Future features (filters, WhatsApp/contact form, multiple locations, financing c
 
 ---
 
-## Status — 2026-09-09
+## Status — 2026-09-10
 
-Everything above is done and deployed except the four items still unticked, all of
-which wait on one thing: **the nameservers at GoDaddy**.
+**Live: https://dakkamotors.com**
 
-**Live now:** https://d2y8zvbmyas7y1.cloudfront.net
+DNS cutover is complete. The nameservers were updated at GoDaddy, the delegation
+propagated, and the ACM certificate validated and was attached to CloudFront along with
+the `dakkamotors.com` and `www.dakkamotors.com` aliases.
 
-`dakkamotors.com` is delegated to Route53 nameservers that no longer exist — the hosted
-zone they belonged to was deleted at some point, so those servers answer `REFUSED` and
-the domain does not resolve at all. A new hosted zone was created for this project and
-it was assigned a **different** set of four nameservers, so GoDaddy has to be updated:
+Verified on the live domain:
 
-```
-ns-1371.awsdns-43.org
-ns-148.awsdns-18.com
-ns-1655.awsdns-14.co.uk
-ns-691.awsdns-22.net
-```
+| Check | Result |
+|---|---|
+| `dakkamotors.com` / `www.` over HTTPS | 200 |
+| HTTP | 301 to HTTPS |
+| `/api/cars/` and `/api/cars/1/` | 200, returns the seeded car |
+| `/cars/1` refreshed directly (SPA route) | 200 |
+| `/api/cars/9999/` | 404 — API errors are not swallowed by the SPA router |
+| `/static/admin/css/base.css` | 200 from private S3 via OAC |
+| `/media/*` | 200 (verified with a temporary probe object, since removed) |
+| Admin login at `/api/admin/` | 302 to the admin index; car list renders |
+| EN / 日本語 toggle | Both render, choice persists |
+| Browser console | No errors |
+| Aurora | Observed at 0.0 ACU while idle — scale-to-zero working |
 
-The TLS certificate validates over DNS, so it stays `PENDING_VALIDATION` until that
-change lands. Nothing else is blocked, and no re-request is needed.
-
-Once GoDaddy is updated, one command finishes the launch:
-
-```bash
-bash infra/finish-dns-cutover.sh
-```
-
-It waits for the certificate, attaches it to CloudFront with the `dakkamotors.com`
-aliases, switches car-photo URLs to the real domain, and invalidates the cache.
+The only unticked item left is **announce / start marketing**, which is yours to make.
 
 ### Managing inventory
 
-Admin: **https://d2y8zvbmyas7y1.cloudfront.net/api/admin/** (becomes
-`https://dakkamotors.com/api/admin/` after cutover). Username `admin`; the password is
-in SSM, never in this repo:
+Admin: **https://dakkamotors.com/api/admin/** · username `admin`. The password lives in
+SSM, never in this repo:
 
 ```bash
 MSYS_NO_PATHCONV=1 aws ssm get-parameter --name "/dakkamotors/ADMIN_PASSWORD"   --with-decryption --query Parameter.Value --output text
 ```
 
-Add a car under **Inventory > Cars**. Photos are attached inline on the same page; tick
+Add a car under **Inventory > Cars**. Photos attach inline on the same page; tick
 `is_primary` on the one that should appear on the listing card. Leave `price_jpy` blank
-to show "Call for price". Only cars with status `available` appear on the home page, but
-a direct link to a reserved or sold car keeps working.
+to show "Call for price". Only `available` cars appear on the home page, but a direct
+link to a reserved or sold car keeps working.
 
 ### Leftover from the previous build
 
 CloudFormation stack `dakkamotors-dev` (the earlier SAM + Cognito version, deleted
 2026-09-09) is stuck in `DELETE_FAILED` with one undeleted `CognitoEmailRole`. It is
-unrelated to this project and costs nothing, but it is almost certainly why the domain
-stopped resolving: its Route53 hosted zone went away with it, leaving GoDaddy pointing
-at nameservers that no longer answer. Left untouched.
+unrelated to this project and costs nothing, but it is why the domain had stopped
+resolving: its Route53 hosted zone went away with it, leaving the old delegation
+pointing at nameservers that no longer answered. Left untouched.
 
-### Two things to change when you are ready
+### One thing still to change
 
-- **Sample listing** — a demo Daihatsu Tanto (chassis `DEMO-0001`, no photos, "Call for
-  price") is seeded so the site is not empty. Delete it from the admin once real stock
-  is loaded.
-- **Nothing else is a placeholder.** The contact number is real: `080-9282-3601`,
-  dialled as `+818092823601` so it works from outside Japan too.
+A demo Daihatsu Tanto (chassis `DEMO-0001`, no photos, "Call for price") is seeded so
+the site is not empty. Delete it from the admin once real stock is loaded.
+
+The contact number is real: `080-9282-3601`, dialled as `+818092823601` so it works
+from outside Japan too.
