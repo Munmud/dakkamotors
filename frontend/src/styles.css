@@ -537,6 +537,20 @@ a {
   font-size: 0.85rem;
 }
 
+/* Deliberately quiet: staff need to find it, customers should not be drawn to it. */
+.footer__staff {
+  font-size: 0.85rem;
+  color: #8d97a6;
+  text-decoration: none;
+}
+
+.footer__staff:hover,
+.footer__staff:focus-visible {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

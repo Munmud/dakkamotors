@@ -59,6 +59,7 @@
   "loading": "Loading cars",
   "footer": {
     "rights": "Dakka Motors",
-    "callPrompt": "Questions about a car?"
+    "callPrompt": "Questions about a car?",
+    "staffLogin": "Staff login"
   }
 }

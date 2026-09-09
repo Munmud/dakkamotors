@@ -18,6 +18,13 @@ function Footer() {
         <p className="footer__legal u-nums">
           © {year} {t("footer.rights")}
         </p>
+        {/*
+          A plain anchor, not a router Link: /api/admin/ is rendered by Django, so
+          client-side routing would swallow it and show an empty page.
+        */}
+        <a className="footer__staff" href="/api/admin/">
+          {t("footer.staffLogin")}
+        </a>
       </div>
     </footer>
   );
