@@ -2,6 +2,8 @@ import posixpath
 
 from django.core.files.storage import default_storage
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 
 # Widths generated for every uploaded photo. 320 covers gallery thumbnails, 800 the
 # listing cards, 1600 the gallery's main image on a high-density screen.
@@ -164,3 +166,35 @@ class CarImage(models.Model):
         """{width: url} for the copies that exist, or {} while none do."""
         storage = self.image.storage or default_storage
         return {w: storage.url(self.derivative_name(w)) for w in self.available_widths}
+
+
+@receiver(post_delete, sender=CarImage)
+def _delete_image_files(sender, instance, **kwargs):
+    """Remove the original and its resized copies when a photo is deleted.
+
+    Django deliberately leaves files behind on delete, which is the right default when
+    files might be shared - but each CarImage owns its upload outright, so without this
+    every sold-and-removed listing would leave several megabytes in the bucket forever.
+    """
+    if not instance.image:
+        return
+
+    storage = instance.image.storage
+    names = [instance.image.name] + [
+        instance.derivative_name(width) for width in instance.available_widths
+    ]
+    for name in names:
+        try:
+            storage.delete(name)
+        except Exception:  # noqa: BLE001 - never let cleanup break the delete itself
+            pass
+
+
+@receiver(post_delete, sender=Car)
+def _delete_video_file(sender, instance, **kwargs):
+    if not instance.video:
+        return
+    try:
+        instance.video.storage.delete(instance.video.name)
+    except Exception:  # noqa: BLE001
+        pass

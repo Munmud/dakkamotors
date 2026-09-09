@@ -197,6 +197,33 @@ class DerivativeTests(TestCase):
         self.assertTrue(image.derivatives_ready)
 
 
+class FileCleanupTests(TestCase):
+    def test_deleting_a_photo_removes_its_files(self):
+        """Otherwise every sold-and-removed listing leaks megabytes into the bucket."""
+        image = attach_photo(make_car("CLEANUP"), 1000, 750)
+        image.refresh_from_db()
+        storage = image.image.storage
+        original, derivative = image.image.name, image.derivative_name(800)
+        self.assertTrue(storage.exists(original))
+        self.assertTrue(storage.exists(derivative))
+
+        image.delete()
+
+        self.assertFalse(storage.exists(original))
+        self.assertFalse(storage.exists(derivative))
+
+    def test_deleting_a_car_removes_its_photos_files(self):
+        car = make_car("CASCADE")
+        image = attach_photo(car, 1000, 750)
+        image.refresh_from_db()
+        storage = image.image.storage
+        original = image.image.name
+
+        car.delete()
+
+        self.assertFalse(storage.exists(original))
+
+
 class DerivativeApiTests(TestCase):
     def test_sources_absent_until_processing_finishes(self):
         """A <source> pointing at an object that does not exist yet renders broken."""
