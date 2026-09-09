@@ -180,6 +180,15 @@ if not DEBUG:
     # TLS terminates at CloudFront; the origin request arrives over HTTP with this header.
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     USE_X_FORWARDED_HOST = True
+
+    # Zappa mounts the app under the API Gateway stage, so WSGI reports SCRIPT_NAME as
+    # "/production" and Django prefixes every generated URL with it. CloudFront already
+    # strips that segment via the origin path, so those links point at a path that does
+    # not exist publicly -- and because the SPA router rewrites extensionless paths to
+    # index.html, they return the React app with a 200 instead of an obvious 404. That
+    # silently breaks the admin: the login form posts to /production/api/admin/login/
+    # and lands in the frontend. Clearing the script name keeps generated URLs rooted.
+    FORCE_SCRIPT_NAME = ""
     # Django only ever sees the API Gateway host, because CloudFront forwards every
     # header except Host. The admin's CSRF check therefore relies entirely on this
     # list matching the origin the browser is actually on -- which is the CloudFront
