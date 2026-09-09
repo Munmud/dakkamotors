@@ -1,0 +1,64 @@
+{
+  "brand": "Dakka Motors",
+  "tagline": "Used cars in Japan. Come and see them, or call and ask.",
+  "nav": {
+    "allCars": "All cars",
+    "back": "All cars"
+  },
+  "language": {
+    "label": "Language",
+    "en": "EN",
+    "ja": "日本語"
+  },
+  "call": {
+    "action": "Call {{phone}}",
+    "short": "Call us",
+    "hours": "Phone enquiries welcome any day."
+  },
+  "list": {
+    "loadMore": "Show more cars"
+  },
+  "price": {
+    "callFor": "Call for price",
+    "yen": "¥{{amount}}"
+  },
+  "status": {
+    "available": "Available",
+    "reserved": "Reserved",
+    "sold": "Sold"
+  },
+  "spec": {
+    "heading": "Specification",
+    "brand": "Make",
+    "model": "Model",
+    "grade": "Grade",
+    "modelCode": "Model code",
+    "chassisNumber": "Chassis number",
+    "year": "Year",
+    "fuel": "Fuel",
+    "seats": "Seats",
+    "color": "Colour"
+  },
+  "detail": {
+    "about": "About this car",
+    "noDescription": "No description yet. Call us and we will tell you about it.",
+    "gallery": "Photo {{index}} of {{total}}",
+    "noPhotos": "No photos yet"
+  },
+  "empty": {
+    "title": "No cars listed right now.",
+    "body": "Stock changes often. Call us and we will tell you what is arriving."
+  },
+  "error": {
+    "title": "Couldn't load the cars.",
+    "body": "Check your connection and try again.",
+    "retry": "Try again",
+    "notFound": "That car is no longer listed.",
+    "notFoundBody": "It may have been sold. Browse the current stock instead."
+  },
+  "loading": "Loading cars",
+  "footer": {
+    "rights": "Dakka Motors",
+    "callPrompt": "Questions about a car?"
+  }
+}

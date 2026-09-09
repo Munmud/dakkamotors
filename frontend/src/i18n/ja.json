@@ -1,0 +1,64 @@
+{
+  "brand": "ダッカモータース",
+  "tagline": "日本の中古車販売。実車のご確認も、お電話でのお問い合わせも歓迎します。",
+  "nav": {
+    "allCars": "在庫一覧",
+    "back": "在庫一覧"
+  },
+  "language": {
+    "label": "言語",
+    "en": "EN",
+    "ja": "日本語"
+  },
+  "call": {
+    "action": "{{phone}} に電話する",
+    "short": "電話する",
+    "hours": "お電話でのお問い合わせはいつでもどうぞ。"
+  },
+  "list": {
+    "loadMore": "もっと見る"
+  },
+  "price": {
+    "callFor": "価格はお問い合わせください",
+    "yen": "¥{{amount}}"
+  },
+  "status": {
+    "available": "在庫あり",
+    "reserved": "商談中",
+    "sold": "売約済み"
+  },
+  "spec": {
+    "heading": "仕様",
+    "brand": "メーカー",
+    "model": "車種",
+    "grade": "グレード",
+    "modelCode": "型式",
+    "chassisNumber": "車台番号",
+    "year": "年式",
+    "fuel": "燃料",
+    "seats": "乗車定員",
+    "color": "色"
+  },
+  "detail": {
+    "about": "この車について",
+    "noDescription": "説明は準備中です。お電話でお問い合わせください。",
+    "gallery": "写真 {{index}} / {{total}}",
+    "noPhotos": "写真は準備中です"
+  },
+  "empty": {
+    "title": "現在、掲載中の車両はありません。",
+    "body": "在庫は随時入れ替わります。入荷予定はお電話でご案内します。"
+  },
+  "error": {
+    "title": "車両情報を読み込めませんでした。",
+    "body": "通信状況をご確認のうえ、もう一度お試しください。",
+    "retry": "再試行",
+    "notFound": "この車両は現在掲載されていません。",
+    "notFoundBody": "売約済みの可能性があります。現在の在庫をご覧ください。"
+  },
+  "loading": "読み込み中",
+  "footer": {
+    "rights": "ダッカモータース",
+    "callPrompt": "車についてのご質問は"
+  }
+}

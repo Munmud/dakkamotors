@@ -1,0 +1,12 @@
+# Pinned to Django 5.2 LTS (security support to Apr 2028). django-storages does not yet
+# declare support for Django 6.x, so 5.2 is the safe intersection with DRF.
+Django==5.2.17
+djangorestframework==3.18.1
+django-environ==0.14.0
+django-storages==1.14.6
+boto3==1.43.90
+Pillow==12.3.0
+psycopg2-binary==2.9.12
+
+# Deployment (not needed to run locally, but kept here so CI installs one file)
+zappa==0.62.1

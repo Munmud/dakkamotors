@@ -1,0 +1,43 @@
+# ---- Python / Django ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+*.sqlite3
+*.sqlite3-journal
+staticfiles/
+mediafiles/
+
+# ---- Zappa ----
+.zappa/
+zappa_settings.local.json
+*.zip
+
+# ---- Node / Vite ----
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+
+# ---- Env / secrets ----
+.env
+.env.*
+!.env.example
+!.env.production
+
+# ---- Editors / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Logs ----
+*.log
+npm-debug.log*
+
+# ---- Local agent tooling ----
+.claude/

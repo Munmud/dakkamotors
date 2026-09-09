@@ -1,0 +1,547 @@
+/* ==================================================================================
+   Dakka Motors
+   One typeface (Zen Kaku Gothic New) carries both English and Japanese so the two
+   languages share a voice. The Japanese kei-car number plate is the one bold device;
+   everything around it stays quiet.
+   ================================================================================== */
+
+:root {
+  --ink: #1b2430;
+  --ink-soft: #2b3747;
+  --paper: #f4f5f6;
+  --surface: #ffffff;
+  --plate: #fbd200;
+  --line: #d8dbde;
+  --muted: #61697a;
+  --flag: #b23a2e;
+
+  --measure: 66ch;
+  --radius-photo: 3px;
+  --radius-plate: 6px;
+
+  --step-0: 1rem;
+  --step-1: 1.15rem;
+  --step-2: 1.45rem;
+  --step-3: 1.9rem;
+  --step-4: 2.6rem;
+
+  --font: "Zen Kaku Gothic New", "Hiragino Kaku Gothic ProN", "Yu Gothic",
+    "Segoe UI", system-ui, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--step-0);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.u-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.u-nums {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.l-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.l-main {
+  flex: 1;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 1.75rem 1.25rem 4rem;
+}
+
+/* ---------------------------------------------------------------- number plate --- */
+
+.plate {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--plate);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-plate);
+  padding: 0.3rem 0.7rem 0.35rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.plate__mark {
+  font-size: 1.35rem;
+}
+
+/* ---------------------------------------------------------------------- header --- */
+
+.masthead {
+  background: var(--ink);
+  color: #fff;
+}
+
+.masthead__bar {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.masthead__intro {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 1.25rem 1.6rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.masthead__tagline {
+  margin: 0;
+  max-width: 46ch;
+  color: #ccd2da;
+  font-size: var(--step-1);
+  line-height: 1.6;
+}
+
+.langswitch {
+  display: inline-flex;
+  border: 1px solid #45505f;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.langswitch__option {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #ccd2da;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+}
+
+.langswitch__option[aria-pressed="true"] {
+  background: #fff;
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------------------ call button --- */
+
+.callbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--plate);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-plate);
+  padding: 0.8rem 1.25rem;
+  font-weight: 900;
+  font-size: var(--step-1);
+  text-decoration: none;
+  justify-self: start;
+  box-shadow: 0 2px 0 var(--ink);
+}
+
+.callbtn:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+.callbtn--onink {
+  border-color: var(--plate);
+  box-shadow: none;
+}
+
+.callbtn__icon {
+  width: 1.1em;
+  height: 1.1em;
+  flex: none;
+}
+
+/* ------------------------------------------------------------------ car listing --- */
+
+.lot {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fill, minmax(255px, 1fr));
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-photo);
+  overflow: hidden;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+}
+
+.card:hover .card__title,
+.card:focus-visible .card__title {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.card__frame {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  background: #e6e8ea;
+}
+
+.card__photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.card__nophoto {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.card__flag {
+  position: absolute;
+  top: 0.6rem;
+  left: 0.6rem;
+  background: var(--flag);
+  color: #fff;
+  border-radius: 3px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.card__body {
+  padding: 0.9rem 1rem 1.1rem;
+  display: grid;
+  gap: 0.15rem;
+  flex: 1;
+  align-content: start;
+}
+
+.card__year {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.card__title {
+  margin: 0;
+  font-size: var(--step-2);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.card__grade {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.card__price {
+  margin-top: 0.7rem;
+  font-size: var(--step-2);
+  font-weight: 900;
+}
+
+.card__price--call {
+  font-size: var(--step-1);
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------------ detail page --- */
+
+.backlink {
+  display: inline-block;
+  margin-bottom: 1.25rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.detail {
+  display: grid;
+  gap: 2rem;
+}
+
+@media (min-width: 900px) {
+  .detail {
+    grid-template-columns: minmax(0, 1.35fr) minmax(300px, 1fr);
+    align-items: start;
+  }
+}
+
+.gallery__frame {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  background: #e6e8ea;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-photo);
+  overflow: hidden;
+}
+
+.gallery__photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gallery__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.gallery__thumbs {
+  list-style: none;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.gallery__thumb {
+  width: 74px;
+  aspect-ratio: 4 / 3;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #e6e8ea;
+  cursor: pointer;
+}
+
+.gallery__thumb[aria-current="true"] {
+  border-color: var(--ink);
+}
+
+.gallery__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.summary {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.summary__year {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.summary__title {
+  margin: 0;
+  font-size: var(--step-4);
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.summary__grade {
+  margin: 0;
+  color: var(--muted);
+}
+
+.pricebox {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-photo);
+  padding: 1.1rem 1.25rem 1.35rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.pricebox__amount {
+  font-size: var(--step-3);
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.pricebox__amount--call {
+  font-size: var(--step-2);
+  color: var(--muted);
+}
+
+.pricebox__note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.section {
+  margin-top: 2.5rem;
+}
+
+.section__title {
+  margin: 0 0 0.9rem;
+  font-size: var(--step-2);
+  font-weight: 700;
+}
+
+.specs {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0 1.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.specs__key {
+  padding: 0.65rem 0 0.15rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.specs__value {
+  margin: 0;
+  padding: 0.65rem 0 0.15rem;
+  border-bottom: 1px solid var(--line);
+  font-weight: 500;
+}
+
+.prose {
+  max-width: var(--measure);
+  margin: 0;
+  white-space: pre-line;
+}
+
+.prose--muted {
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------------- states --- */
+
+.state {
+  padding: 3rem 0;
+  max-width: var(--measure);
+}
+
+.state__title {
+  margin: 0 0 0.4rem;
+  font-size: var(--step-2);
+  font-weight: 700;
+}
+
+.state__body {
+  margin: 0 0 1.25rem;
+  color: var(--muted);
+}
+
+.btn {
+  appearance: none;
+  font: inherit;
+  font-weight: 700;
+  background: var(--ink);
+  color: #fff;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-plate);
+  padding: 0.6rem 1.1rem;
+  cursor: pointer;
+}
+
+.btn--quiet {
+  background: transparent;
+  color: var(--ink);
+}
+
+.loadmore {
+  margin: 2rem auto 0;
+  display: block;
+}
+
+/* --------------------------------------------------------------------- footer --- */
+
+.footer {
+  background: var(--ink);
+  color: #ccd2da;
+  margin-top: auto;
+}
+
+.footer__inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 2.5rem;
+  display: grid;
+  gap: 1rem;
+  justify-items: start;
+}
+
+.footer__prompt {
+  margin: 0;
+  font-size: var(--step-1);
+  color: #fff;
+}
+
+.footer__legal {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
