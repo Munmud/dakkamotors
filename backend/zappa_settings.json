@@ -21,6 +21,13 @@
         },
         "remote_env": "s3://dakkamotors-backend-media/config/env.json",
         "keep_warm": false,
+        "_comment_roles": [
+            "Zappa rewrites its execution role's inline policy on every deploy, which",
+            "would force the CI role to carry broad IAM write permissions. The role",
+            "already exists, so leave it alone and just pass it."
+        ],
+        "manage_roles": false,
+        "role_name": "dakkamotors-production-ZappaLambdaExecutionRole",
         "_comment_exclude": [
             "Patterns are matched against directory names anywhere in the package, so a",
             "bare entry like 'staticfiles' also deletes django/contrib/staticfiles and the",
