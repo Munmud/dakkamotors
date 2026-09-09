@@ -1,0 +1,74 @@
+name: Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: backend-deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-1
+  # Must match the Lambda runtime in zappa_settings.json.
+  PYTHON_VERSION: "3.13"
+
+permissions:
+  id-token: write # required to exchange the GitHub OIDC token for AWS credentials
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - run: pip install -r requirements.txt
+
+      # No DATABASE_URL, so this runs against SQLite and needs no cloud access.
+      - name: Run tests
+        run: python manage.py test --verbosity 2
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - run: pip install -r requirements.txt
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::484907516843:role/dakkamotors-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to Lambda
+        run: zappa update production
+
+      - name: Apply database migrations
+        run: zappa manage production migrate
+
+      - name: Collect static files to S3
+        run: zappa manage production "collectstatic --noinput"

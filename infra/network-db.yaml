@@ -1,0 +1,216 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Dakka Motors - network, database and storage (ap-northeast-1).
+  Aurora Serverless v2 scales to zero ACU while nobody is browsing, so the database
+  costs almost nothing on an idle day. Lambda runs inside the VPC to reach it, and a
+  free S3 Gateway Endpoint lets it reach S3 without a NAT Gateway (~$32/month saved).
+
+Parameters:
+  DBPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    Description: Master password for the Aurora cluster. Also stored in SSM SecureString.
+
+  FrontendBucketName:
+    Type: String
+    Default: dakkamotors-frontend
+
+  MediaBucketName:
+    Type: String
+    Default: dakkamotors-backend-media
+
+Resources:
+  # ----------------------------------------------------------------- networking ---
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: dakkamotors }]
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.20.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags: [{ Key: Name, Value: dakkamotors-private-a }]
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.20.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags: [{ Key: Name, Value: dakkamotors-private-b }]
+
+  # No internet gateway and no NAT: nothing in this VPC needs to reach the internet.
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: dakkamotors-private }]
+
+  SubnetARouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  SubnetBRouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+  # Gateway endpoints are free. This is what makes a NAT Gateway unnecessary.
+  S3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds: [!Ref PrivateRouteTable]
+
+  # ------------------------------------------------------------ security groups ---
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Django Lambda functions
+      VpcId: !Ref Vpc
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Outbound to Aurora and to S3 via the gateway endpoint
+      Tags: [{ Key: Name, Value: dakkamotors-lambda }]
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Aurora PostgreSQL
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref LambdaSecurityGroup
+          Description: PostgreSQL from the Lambda security group only
+      Tags: [{ Key: Name, Value: dakkamotors-db }]
+
+  # ------------------------------------------------------------------- database ---
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Dakka Motors private subnets
+      SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+
+  DBCluster:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      Engine: aurora-postgresql
+      EngineVersion: "17.10"
+      DatabaseName: dakkamotors
+      MasterUsername: dakkaadmin
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VpcSecurityGroupIds: [!Ref DatabaseSecurityGroup]
+      BackupRetentionPeriod: 7
+      StorageEncrypted: true
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0
+        MaxCapacity: 2
+        # Pause after 10 minutes idle. Waking costs roughly 15 seconds on the first
+        # request; CloudFront caching keeps most visitors from ever triggering it.
+        SecondsUntilAutoPause: 600
+
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref DBCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+
+  # -------------------------------------------------------------------- storage ---
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref FrontendBucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref MediaBucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [GET, HEAD]
+            AllowedOrigins: ["*"]
+            AllowedHeaders: ["*"]
+            MaxAge: 3000
+
+  # Both buckets stay private and are readable only through CloudFront (Origin Access
+  # Control). The distribution does not exist yet when this stack is created, so the
+  # policy is scoped to any distribution owned by this account rather than one id.
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: s3:GetObject
+            Resource: !Sub ${FrontendBucket.Arn}/*
+            Condition:
+              StringLike:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/*
+
+  MediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MediaBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: s3:GetObject
+            Resource: !Sub ${MediaBucket.Arn}/*
+            Condition:
+              StringLike:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/*
+
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+  PrivateSubnetIds:
+    Description: Comma-separated subnet ids for the Zappa vpc_config
+    Value: !Sub ${PrivateSubnetA},${PrivateSubnetB}
+  LambdaSecurityGroupId:
+    Value: !Ref LambdaSecurityGroup
+  DBEndpoint:
+    Value: !GetAtt DBCluster.Endpoint.Address
+  DBPort:
+    Value: !GetAtt DBCluster.Endpoint.Port
+  FrontendBucket:
+    Value: !Ref FrontendBucket
+  MediaBucket:
+    Value: !Ref MediaBucket
+  MediaBucketDomain:
+    Value: !GetAtt MediaBucket.RegionalDomainName
+  FrontendBucketDomain:
+    Value: !GetAtt FrontendBucket.RegionalDomainName

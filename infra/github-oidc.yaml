@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Dakka Motors - GitHub Actions deploy role via OpenID Connect.
+  GitHub exchanges a short-lived workflow token for AWS credentials, so no long-lived
+  access keys are ever stored in the repository.
+
+Parameters:
+  GitHubRepo:
+    Type: String
+    Default: Munmud/dakkamotors
+
+  Branch:
+    Type: String
+    Default: main
+
+  FrontendBucketName:
+    Type: String
+    Default: dakkamotors-frontend
+
+  MediaBucketName:
+    Type: String
+    Default: dakkamotors-backend-media
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+      # GitHub's OIDC endpoint now uses a certificate chain AWS trusts natively, but
+      # the thumbprint field is still required by the API.
+      ThumbprintList: [6938fd4d98bab03faadb97b34396831e3780aea1]
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: dakkamotors-github-deploy
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Federated: !Ref GitHubOidcProvider }
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              # Only this repository, and only on this branch.
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepo}:ref:refs/heads/${Branch}
+      Policies:
+        - PolicyName: frontend-deploy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:ListBucket, s3:GetBucketLocation]
+                Resource: !Sub arn:aws:s3:::${FrontendBucketName}
+              - Effect: Allow
+                Action: [s3:PutObject, s3:DeleteObject, s3:GetObject]
+                Resource: !Sub arn:aws:s3:::${FrontendBucketName}/*
+              - Effect: Allow
+                Action: [cloudfront:CreateInvalidation, cloudfront:GetInvalidation, cloudfront:ListDistributions]
+                Resource: "*"
+
+        - PolicyName: backend-deploy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Zappa keeps its build artefacts and the remote_env file in the media
+              # bucket, and reads/writes the Lambda, API Gateway and its CFN stack.
+              - Effect: Allow
+                Action: [s3:ListBucket, s3:GetBucketLocation]
+                Resource: !Sub arn:aws:s3:::${MediaBucketName}
+              - Effect: Allow
+                Action: [s3:PutObject, s3:GetObject, s3:DeleteObject]
+                Resource: !Sub arn:aws:s3:::${MediaBucketName}/*
+              - Effect: Allow
+                Action:
+                  - lambda:GetFunction
+                  - lambda:GetFunctionConfiguration
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - lambda:InvokeFunction
+                  - lambda:AddPermission
+                  - lambda:RemovePermission
+                  - lambda:GetPolicy
+                  - lambda:ListVersionsByFunction
+                  - lambda:PublishVersion
+                  - lambda:TagResource
+                Resource: !Sub arn:aws:lambda:*:${AWS::AccountId}:function:dakkamotors-*
+              - Effect: Allow
+                Action: [apigateway:GET, apigateway:PATCH, apigateway:POST, apigateway:PUT, apigateway:DELETE]
+                Resource: !Sub arn:aws:apigateway:*::/restapis*
+              - Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackResource
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:GetTemplate
+                  - cloudformation:ValidateTemplate
+                Resource: !Sub arn:aws:cloudformation:*:${AWS::AccountId}:stack/dakkamotors-*/*
+              - Effect: Allow
+                Action: [logs:DescribeLogStreams, logs:FilterLogEvents, logs:GetLogEvents]
+                Resource: "*"
+              - Effect: Allow
+                Action: [ec2:DescribeSubnets, ec2:DescribeSecurityGroups, ec2:DescribeVpcs]
+                Resource: "*"
+              - Effect: Allow
+                Action: [ssm:GetParameter, ssm:GetParameters]
+                Resource: !Sub arn:aws:ssm:*:${AWS::AccountId}:parameter/dakkamotors/*
+              # Zappa reattaches the Lambda execution role on every update.
+              - Effect: Allow
+                Action: [iam:PassRole, iam:GetRole]
+                Resource: !Sub arn:aws:iam::${AWS::AccountId}:role/dakkamotors-*
+
+Outputs:
+  DeployRoleArn:
+    Value: !GetAtt DeployRole.Arn

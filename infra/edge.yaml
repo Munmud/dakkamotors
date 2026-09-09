@@ -1,0 +1,187 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Dakka Motors - CloudFront distribution and TLS certificate.
+  MUST be deployed to us-east-1: CloudFront only accepts ACM certificates issued
+  there. The origins it points at (API Gateway, S3) live in ap-northeast-1.
+
+  One distribution serves the React app and the Django API from a single origin,
+  which is why the project has no CORS configuration anywhere.
+
+Parameters:
+  FrontendBucketDomain:
+    Type: String
+    Description: Regional domain name of the frontend bucket
+
+  MediaBucketDomain:
+    Type: String
+    Description: Regional domain name of the media bucket
+
+  ApiGatewayDomain:
+    Type: String
+    Description: Host part of the Zappa API Gateway URL (no scheme, no path)
+
+  ApiGatewayStage:
+    Type: String
+    Default: production
+    Description: Zappa stage, used as the origin path so Django sees clean URLs
+
+  CertificateArn:
+    Type: String
+    Default: ""
+    Description: >
+      ACM certificate ARN in us-east-1. Leave empty on the first deploy: the
+      distribution then serves on its own *.cloudfront.net name, so the site works
+      before DNS delegation completes. Set it once the certificate is Issued.
+
+  DomainNames:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: Aliases to attach. Ignored while CertificateArn is empty.
+
+Conditions:
+  HasCustomDomain: !Not [!Equals [!Ref CertificateArn, ""]]
+
+Resources:
+  # S3 buckets stay private; only this distribution can read them.
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: dakkamotors-oac
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # The SPA uses client-side routing, so /cars/12 must return index.html. Doing this
+  # with CustomErrorResponses would rewrite API errors too (a 404 for a missing car,
+  # or a 403 from the admin's CSRF check). Attaching a function to the default
+  # behavior only keeps the rewrite away from /api/*, /static/* and /media/*.
+  SpaRouter:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: dakkamotors-spa-router
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Serve index.html for client-side routes
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri;
+          // Anything that looks like a file (has an extension) is a real asset.
+          if (uri.indexOf('.') === -1) {
+            request.uri = '/index.html';
+          }
+          return request;
+        }
+
+  # Short TTL on the public car endpoints. This is what keeps Aurora asleep: repeat
+  # visitors are served from the edge and never reach the database.
+  ApiCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: dakkamotors-api-short
+        Comment: 60s edge cache for public car endpoints
+        MinTTL: 0
+        DefaultTTL: 60
+        MaxTTL: 300
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: all
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: Dakka Motors
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_200
+        Aliases: !If [HasCustomDomain, !Ref DomainNames, !Ref "AWS::NoValue"]
+        ViewerCertificate: !If
+          - HasCustomDomain
+          - AcmCertificateArn: !Ref CertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+
+        Origins:
+          - Id: frontend
+            DomainName: !Ref FrontendBucketDomain
+            OriginAccessControlId: !GetAtt OriginAccessControl.Id
+            S3OriginConfig: { OriginAccessIdentity: "" }
+
+          - Id: media
+            DomainName: !Ref MediaBucketDomain
+            OriginAccessControlId: !GetAtt OriginAccessControl.Id
+            S3OriginConfig: { OriginAccessIdentity: "" }
+
+          - Id: api
+            DomainName: !Ref ApiGatewayDomain
+            OriginPath: !Sub /${ApiGatewayStage}
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+              HTTPSPort: 443
+
+        DefaultCacheBehavior:
+          TargetOriginId: frontend
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          Compress: true
+          # Managed-CachingOptimized
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt SpaRouter.FunctionMetadata.FunctionARN
+
+        CacheBehaviors:
+          # Listing endpoints: cacheable, and the reason the database can stay paused.
+          - PathPattern: /api/cars*
+            TargetOriginId: api
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            Compress: true
+            CachePolicyId: !Ref ApiCachePolicy
+            # Managed-AllViewerExceptHostHeader
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+
+          # Everything else under /api/ includes the admin: never cache it.
+          - PathPattern: /api/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            Compress: true
+            # Managed-CachingDisabled
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+
+          - PathPattern: /static/*
+            TargetOriginId: media
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+
+          - PathPattern: /media/*
+            TargetOriginId: media
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+
+Outputs:
+  DistributionId:
+    Value: !Ref Distribution
+  DistributionDomain:
+    Description: Works immediately, before DNS delegation completes
+    Value: !GetAtt Distribution.DomainName

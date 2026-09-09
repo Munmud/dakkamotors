@@ -1,0 +1,37 @@
+{
+    "production": {
+        "project_name": "dakkamotors",
+        "app_function": "config.wsgi.application",
+        "django_settings": "config.settings",
+        "runtime": "python3.13",
+        "aws_region": "ap-northeast-1",
+        "s3_bucket": "dakkamotors-backend-media",
+        "timeout_seconds": 30,
+        "memory_size": 512,
+        "log_level": "INFO",
+        "apigateway_description": "Dakka Motors API",
+        "vpc_config": {
+            "SubnetIds": [
+                "subnet-0d0828c388d998a72",
+                "subnet-02157e24d4ccd96e8"
+            ],
+            "SecurityGroupIds": [
+                "sg-04c0624b553366b7a"
+            ]
+        },
+        "remote_env": "s3://dakkamotors-backend-media/config/env.json",
+        "keep_warm": false,
+        "_comment_exclude": [
+            "Patterns are matched against directory names anywhere in the package, so a",
+            "bare entry like 'staticfiles' also deletes django/contrib/staticfiles and the",
+            "Lambda fails to import at start-up. Keep these anchored to real paths."
+        ],
+        "exclude": [
+            ".venv/*",
+            "db.sqlite3",
+            "mediafiles/*",
+            "*.pyc",
+            ".env"
+        ]
+    }
+}
