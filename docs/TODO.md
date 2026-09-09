@@ -126,6 +126,29 @@ bash infra/finish-dns-cutover.sh
 It waits for the certificate, attaches it to CloudFront with the `dakkamotors.com`
 aliases, switches car-photo URLs to the real domain, and invalidates the cache.
 
+### Managing inventory
+
+Admin: **https://d2y8zvbmyas7y1.cloudfront.net/api/admin/** (becomes
+`https://dakkamotors.com/api/admin/` after cutover). Username `admin`; the password is
+in SSM, never in this repo:
+
+```bash
+MSYS_NO_PATHCONV=1 aws ssm get-parameter --name "/dakkamotors/ADMIN_PASSWORD"   --with-decryption --query Parameter.Value --output text
+```
+
+Add a car under **Inventory > Cars**. Photos are attached inline on the same page; tick
+`is_primary` on the one that should appear on the listing card. Leave `price_jpy` blank
+to show "Call for price". Only cars with status `available` appear on the home page, but
+a direct link to a reserved or sold car keeps working.
+
+### Leftover from the previous build
+
+CloudFormation stack `dakkamotors-dev` (the earlier SAM + Cognito version, deleted
+2026-09-09) is stuck in `DELETE_FAILED` with one undeleted `CognitoEmailRole`. It is
+unrelated to this project and costs nothing, but it is almost certainly why the domain
+stopped resolving: its Route53 hosted zone went away with it, leaving GoDaddy pointing
+at nameservers that no longer answer. Left untouched.
+
 ### Two things to change when you are ready
 
 - **Sample listing** — a demo Daihatsu Tanto (chassis `DEMO-0001`, no photos, "Call for
