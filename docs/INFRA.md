@@ -63,6 +63,28 @@ Lambda sits inside the VPC to reach Aurora. The only other thing it needs is S3,
 **Gateway VPC Endpoint is free**, where a NAT Gateway would cost about $32/month. There
 is deliberately no internet gateway and no route to the internet in this VPC.
 
+### What the VPC can and cannot reach
+
+Lambda runs in a private subnet with **no NAT gateway**, and the only VPC endpoint is
+the free S3 *gateway* endpoint. That keeps the bill near zero, but it has a consequence
+worth knowing before designing anything asynchronous:
+
+**The function can reach Aurora and S3, and nothing else.** There is no network path to
+the Lambda API, SQS, SNS or Secrets Manager. A Lambda self-invoke - the natural way to
+push image resizing into the background - does not fail fast; it *hangs* until the
+function times out, which surfaces as a 504 from API Gateway and looks nothing like a
+networking problem. Reaching any of those services needs an interface VPC endpoint at
+roughly $10/month per service across two AZs, which is more than this entire site costs.
+
+Two things do still work, because they are *push* rather than *pull*: an S3 event
+notification and a CloudWatch Events schedule can both invoke the function, since the
+Lambda service places the invocation rather than the function reaching out.
+
+A scheduled sweeper is nonetheless avoided, for a different reason: every run would
+query the database, and Aurora only scales to zero after ten idle minutes. Polling on a
+timer would keep it permanently awake and undo the saving. Image resizing therefore runs
+inline under a time budget - see `cars/tasks.py`.
+
 ### Why there is no CORS configuration
 
 One CloudFront distribution serves the React app at `/` and proxies `/api/*` to API

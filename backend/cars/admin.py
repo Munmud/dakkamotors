@@ -1,8 +1,10 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.utils import timezone
 from django.utils.html import format_html
 
 from .forms import CarAdminForm, CarImageForm
+from .images import build_derivatives
+from .tasks import process_pending
 from .models import Car, CarImage
 
 
@@ -49,6 +51,7 @@ class CarAdmin(admin.ModelAdmin):
     list_filter = ("status", "fuel_type", "brand")
     search_fields = ("brand", "model_name", "model_code", "chassis_number")
     list_editable = ("status",)
+    actions = ["rebuild_derivatives"]
     ordering = ("-created_at",)
     readonly_fields = ("created_at", "updated_at")
 
@@ -103,6 +106,35 @@ class CarAdmin(admin.ModelAdmin):
         if "video" in form.changed_data or getattr(obj, "video_direct_name", None):
             obj.video_uploaded_at = timezone.now() if obj.video else None
         super().save_model(request, obj, form, change)
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        # Catch up on anything an earlier save ran out of time for. Free to do here:
+        # the database is already awake for this request, so it costs no extra Aurora
+        # time, unlike a scheduled sweep would.
+        caught_up = process_pending()
+        if caught_up:
+            messages.info(
+                request, f"Also optimised {caught_up} photo(s) left from an earlier save."
+            )
+
+    @admin.action(description="Rebuild optimised copies")
+    def rebuild_derivatives(self, request, queryset):
+        """Manual repair for photos that never finished processing."""
+        rebuilt = failed = 0
+        for car in queryset:
+            for image in car.images.all():
+                try:
+                    build_derivatives(image)
+                    rebuilt += 1
+                except Exception:
+                    failed += 1
+        if rebuilt:
+            self.message_user(request, f"Rebuilt {rebuilt} photo(s).")
+        if failed:
+            self.message_user(
+                request, f"{failed} photo(s) failed.", level=messages.ERROR
+            )
 
 
 @admin.register(CarImage)

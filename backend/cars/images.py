@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 WEBP_QUALITY = 82
 
+# Encoder effort. 6 is the slowest setting; 4 is several times faster for roughly 1-2%
+# more bytes, which is the right trade when this runs inside a request with a time
+# budget rather than in a background job.
+WEBP_METHOD = 4
+
 
 def _resized(source, width):
     """A copy of `source` scaled to `width`, preserving aspect ratio."""
@@ -51,7 +56,7 @@ def build_derivatives(car_image, widths=DERIVATIVE_WIDTHS):
             continue
 
         buffer = io.BytesIO()
-        _resized(source, width).save(buffer, format="WEBP", quality=WEBP_QUALITY, method=6)
+        _resized(source, width).save(buffer, format="WEBP", quality=WEBP_QUALITY, method=WEBP_METHOD)
         buffer.seek(0)
 
         name = car_image.derivative_name(width)
@@ -64,7 +69,7 @@ def build_derivatives(car_image, widths=DERIVATIVE_WIDTHS):
     # fall back to a single copy at the original width rather than leaving none.
     if not written:
         buffer = io.BytesIO()
-        source.save(buffer, format="WEBP", quality=WEBP_QUALITY, method=6)
+        source.save(buffer, format="WEBP", quality=WEBP_QUALITY, method=WEBP_METHOD)
         buffer.seek(0)
         name = car_image.derivative_name(source.width)
         if storage.exists(name):
