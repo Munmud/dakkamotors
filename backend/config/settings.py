@@ -24,6 +24,10 @@ env = environ.Env(
     AWS_STORAGE_BUCKET_NAME=(str, ""),
     AWS_S3_REGION_NAME=(str, "ap-northeast-1"),
     MEDIA_CUSTOM_DOMAIN=(str, ""),
+    CSRF_TRUSTED_ORIGINS=(
+        list,
+        ["https://dakkamotors.com", "https://www.dakkamotors.com"],
+    ),
 )
 
 # Read .env when present. Absent in Lambda, where real env vars are used instead.
@@ -176,10 +180,12 @@ if not DEBUG:
     # TLS terminates at CloudFront; the origin request arrives over HTTP with this header.
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     USE_X_FORWARDED_HOST = True
-    CSRF_TRUSTED_ORIGINS = [
-        "https://dakkamotors.com",
-        "https://www.dakkamotors.com",
-    ]
+    # Django only ever sees the API Gateway host, because CloudFront forwards every
+    # header except Host. The admin's CSRF check therefore relies entirely on this
+    # list matching the origin the browser is actually on -- which is the CloudFront
+    # domain before DNS cutover and dakkamotors.com after it. Configurable so both
+    # can be trusted without a code change.
+    CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS")
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
