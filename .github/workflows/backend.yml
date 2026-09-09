@@ -57,7 +57,14 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
-      - run: pip install -r requirements.txt
+      # Zappa refuses to run outside an active virtualenv - it builds the Lambda
+      # package from the environment's site-packages, so it needs to know where that
+      # is. Runners install into the system Python, hence the explicit venv.
+      - name: Install dependencies into a virtualenv
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          pip install -r requirements.txt
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -65,10 +72,16 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy to Lambda
-        run: zappa update production
+        run: |
+          . .venv/bin/activate
+          zappa update production
 
       - name: Apply database migrations
-        run: zappa manage production migrate
+        run: |
+          . .venv/bin/activate
+          zappa manage production migrate
 
       - name: Collect static files to S3
-        run: zappa manage production "collectstatic --noinput"
+        run: |
+          . .venv/bin/activate
+          zappa manage production "collectstatic --noinput"

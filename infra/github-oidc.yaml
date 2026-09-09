@@ -13,6 +13,17 @@ Parameters:
     Type: String
     Default: main
 
+  RepoImmutableRef:
+    Type: String
+    Default: Munmud@53787290/dakkamotors@1362675322
+    Description: >
+      GitHub issues immutable subject claims that embed numeric owner and repository
+      ids, so the subject is "repo:owner@1234/repo@5678:ref:..." and NOT
+      "repo:owner/repo:ref:...". A trust policy written the documented way is denied
+      with "Not authorized to perform sts:AssumeRoleWithWebIdentity", which reads like
+      a permissions problem rather than a string mismatch. Look yours up with:
+        gh api repos/<owner>/<repo>/actions/oidc/customization/sub
+
   FrontendBucketName:
     Type: String
     Default: dakkamotors-frontend
@@ -44,9 +55,13 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-              # Only this repository, and only on this branch.
+              # Only this repository, and only on this branch. Both subject forms are
+              # listed (IAM treats the list as OR) so the role keeps working whichever
+              # one GitHub sends.
               StringLike:
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepo}:ref:refs/heads/${Branch}
+                token.actions.githubusercontent.com:sub:
+                  - !Sub repo:${RepoImmutableRef}:ref:refs/heads/${Branch}
+                  - !Sub repo:${GitHubRepo}:ref:refs/heads/${Branch}
       Policies:
         - PolicyName: frontend-deploy
           PolicyDocument:
