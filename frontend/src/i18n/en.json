@@ -43,7 +43,9 @@
     "about": "About this car",
     "noDescription": "No description yet. Call us and we will tell you about it.",
     "gallery": "Photo {{index}} of {{total}}",
-    "noPhotos": "No photos yet"
+    "noPhotos": "No photos yet",
+    "video": "Video",
+    "videoUnsupported": "Your browser cannot play this video."
   },
   "empty": {
     "title": "No cars listed right now.",

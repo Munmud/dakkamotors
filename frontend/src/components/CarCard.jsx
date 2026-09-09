@@ -2,8 +2,13 @@ import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { formatPrice } from "../lib/format";
+import ResponsiveImage from "./ResponsiveImage";
 
-export default function CarCard({ car }) {
+// One column on phones, roughly a quarter of the 1120px shell on desktop. Without this
+// the browser assumes the image spans the viewport and downloads the largest copy.
+const CARD_SIZES = "(max-width: 700px) 100vw, 300px";
+
+export default function CarCard({ car, priority = false }) {
   const { t, i18n } = useTranslation();
   const price = formatPrice(car.price_jpy, i18n.language);
   const photo = car.primary_image?.image;
@@ -13,12 +18,11 @@ export default function CarCard({ car }) {
       <Link className="card" to={`/cars/${car.id}`}>
         <div className="card__frame">
           {photo ? (
-            <img
+            <ResponsiveImage
               className="card__photo"
-              src={photo}
-              alt=""
-              loading="lazy"
-              decoding="async"
+              image={car.primary_image}
+              sizes={CARD_SIZES}
+              priority={priority}
             />
           ) : (
             <span className="card__nophoto">{t("detail.noPhotos")}</span>

@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import ResponsiveImage from "./ResponsiveImage";
+
+// The gallery is the dominant column on desktop and full width on a phone.
+const GALLERY_SIZES = "(max-width: 900px) 100vw, 700px";
+
 export default function Gallery({ images, title }) {
   const { t } = useTranslation();
   const [active, setActive] = useState(0);
@@ -20,7 +25,14 @@ export default function Gallery({ images, title }) {
   return (
     <div>
       <div className="gallery__frame">
-        <img className="gallery__photo" src={current.image} alt={title} />
+        {/* The main photo is the detail page's LCP element. */}
+        <ResponsiveImage
+          className="gallery__photo"
+          image={current}
+          alt={title}
+          sizes={GALLERY_SIZES}
+          priority
+        />
       </div>
 
       {images.length > 1 && (
@@ -37,7 +49,9 @@ export default function Gallery({ images, title }) {
                 })}
                 onClick={() => setActive(index)}
               >
-                <img src={image.image} alt="" loading="lazy" />
+                {/* Rendered 74px wide, so the 320px copy is as large as it ever
+                    needs to be - never the multi-megabyte original. */}
+                <ResponsiveImage image={image} pinnedWidth={320} />
               </button>
             </li>
           ))}

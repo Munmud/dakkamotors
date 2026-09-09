@@ -49,8 +49,10 @@ export default function Home() {
   return (
     <>
       <ul className="lot">
-        {cars.map((car) => (
-          <CarCard key={car.id} car={car} />
+        {cars.map((car, index) => (
+          // The first card is the largest thing above the fold, so it is the page's
+          // LCP element and should not be lazy-loaded.
+          <CarCard key={car.id} car={car} priority={index === 0} />
         ))}
       </ul>
 

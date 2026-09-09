@@ -12,7 +12,12 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
+from cars.views import SignUploadView
+
 urlpatterns = [
+    # Declared before the admin so it is matched first; it is admin-only functionality
+    # and belongs under the same prefix, but is a DRF view rather than an admin page.
+    path("api/admin/uploads/sign/", SignUploadView.as_view(), name="sign-upload"),
     path("api/admin/", admin.site.urls),
     path("api/", include("cars.urls")),
 ]

@@ -154,11 +154,19 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      # POST is required because the admin uploads photos and video straight to S3 with
+      # a presigned POST, bypassing Lambda's ~4.5MB request ceiling. Origins are named
+      # explicitly rather than "*": a bucket that accepts browser uploads should not
+      # advertise itself to every origin on the internet.
       CorsConfiguration:
         CorsRules:
-          - AllowedMethods: [GET, HEAD]
-            AllowedOrigins: ["*"]
+          - AllowedMethods: [GET, HEAD, POST]
+            AllowedOrigins:
+              - https://dakkamotors.com
+              - https://www.dakkamotors.com
+              - http://localhost:5173
             AllowedHeaders: ["*"]
+            ExposedHeaders: [ETag]
             MaxAge: 3000
 
   # Both buckets stay private and are readable only through CloudFront (Origin Access

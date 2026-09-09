@@ -4,10 +4,24 @@ import { useTranslation } from "react-i18next";
 
 import { fetchCar } from "../api/client";
 import CallButton from "../components/CallButton";
+import CarVideo from "../components/CarVideo";
 import Gallery from "../components/Gallery";
 import SpecTable from "../components/SpecTable";
 import { ErrorState, LoadingState } from "../components/States";
 import { carTitle, formatPrice, hasPhone, pickDescription } from "../lib/format";
+
+/**
+ * Poster frame for the video player.
+ *
+ * Deliberately a resized copy rather than `image`: the original is the full-resolution
+ * upload, several megabytes of it, and using it here would download the whole thing on
+ * every visit to a car that has a video - undoing the point of preload="none".
+ */
+function videoPoster(car) {
+  const primary = car.images?.find((image) => image.is_primary) ?? car.images?.[0];
+  if (!primary) return undefined;
+  return primary.sources?.["800"] ?? primary.image;
+}
 
 export default function CarDetail() {
   const { id } = useParams();
@@ -94,6 +108,12 @@ export default function CarDetail() {
           </div>
         </div>
       </div>
+
+      <CarVideo
+        src={car.video}
+        poster={videoPoster(car)}
+        title={title}
+      />
 
       <section className="section">
         <h2 className="section__title">{t("spec.heading")}</h2>

@@ -139,7 +139,12 @@ if AWS_STORAGE_BUCKET_NAME:
         "bucket_name": AWS_STORAGE_BUCKET_NAME,
         "region_name": env("AWS_S3_REGION_NAME"),
         "querystring_auth": False,
+        # Also what makes the immutable cache header below safe: a re-upload becomes a
+        # new object name rather than overwriting one browsers have cached for a year.
         "file_overwrite": False,
+        "object_parameters": {
+            "CacheControl": "public, max-age=31536000, immutable",
+        },
     }
     _custom_domain = env("MEDIA_CUSTOM_DOMAIN")
     if _custom_domain:

@@ -1,0 +1,22 @@
+/* Upload feedback in the admin. Kept plain so it reads correctly in both the light
+   and dark admin themes. */
+
+.direct-upload-status {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.direct-upload-status.is-busy {
+  color: #666;
+}
+
+.direct-upload-status.is-done {
+  color: #2e7d32;
+  font-weight: 600;
+}
+
+.direct-upload-status.is-error {
+  color: #b23a2e;
+  font-weight: 600;
+}

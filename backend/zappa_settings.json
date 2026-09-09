@@ -6,8 +6,13 @@
         "runtime": "python3.13",
         "aws_region": "ap-northeast-1",
         "s3_bucket": "dakkamotors-backend-media",
-        "timeout_seconds": 30,
-        "memory_size": 512,
+        "_comment_sizing": [
+            "Lambda CPU scales with memory, so 1024MB roughly halves image resize time",
+            "at near-identical cost. The 120s timeout only benefits the asynchronous",
+            "derivative task - HTTP requests are still capped at 29s by API Gateway."
+        ],
+        "timeout_seconds": 120,
+        "memory_size": 1024,
         "log_level": "INFO",
         "apigateway_description": "Dakka Motors API",
         "vpc_config": {

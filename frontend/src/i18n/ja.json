@@ -43,7 +43,9 @@
     "about": "この車について",
     "noDescription": "説明は準備中です。お電話でお問い合わせください。",
     "gallery": "写真 {{index}} / {{total}}",
-    "noPhotos": "写真は準備中です"
+    "noPhotos": "写真は準備中です",
+    "video": "動画",
+    "videoUnsupported": "お使いのブラウザーはこの動画を再生できません。"
   },
   "empty": {
     "title": "現在、掲載中の車両はありません。",

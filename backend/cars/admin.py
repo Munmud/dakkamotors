@@ -1,11 +1,14 @@
 from django.contrib import admin
+from django.utils import timezone
 from django.utils.html import format_html
 
+from .forms import CarAdminForm, CarImageForm
 from .models import Car, CarImage
 
 
 class CarImageInline(admin.TabularInline):
     model = CarImage
+    form = CarImageForm
     extra = 3
     fields = ("image", "preview", "is_primary", "order")
     readonly_fields = ("preview",)
@@ -14,14 +17,26 @@ class CarImageInline(admin.TabularInline):
     def preview(self, obj):
         if not obj.image:
             return "—"
+        # Prefer the smallest generated copy; the original can be several megabytes and
+        # the admin renders it at 70px tall.
+        urls = obj.derivative_urls
+        src = urls[min(urls)] if urls else obj.image.url
+        note = "" if obj.derivatives_ready else " (optimising…)"
         return format_html(
-            '<img src="{}" style="height:70px;border-radius:4px" />', obj.image.url
+            '<img src="{}" style="height:70px;border-radius:4px" />{}', src, note
         )
 
 
 @admin.register(Car)
 class CarAdmin(admin.ModelAdmin):
+    form = CarAdminForm
     inlines = [CarImageInline]
+
+    class Media:
+        # Sends photos and video straight to S3, sidestepping the ~4.5 MB ceiling that
+        # uploading through Lambda imposes.
+        js = ("cars/direct-upload.js",)
+        css = {"all": ("cars/direct-upload.css",)}
     list_display = (
         "manufacture_year",
         "brand",
@@ -54,6 +69,18 @@ class CarAdmin(admin.ModelAdmin):
         ("Specification", {"fields": ("fuel_type", "seat_capacity", "color")}),
         ("Listing", {"fields": ("price_jpy", "status")}),
         (
+            "Video",
+            {
+                "fields": ("video",),
+                "description": (
+                    "Optional MP4 walkaround. Nothing downloads until a visitor presses "
+                    "play, so it costs nothing on page load. MP4 only - iPhone "
+                    "'High Efficiency' clips are HEVC/.mov and will not play in Chrome "
+                    "or Firefox."
+                ),
+            },
+        ),
+        (
             "Description",
             {
                 "fields": ("description_en", "description_ja"),
@@ -71,6 +98,11 @@ class CarAdmin(admin.ModelAdmin):
         if obj.price_jpy is None:
             return "Call for price"
         return f"¥{obj.price_jpy:,}"
+
+    def save_model(self, request, obj, form, change):
+        if "video" in form.changed_data or getattr(obj, "video_direct_name", None):
+            obj.video_uploaded_at = timezone.now() if obj.video else None
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(CarImage)

@@ -1,4 +1,11 @@
+import posixpath
+
+from django.core.files.storage import default_storage
 from django.db import models
+
+# Widths generated for every uploaded photo. 320 covers gallery thumbnails, 800 the
+# listing cards, 1600 the gallery's main image on a high-density screen.
+DERIVATIVE_WIDTHS = (320, 800, 1600)
 
 
 class FuelType(models.TextChoices):
@@ -42,6 +49,17 @@ class Car(models.Model):
     description_en = models.TextField(blank=True)
     description_ja = models.TextField(blank=True)
 
+    # A single walkaround clip. Served exactly as uploaded - there is no transcoding
+    # step - so uploads are restricted to MP4/H.264, the one combination every browser
+    # can play. The page loads it with preload="none", so it costs nothing until the
+    # visitor presses play.
+    video = models.FileField(
+        upload_to="cars/video/",
+        blank=True,
+        help_text="Optional MP4 walkaround. Nothing downloads until a visitor presses play.",
+    )
+    video_uploaded_at = models.DateTimeField(null=True, blank=True, editable=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -76,8 +94,73 @@ class CarImage(models.Model):
     )
     order = models.PositiveSmallIntegerField(default=0)
 
+    # Resizing happens in a separate asynchronous Lambda invocation, so there is a
+    # window where the original exists but the WebP copies do not. Until this flips,
+    # the API serves the original rather than a URL that would 404.
+    derivatives_ready = models.BooleanField(default=False, editable=False)
+    derivative_widths = models.CharField(
+        max_length=64,
+        blank=True,
+        editable=False,
+        help_text="Widths actually generated. Narrower than DERIVATIVE_WIDTHS when the "
+        "original was too small to produce them all.",
+    )
+
     class Meta:
         ordering = ["order", "id"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Remembered so save() can tell when the photo itself was replaced, as opposed
+        # to someone just reordering it or ticking is_primary.
+        self._original_image_name = self.image.name if self.image else None
+
     def __str__(self):
         return f"Image {self.pk} for {self.car}"
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        writing_derivatives = update_fields is not None and set(update_fields) <= {
+            "derivative_widths",
+            "derivatives_ready",
+        }
+
+        replaced = self.image and self.image.name != self._original_image_name
+        if replaced and not writing_derivatives:
+            # Stale copies describe the previous photo; stop serving them immediately.
+            self.derivatives_ready = False
+            self.derivative_widths = ""
+
+        super().save(*args, **kwargs)
+        self._original_image_name = self.image.name if self.image else None
+
+        # Guard against re-queuing from inside the builder's own save().
+        if writing_derivatives or not self.image or self.derivatives_ready:
+            return
+
+        from .tasks import build_derivatives_task
+
+        build_derivatives_task(self.pk)
+
+    @property
+    def available_widths(self):
+        if not self.derivatives_ready or not self.derivative_widths:
+            return []
+        return [int(w) for w in self.derivative_widths.split(",") if w.strip().isdigit()]
+
+    def derivative_name(self, width):
+        """Storage name of one WebP copy, derived from the original's own name.
+
+        Built from the full name rather than just its folder. Photos added through the
+        ordinary Django upload path all land directly in ``cars/``, so a folder-based
+        name would give every one of them the same ``cars/w800.webp`` and each upload
+        would silently overwrite the last one's copies.
+        """
+        stem, _ = posixpath.splitext(self.image.name)
+        return f"{stem}__w{width}.webp"
+
+    @property
+    def derivative_urls(self):
+        """{width: url} for the copies that exist, or {} while none do."""
+        storage = self.image.storage or default_storage
+        return {w: storage.url(self.derivative_name(w)) for w in self.available_widths}
