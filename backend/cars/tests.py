@@ -1,5 +1,6 @@
 import io
 import os
+import re
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -729,6 +730,180 @@ class SuperuserUnaffectedTests(TestCase):
         self.client.login(username="owner", password="owner-pw-123456")
 
         self.assertEqual(self.client.get("/api/admin/auth/user/").status_code, 200)
+
+
+class SlugTests(TestCase):
+    def test_slug_is_built_from_the_words_a_buyer_would_search(self):
+        car = make_car("SLUG-1", brand="Daihatsu", model_name="Tanto", grade="X",
+                       manufacture_year=2008)
+        self.assertEqual(car.slug, "2008-daihatsu-tanto-x")
+        self.assertEqual(car.get_absolute_url(), "/cars/2008-daihatsu-tanto-x")
+
+    def test_identical_cars_get_distinct_slugs(self):
+        first = make_car("SLUG-2", brand="Honda", model_name="N-Box", grade="G",
+                         manufacture_year=2020)
+        second = make_car("SLUG-3", brand="Honda", model_name="N-Box", grade="G",
+                          manufacture_year=2020)
+        self.assertNotEqual(first.slug, second.slug)
+        self.assertEqual(second.slug, f"{first.slug}-2")
+
+    def test_slug_is_not_rewritten_when_the_car_is_edited(self):
+        """A URL that moves when someone fixes a typo breaks every shared link."""
+        car = make_car("SLUG-4", brand="Toyota", model_name="Aqua", manufacture_year=2017)
+        original = car.slug
+
+        car.grade = "S"
+        car.model_name = "Aqua Hybrid"
+        car.save()
+
+        car.refresh_from_db()
+        self.assertEqual(car.slug, original)
+
+
+class DiscoveryFileTests(TestCase):
+    def test_robots_txt_is_served_and_points_at_the_sitemap(self):
+        """It used to 403: the private bucket answered AccessDenied for a file that was
+        never uploaded, and Lighthouse scored that "not applicable" rather than failing."""
+        response = self.client.get("/robots.txt")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn("Sitemap: https://dakkamotors.com/sitemap.xml", body)
+        self.assertIn("Disallow: /api/admin/", body)
+
+    def test_sitemap_lists_available_cars_and_omits_sold_ones(self):
+        available = make_car("SITE-1", manufacture_year=2019)
+        sold = make_car("SITE-2", manufacture_year=2011, status=CarStatus.SOLD)
+
+        body = self.client.get("/sitemap.xml").content.decode()
+
+        self.assertIn(available.get_absolute_url(), body)
+        self.assertNotIn(sold.get_absolute_url(), body)
+        self.assertIn('hreflang="ja"', body)
+
+    def test_llms_txt_describes_the_business_and_stock(self):
+        make_car("LLM-1", brand="Suzuki", model_name="Every", manufacture_year=2019,
+                 price_jpy=450000)
+
+        body = self.client.get("/llms.txt").content.decode()
+
+        self.assertIn("Hamura", body)
+        self.assertIn("080-9282-3601", body)
+        self.assertIn("Suzuki Every", body)
+        self.assertIn("450,000", body)
+
+
+@mock.patch("cars.pages.asset_tags", return_value="")
+class RenderedPageTests(TestCase):
+    def test_home_has_a_local_title_and_dealer_schema(self, _tags):
+        body = self.client.get("/").content.decode()
+
+        self.assertIn("<title>Used Cars in Hamura, Tokyo | Dakka Motors</title>", body)
+        self.assertIn('"@type":"AutoDealer"', body)
+        self.assertIn('"postalCode":"205-0023"', body)
+        self.assertIn('rel="canonical" href="https://dakkamotors.com/"', body)
+
+    def test_each_car_gets_its_own_title_and_description(self, _tags):
+        """The whole point: every URL used to return the same generic document."""
+        first = make_car("PAGE-1", brand="Daihatsu", model_name="Tanto",
+                         manufacture_year=2008, price_jpy=250000)
+        second = make_car("PAGE-2", brand="Honda", model_name="N-Box",
+                          manufacture_year=2020, price_jpy=900000)
+
+        a = self.client.get(first.get_absolute_url()).content.decode()
+        b = self.client.get(second.get_absolute_url()).content.decode()
+
+        self.assertIn("2008 Daihatsu Tanto X for sale in Hamura", a)
+        self.assertIn("2020 Honda N-Box X for sale in Hamura", b)
+        self.assertNotEqual(
+            re.search(r"<title>(.*?)</title>", a).group(1),
+            re.search(r"<title>(.*?)</title>", b).group(1),
+        )
+
+    def test_car_page_carries_vehicle_structured_data(self, _tags):
+        car = make_car("PAGE-3", brand="Daihatsu", model_name="Tanto",
+                       manufacture_year=2008, price_jpy=250000)
+
+        body = self.client.get(car.get_absolute_url()).content.decode()
+
+        self.assertIn('"@type":"Car"', body)
+        self.assertIn('"price":"250000"', body)
+        self.assertIn('"priceCurrency":"JPY"', body)
+        self.assertIn("https://schema.org/InStock", body)
+        self.assertIn('"@type":"BreadcrumbList"', body)
+
+    def test_sold_cars_stay_reachable_but_leave_the_index(self, _tags):
+        car = make_car("PAGE-4", status=CarStatus.SOLD)
+
+        response = self.client.get(car.get_absolute_url())
+        body = response.content.decode()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('name="robots" content="noindex, follow"', body)
+        self.assertIn("https://schema.org/SoldOut", body)
+
+    def test_japanese_is_served_when_requested(self, _tags):
+        make_car("PAGE-5")
+
+        body = self.client.get("/?lang=ja").content.decode()
+
+        self.assertIn('<html lang="ja"', body)
+        self.assertIn("羽村市", body)
+        self.assertIn('property="og:locale" content="ja_JP"', body)
+
+    def test_page_embeds_the_data_the_app_needs_to_paint(self, _tags):
+        """Without this the first frame is a Loading line that then reflows into the
+        whole page - measured at 0.309 CLS, inside Lighthouse's poor band."""
+        car = make_car("PAGE-6", brand="Daihatsu", model_name="Tanto")
+
+        body = self.client.get(car.get_absolute_url()).content.decode()
+
+        self.assertIn('<script id="initial-data" type="application/json">', body)
+        self.assertIn('"chassis_number": "PAGE-6"', body.replace('":"', '": "'))
+
+    def test_embedded_data_cannot_break_out_of_its_script_block(self, _tags):
+        hostile = "</script><script>alert(1)</script>"
+        car = make_car("PAGE-7", description_en=hostile)
+
+        body = self.client.get(car.get_absolute_url()).content.decode()
+        after_marker = body.split('id="initial-data"', 1)[1]
+        payload = after_marker.split("</script>", 1)[0]
+
+        # The closing tag inside the data is escaped, so the block ends where we intend.
+        self.assertNotIn("<script>alert(1)", payload)
+        self.assertIn("u003c/script", payload)
+
+    def test_unknown_car_is_a_real_404(self, _tags):
+        self.assertEqual(self.client.get("/cars/no-such-car").status_code, 404)
+
+    def test_old_numeric_urls_redirect_permanently(self, _tags):
+        """301 passes on whatever ranking the numeric URL already earned."""
+        car = make_car("PAGE-8", brand="Toyota", model_name="Aqua", manufacture_year=2017)
+
+        response = self.client.get(f"/cars/{car.pk}")
+
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response["Location"], car.get_absolute_url())
+
+
+class SlugApiTests(TestCase):
+    def test_api_resolves_a_car_by_slug(self):
+        car = make_car("API-SLUG", brand="Daihatsu", model_name="Tanto",
+                       manufacture_year=2008)
+
+        response = self.client.get(f"/api/cars/{car.slug}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["slug"], car.slug)
+
+    def test_api_still_resolves_a_car_by_numeric_id(self):
+        """Links shared before slugs existed must keep working."""
+        car = make_car("API-ID")
+
+        response = self.client.get(f"/api/cars/{car.pk}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["id"], car.pk)
 
 
 class PrimaryImageFallbackTests(TestCase):

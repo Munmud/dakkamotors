@@ -5,6 +5,7 @@ from django.core.files.storage import default_storage
 from django.db import models
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
+from django.utils.text import slugify
 
 # Widths generated for every uploaded photo. 320 covers gallery thumbnails, 800 the
 # listing cards, 1600 the gallery's main image on a high-density screen.
@@ -83,6 +84,17 @@ class Car(models.Model):
     )
     video_uploaded_at = models.DateTimeField(null=True, blank=True, editable=False)
 
+    # Readable, keyword-bearing URLs: /cars/2008-daihatsu-tanto-x rather than /cars/34.
+    # Generated once and then left alone - a URL that changes when someone corrects a
+    # typo breaks every link already shared and every result already indexed.
+    slug = models.SlugField(
+        max_length=120,
+        unique=True,
+        blank=True,
+        help_text="Set automatically on first save. Changing it breaks existing links "
+        "and search results, so edit only if you mean to.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -91,6 +103,30 @@ class Car(models.Model):
 
     def __str__(self):
         return f"{self.manufacture_year} {self.brand} {self.model_name}".strip()
+
+    @property
+    def seo_title_plain(self):
+        """"2008 Daihatsu Tanto X" - the phrase a buyer would actually search for."""
+        parts = [str(self.manufacture_year), self.brand, self.model_name, self.grade]
+        return " ".join(p for p in parts if p).strip()
+
+    def build_slug(self):
+        base = slugify(self.seo_title_plain) or slugify(self.chassis_number) or "car"
+        base = base[:110].rstrip("-")
+        candidate, suffix = base, 2
+        others = Car.objects.exclude(pk=self.pk) if self.pk else Car.objects.all()
+        while others.filter(slug=candidate).exists():
+            candidate = f"{base}-{suffix}"
+            suffix += 1
+        return candidate
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = self.build_slug()
+        super().save(*args, **kwargs)
+
+    def get_absolute_url(self):
+        return f"/cars/{self.slug}"
 
     @property
     def primary_image(self):

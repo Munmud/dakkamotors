@@ -15,7 +15,7 @@ export default function CarCard({ car, priority = false }) {
 
   return (
     <li>
-      <Link className="card" to={`/cars/${car.id}`}>
+      <Link className="card" to={`/cars/${car.slug ?? car.id}`}>
         <div className="card__frame">
           {photo ? (
             <ResponsiveImage

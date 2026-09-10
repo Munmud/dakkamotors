@@ -52,29 +52,6 @@ Resources:
         SigningBehavior: always
         SigningProtocol: sigv4
 
-  # The SPA uses client-side routing, so /cars/12 must return index.html. Doing this
-  # with CustomErrorResponses would rewrite API errors too (a 404 for a missing car,
-  # or a 403 from the admin's CSRF check). Attaching a function to the default
-  # behavior only keeps the rewrite away from /api/*, /static/* and /media/*.
-  SpaRouter:
-    Type: AWS::CloudFront::Function
-    Properties:
-      Name: dakkamotors-spa-router
-      AutoPublish: true
-      FunctionConfig:
-        Comment: Serve index.html for client-side routes
-        Runtime: cloudfront-js-2.0
-      FunctionCode: |
-        function handler(event) {
-          var request = event.request;
-          var uri = request.uri;
-          // Anything that looks like a file (has an extension) is a real asset.
-          if (uri.indexOf('.') === -1) {
-            request.uri = '/index.html';
-          }
-          return request;
-        }
-
   # Short TTL on the public car endpoints. This is what keeps Aurora asleep: repeat
   # visitors are served from the edge and never reach the database.
   ApiCachePolicy:
@@ -96,13 +73,37 @@ Resources:
           QueryStringsConfig:
             QueryStringBehavior: all
 
+  # HTML is cached for five minutes. Long enough that crawlers and repeat visitors
+  # rarely reach Lambda (and so Aurora keeps scaling to zero), short enough that a car
+  # added in the admin shows up without an invalidation. Language is part of the cache
+  # key because ?lang= changes the whole document.
+  PageCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: dakkamotors-pages
+        Comment: Server-rendered HTML
+        MinTTL: 0
+        DefaultTTL: 300
+        MaxTTL: 900
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: whitelist
+            Headers: [Accept-Language]
+          QueryStringsConfig:
+            QueryStringBehavior: whitelist
+            QueryStrings: [lang]
+
   Distribution:
     Type: AWS::CloudFront::Distribution
     Properties:
       DistributionConfig:
         Enabled: true
         Comment: Dakka Motors
-        DefaultRootObject: index.html
         HttpVersion: http2and3
         IPV6Enabled: true
         PriceClass: PriceClass_200
@@ -133,16 +134,19 @@ Resources:
               OriginSSLProtocols: [TLSv1.2]
               HTTPSPort: 443
 
+        # Pages are rendered by Django now, not served as a static shell. That is what
+        # gives every URL its own title, description and structured data - a static
+        # index.html can only ever carry one set, so link previews and answer engines
+        # saw the same generic page for every car. Cached at the edge so the origin is
+        # hit rarely and the database stays asleep.
         DefaultCacheBehavior:
-          TargetOriginId: frontend
+          TargetOriginId: api
           ViewerProtocolPolicy: redirect-to-https
           AllowedMethods: [GET, HEAD, OPTIONS]
           Compress: true
-          # Managed-CachingOptimized
-          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
-          FunctionAssociations:
-            - EventType: viewer-request
-              FunctionARN: !GetAtt SpaRouter.FunctionMetadata.FunctionARN
+          CachePolicyId: !Ref PageCachePolicy
+          # Managed-AllViewerExceptHostHeader
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
 
         CacheBehaviors:
           # Listing endpoints: cacheable, and the reason the database can stay paused.
@@ -164,6 +168,21 @@ Resources:
             # Managed-CachingDisabled
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
             OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+
+          # Hashed bundles: straight from S3, never through Lambda.
+          - PathPattern: /assets/*
+            TargetOriginId: frontend
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+
+          - PathPattern: /plate.svg
+            TargetOriginId: frontend
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
 
           - PathPattern: /static/*
             TargetOriginId: media

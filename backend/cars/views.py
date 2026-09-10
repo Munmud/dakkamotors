@@ -1,3 +1,4 @@
+from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
@@ -21,6 +22,19 @@ class CarViewSet(viewsets.ReadOnlyModelViewSet):
         if self.action == "list":
             queryset = queryset.filter(status=CarStatus.AVAILABLE)
         return queryset
+
+    # Readable URLs: /api/cars/2008-daihatsu-tanto-x/. Numeric ids still resolve, so
+    # links shared before the change - and the admin's "view on site" - keep working.
+    lookup_field = "slug"
+    lookup_value_regex = "[^/]+"
+
+    def get_object(self):
+        value = self.kwargs[self.lookup_field]
+        queryset = self.filter_queryset(self.get_queryset())
+        lookup = {"pk": value} if str(value).isdigit() else {self.lookup_field: value}
+        obj = get_object_or_404(queryset, **lookup)
+        self.check_object_permissions(self.request, obj)
+        return obj
 
     def get_serializer_class(self):
         if self.action == "list":

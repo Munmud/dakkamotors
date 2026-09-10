@@ -9,6 +9,7 @@ import Gallery from "../components/Gallery";
 import SpecTable from "../components/SpecTable";
 import { ErrorState, LoadingState } from "../components/States";
 import { carTitle, formatPrice, hasPhone, pickDescription } from "../lib/format";
+import { takeInitialData } from "../lib/initialData";
 
 /**
  * Poster frame for the video player.
@@ -24,17 +25,21 @@ function videoPoster(car) {
 }
 
 export default function CarDetail() {
-  const { id } = useParams();
+  const { slug } = useParams();
   const { t, i18n } = useTranslation();
-  const [car, setCar] = useState(null);
-  const [status, setStatus] = useState("loading");
+  // Only valid when the browser landed directly on this car's URL.
+  const [seeded] = useState(() => takeInitialData("car", slug));
+  const [car, setCar] = useState(seeded);
+  const [status, setStatus] = useState(seeded ? "ready" : "loading");
 
   useEffect(() => {
+    if (seeded && seeded.slug === slug) return undefined;
+
     const controller = new AbortController();
     setStatus("loading");
     window.scrollTo(0, 0);
 
-    fetchCar(id, { signal: controller.signal })
+    fetchCar(slug, { signal: controller.signal })
       .then((data) => {
         setCar(data);
         setStatus("ready");
@@ -45,7 +50,7 @@ export default function CarDetail() {
       });
 
     return () => controller.abort();
-  }, [id]);
+  }, [slug, seeded]);
 
   if (status === "loading") return <LoadingState />;
 

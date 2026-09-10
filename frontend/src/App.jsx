@@ -37,7 +37,7 @@ export default function App() {
       <main className="l-main">
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/cars/:id" element={<CarDetail />} />
+          <Route path="/cars/:slug" element={<CarDetail />} />
         </Routes>
       </main>
       <Footer />

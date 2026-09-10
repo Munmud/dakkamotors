@@ -4,15 +4,23 @@ import { useTranslation } from "react-i18next";
 import { fetchCars } from "../api/client";
 import CarCard from "../components/CarCard";
 import { EmptyState, ErrorState, LoadingState } from "../components/States";
+import { takeInitialData } from "../lib/initialData";
+
+// Present on a fresh page load, absent after a client-side navigation.
+const seeded = takeInitialData("home");
 
 export default function Home() {
   const { t } = useTranslation();
-  const [cars, setCars] = useState([]);
-  const [nextPage, setNextPage] = useState(null);
-  const [status, setStatus] = useState("loading");
+  const [cars, setCars] = useState(seeded?.results ?? []);
+  const [nextPage, setNextPage] = useState(seeded?.next ? 2 : null);
+  const [status, setStatus] = useState(seeded ? "ready" : "loading");
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    // The server already sent this page's cars; re-fetching would only make the list
+    // flicker.
+    if (seeded && attempt === 0) return undefined;
+
     const controller = new AbortController();
     setStatus("loading");
 
