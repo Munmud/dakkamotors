@@ -3,8 +3,11 @@ import { useTranslation } from "react-i18next";
 
 import CallButton from "./components/CallButton";
 import Header from "./components/Header";
+import Account from "./pages/Account";
+import BookTestDrive from "./pages/BookTestDrive";
 import CarDetail from "./pages/CarDetail";
 import Home from "./pages/Home";
+import { AuthProvider } from "./lib/AuthContext";
 
 function Footer() {
   const { t } = useTranslation();
@@ -32,15 +35,21 @@ function Footer() {
 
 export default function App() {
   return (
+    <AuthProvider>
     <div className="l-shell">
       <Header />
       <main className="l-main">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/cars/:slug" element={<CarDetail />} />
+          <Route path="/cars/:slug/test-drive" element={<BookTestDrive />} />
+          <Route path="/account" element={<Account />} />
+          <Route path="/account/login" element={<Account mode="login" />} />
+          <Route path="/account/register" element={<Account mode="register" />} />
         </Routes>
       </main>
       <Footer />
     </div>
+    </AuthProvider>
   );
 }

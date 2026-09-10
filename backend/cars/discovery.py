@@ -22,6 +22,9 @@ def robots_txt(request):
         # Nothing here is useful to a crawler and the admin should never be indexed.
         "Disallow: /api/admin/",
         "Disallow: /api/",
+        # Sign-in and booking screens: nothing to index, and every URL under them is
+        # personal to one customer.
+        "Disallow: /account",
         "",
         # Answer engines look for this explicitly.
         f"Sitemap: {seo.SITE_URL}/sitemap.xml",

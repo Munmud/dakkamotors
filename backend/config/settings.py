@@ -39,6 +39,24 @@ DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 
 
+# Django only ever sees the API Gateway host in production, because CloudFront forwards
+# every header except Host. Any authenticated write - the admin, and every customer
+# booking - therefore rests entirely on this list matching the origin the browser is
+# really on.
+#
+# It has to be set in development too. DRF enforces CSRF only for *authenticated*
+# requests, so registering and signing in work without it and the first thing to fail is
+# the first real action a signed-in customer takes.
+CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS")
+if DEBUG:
+    CSRF_TRUSTED_ORIGINS = CSRF_TRUSTED_ORIGINS + [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
+
+
 # --------------------------------------------------------------------------------------
 # Applications
 # --------------------------------------------------------------------------------------
@@ -181,6 +199,18 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 12,
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
+    # Session only. DRF's default also enables BasicAuthentication, which accepts a
+    # password on every request and has no business on a public API - the app is
+    # same-origin and uses the session cookie.
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_THROTTLE_CLASSES": [],
+    "DEFAULT_THROTTLE_RATES": {
+        # Applied to registration and login only. Without email verification an
+        # account costs nothing to create, so the sign-up endpoint needs a ceiling.
+        "auth": "20/hour",
+    },
 }
 
 
@@ -201,12 +231,7 @@ if not DEBUG:
     # silently breaks the admin: the login form posts to /production/api/admin/login/
     # and lands in the frontend. Clearing the script name keeps generated URLs rooted.
     FORCE_SCRIPT_NAME = ""
-    # Django only ever sees the API Gateway host, because CloudFront forwards every
-    # header except Host. The admin's CSRF check therefore relies entirely on this
-    # list matching the origin the browser is actually on -- which is the CloudFront
-    # domain before DNS cutover and dakkamotors.com after it. Configurable so both
-    # can be trusted without a code change.
-    CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS")
+    pass
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_CONTENT_TYPE_NOSNIFF = True

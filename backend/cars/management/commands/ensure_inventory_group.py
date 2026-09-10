@@ -34,6 +34,20 @@ PERMISSIONS = [
     ("cars", "add_staffaccount"),
     ("cars", "change_staffaccount"),
     ("cars", "view_staffaccount"),
+    # Test drives: the rules, the individual dates, and the bookings themselves.
+    ("cars", "add_testdriveschedule"),
+    ("cars", "change_testdriveschedule"),
+    ("cars", "delete_testdriveschedule"),
+    ("cars", "view_testdriveschedule"),
+    ("cars", "add_testdriveslot"),
+    ("cars", "change_testdriveslot"),
+    ("cars", "delete_testdriveslot"),
+    ("cars", "view_testdriveslot"),
+    ("cars", "change_testdrivebooking"),
+    ("cars", "view_testdrivebooking"),
+    # Customer contact details are readable so staff can ring about an appointment;
+    # customers manage their own accounts, so there is nothing to add or delete here.
+    ("cars", "view_customerprofile"),
 ]
 
 # Granting any of these would let a member edit users or hand themselves more rights,

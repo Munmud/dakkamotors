@@ -63,5 +63,41 @@
     "rights": "Dakka Motors",
     "callPrompt": "Questions about a car?",
     "staffLogin": "Staff login"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "register": "Create an account",
+    "name": "Full name",
+    "email": "Email",
+    "phone": "Phone",
+    "password": "Password",
+    "haveAccount": "Already have an account? Sign in",
+    "needAccount": "No account yet? Create one",
+    "signingIn": "Signing in…",
+    "creating": "Creating your account…",
+    "failed": "Could not sign you in. Please try again."
+  },
+  "booking": {
+    "book": "Book a test drive",
+    "heading": "Book a test drive",
+    "forCar": "Test drive: {{car}}",
+    "chooseTime": "Choose a time",
+    "noSlots": "No times are available at the moment. Please call us instead.",
+    "seatsLeft_one": "{{count}} place left",
+    "seatsLeft_other": "{{count}} places left",
+    "confirm": "Confirm booking",
+    "booking": "Booking…",
+    "signInToBook": "Sign in to book this time",
+    "myBookings": "My test drives",
+    "none": "You have no test drives booked.",
+    "cancel": "Cancel",
+    "cancelling": "Cancelling…",
+    "reschedule": "Change time",
+    "keepTime": "Keep this time",
+    "booked": "Booked",
+    "confirmCancel": "Cancel this test drive?",
+    "success": "Your test drive is booked. We look forward to seeing you.",
+    "callNote": "We will have the car ready. If anything changes, call us on {{phone}}."
   }
 }

@@ -12,6 +12,13 @@ from .tasks import process_pending
 from .management.commands.ensure_inventory_group import (
     GROUP_NAME as INVENTORY_GROUP_NAME,
 )
+from .booking import ensure_slots
+from .booking_models import (
+    CustomerProfile,
+    TestDriveBooking,
+    TestDriveSchedule,
+    TestDriveSlot,
+)
 from .models import Car, CarImage, StaffAccount
 
 
@@ -221,6 +228,10 @@ class StaffAccountAdmin(DjangoUserAdmin):
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request)
+        # Customers hold accounts in the same table but are not staff, and have no
+        # business appearing in staff administration - listing them here would let a
+        # manager read and reset the passwords of the public.
+        queryset = queryset.filter(is_staff=True)
         if self._unrestricted(request):
             return queryset
         # The owner's account is not listed, searchable, or selectable.
@@ -299,3 +310,136 @@ class StaffAccountAdmin(DjangoUserAdmin):
         # Re-assert the allowlist after the form has written the M2M.
         for group in obj.groups.exclude(name__in=self.ASSIGNABLE_GROUPS):
             obj.groups.remove(group)
+
+
+@admin.register(TestDriveSchedule)
+class TestDriveScheduleAdmin(admin.ModelAdmin):
+    """The recurring rules. Slots are generated from these on demand."""
+
+    list_display = ("__str__", "capacity", "is_active", "starts_on", "ends_on", "note")
+    list_filter = ("is_active", "weekday")
+    list_editable = ("is_active",)
+    fieldsets = (
+        (
+            "When",
+            {
+                "fields": ("weekday", "start_time", "end_time"),
+                "description": "Times are Japan local time. A rule repeats every week.",
+            },
+        ),
+        (
+            "How many",
+            {
+                "fields": ("capacity",),
+                "description": "How many customers can take this appointment at once - "
+                "set 2 if two cars or two staff are free.",
+            },
+        ),
+        (
+            "Limits",
+            {
+                "fields": ("is_active", "starts_on", "ends_on", "note"),
+                "description": "Untick Active to stop generating new slots. Slots "
+                "already created keep their bookings; close them individually under "
+                "Test drive slots.",
+            },
+        ),
+    )
+
+    @admin.action(description="Generate slots for the next 4 weeks")
+    def generate(self, request, queryset):
+        created = ensure_slots()
+        self.message_user(request, f"Created {created} new slot(s).")
+
+    actions = ["generate"]
+
+
+@admin.register(TestDriveSlot)
+class TestDriveSlotAdmin(admin.ModelAdmin):
+    """Actual dates. This is where "that Friday is closed" gets done."""
+
+    list_display = ("starts_at", "ends_at", "capacity", "seats_taken", "is_open")
+    list_filter = ("is_open", "starts_at")
+    list_editable = ("is_open",)
+    date_hierarchy = "starts_at"
+    ordering = ("starts_at",)
+    readonly_fields = ("schedule",)
+
+    @admin.display(description="Booked")
+    def seats_taken(self, obj):
+        return f"{obj.booked_count} / {obj.capacity}"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("bookings")
+
+    @admin.action(description="Close selected (customers keep existing bookings)")
+    def close_slots(self, request, queryset):
+        updated = queryset.update(is_open=False)
+        self.message_user(
+            request,
+            f"Closed {updated} slot(s). Anyone already booked still has their "
+            "appointment - cancel those individually if the day is off.",
+        )
+
+    @admin.action(description="Re-open selected")
+    def open_slots(self, request, queryset):
+        self.message_user(request, f"Re-opened {queryset.update(is_open=True)} slot(s).")
+
+    actions = ["close_slots", "open_slots"]
+
+
+@admin.register(TestDriveBooking)
+class TestDriveBookingAdmin(admin.ModelAdmin):
+    """Soonest first.
+
+    Until notification emails exist, this page is the only way anyone finds out a
+    customer is coming - so it leads with when, who, and how to reach them.
+    """
+
+    list_display = (
+        "slot", "customer_name", "customer_phone", "customer_email",
+        "car_label", "status",
+    )
+    list_filter = ("status", "slot__starts_at")
+    search_fields = (
+        "customer__first_name", "customer__last_name", "customer__email",
+        "customer__customer_profile__phone", "car_label",
+    )
+    list_editable = ("status",)
+    date_hierarchy = "slot__starts_at"
+    readonly_fields = (
+        "slot", "customer", "car", "car_label", "created_at", "updated_at",
+        "cancelled_at",
+    )
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("slot", "customer", "customer__customer_profile", "car")
+        )
+
+    @admin.display(description="Customer")
+    def customer_name(self, obj):
+        return obj.customer.get_full_name() or obj.customer.username
+
+    @admin.display(description="Phone")
+    def customer_phone(self, obj):
+        profile = getattr(obj.customer, "customer_profile", None)
+        return profile.phone if profile else "—"
+
+    @admin.display(description="Email")
+    def customer_email(self, obj):
+        return obj.customer.email
+
+
+@admin.register(CustomerProfile)
+class CustomerProfileAdmin(admin.ModelAdmin):
+    """Read-only. Customers manage their own details; staff only need to look."""
+
+    list_display = ("__str__", "phone", "created_at")
+    search_fields = ("user__first_name", "user__last_name", "user__email", "phone")
+    readonly_fields = ("user", "phone", "created_at")
+
+    def has_add_permission(self, request):
+        return False

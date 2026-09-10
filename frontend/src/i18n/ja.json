@@ -63,5 +63,41 @@
     "rights": "ダッカモータース",
     "callPrompt": "車についてのご質問は",
     "staffLogin": "スタッフログイン"
+  },
+  "auth": {
+    "signIn": "ログイン",
+    "signOut": "ログアウト",
+    "register": "アカウント作成",
+    "name": "お名前",
+    "email": "メールアドレス",
+    "phone": "電話番号",
+    "password": "パスワード",
+    "haveAccount": "アカウントをお持ちの方はログイン",
+    "needAccount": "アカウントをお持ちでない方は作成",
+    "signingIn": "ログイン中…",
+    "creating": "アカウント作成中…",
+    "failed": "ログインできませんでした。もう一度お試しください。"
+  },
+  "booking": {
+    "book": "試乗を予約する",
+    "heading": "試乗のご予約",
+    "forCar": "試乗車：{{car}}",
+    "chooseTime": "ご希望の時間を選択",
+    "noSlots": "現在ご予約可能な時間がありません。お電話でお問い合わせください。",
+    "seatsLeft_one": "残り{{count}}枠",
+    "seatsLeft_other": "残り{{count}}枠",
+    "confirm": "予約を確定する",
+    "booking": "予約中…",
+    "signInToBook": "ログインしてこの時間を予約",
+    "myBookings": "予約中の試乗",
+    "none": "ご予約中の試乗はありません。",
+    "cancel": "キャンセル",
+    "cancelling": "キャンセル中…",
+    "reschedule": "時間を変更",
+    "keepTime": "この時間のままにする",
+    "booked": "予約済み",
+    "confirmCancel": "この試乗をキャンセルしますか？",
+    "success": "試乗のご予約を承りました。お会いできるのを楽しみにしております。",
+    "callNote": "お車をご用意してお待ちしております。ご変更は {{phone}} までご連絡ください。"
   }
 }

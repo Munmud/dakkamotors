@@ -49,6 +49,11 @@ urlpatterns = [
     path("cars/<int:pk>/", legacy_car_redirect),
     path("cars/<slug:slug>", pages.car_detail, name="car-page"),
     path("cars/<slug:slug>/", pages.car_detail),
+    # App-only routes. They need a shell or the URL 404s, but they carry noindex.
+    path("cars/<slug:slug>/test-drive", pages.book_test_drive_page),
+    path("account", pages.account_page),
+    path("account/", pages.account_page),
+    path("account/<path:rest>", pages.account_page),
 ]
 
 # In production, uploads live in S3 and are served by CloudFront at /media/*, so Django

@@ -109,6 +109,11 @@ export default function CarDetail() {
             )}
 
             <CallButton />
+            {car.status === "available" && (
+              <Link className="btn bookbtn--outline" to={`/cars/${car.slug}/test-drive`}>
+                {t("booking.book")}
+              </Link>
+            )}
             {hasPhone && <p className="pricebox__note">{t("call.hours")}</p>}
           </div>
         </div>

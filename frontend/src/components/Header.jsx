@@ -2,6 +2,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { LANGUAGES } from "../i18n";
+import { useAuth } from "../lib/AuthContext";
 import CallButton from "./CallButton";
 
 function LanguageSwitch() {
@@ -24,6 +25,20 @@ function LanguageSwitch() {
   );
 }
 
+function AccountLink() {
+  const { t } = useTranslation();
+  const { customer, state } = useAuth();
+  // Nothing until the session check finishes, so a signed-in visitor never sees
+  // "Sign in" flash first.
+  if (state === "unknown") return null;
+  return (
+    <Link className="masthead__account" to="/account">
+      {customer ? t("booking.myBookings") : t("auth.signIn")}
+    </Link>
+  );
+}
+
+
 export default function Header() {
   const { t } = useTranslation();
   const isHome = useLocation().pathname === "/";
@@ -35,7 +50,10 @@ export default function Header() {
           <span className="plate__mark">D</span>
           <span>{t("brand")}</span>
         </Link>
-        <LanguageSwitch />
+        <div className="masthead__tools">
+          <AccountLink />
+          <LanguageSwitch />
+        </div>
       </div>
 
       {isHome && (

@@ -90,6 +90,23 @@ Future features are out of scope for v1 — not listed here on purpose.
 
 ---
 
+## Deferred from test drive booking
+
+Both were consciously skipped to get booking working, and both matter.
+
+- [ ] **Booking notification email to staff.** Right now a booking appears only in the
+      admin. Nobody is told. A booking nobody opens the admin to see is a customer left
+      standing on the forecourt — this is the more urgent of the two.
+- [ ] **Customer email verification.** Addresses are unproven, so anyone can register
+      with a made-up one. Mitigated for now by a 3-booking limit per account and
+      throttling on registration, but not solved.
+- [ ] Confirmation email to the customer when they book, move or cancel.
+
+All three need AWS SES: verifying `dakkamotors.com` for sending and getting the account
+out of the SES sandbox, which requires an AWS review.
+
+---
+
 ## Later
 Future features (filters, WhatsApp/contact form, multiple locations, financing calculator, etc.) will be scoped in a future version — not part of this checklist.
 

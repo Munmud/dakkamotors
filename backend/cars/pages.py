@@ -321,3 +321,46 @@ def car_detail(request, slug):
             },
         )
     )
+
+
+def app_shell(request, title, description):
+    """A rendered shell for routes that are pure app: accounts, booking.
+
+    They still need real HTML or the URL 404s, but they carry noindex - an account page
+    has no business in search results - and nothing user-specific, because these
+    responses are cached at the CDN for everyone alike.
+    """
+    language = _language_from(request)
+    return HttpResponse(
+        _render(
+            language=language,
+            head=_head(
+                title=title,
+                description=description,
+                canonical=f"{seo.SITE_URL}{request.path}",
+                language=language,
+                robots="noindex, nofollow",
+            ),
+            body=f"<h1>{_esc(title)}</h1>",
+        )
+    )
+
+
+def account_page(request, rest=None):
+    """Every /account/... route renders the same shell; the app routes within it."""
+    return app_shell(
+        request,
+        "Your account | Dakka Motors",
+        "Sign in to book or manage a test drive at Dakka Motors.",
+    )
+
+
+def book_test_drive_page(request, slug):
+    car = Car.objects.filter(slug=slug).first()
+    name = car.seo_title_plain if car else "a car"
+    return app_shell(
+        request,
+        f"Book a test drive - {name} | Dakka Motors",
+        f"Choose a time to test drive the {name} at Dakka Motors in "
+        f"{seo.BUSINESS['locality']}.",
+    )

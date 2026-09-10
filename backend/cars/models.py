@@ -255,3 +255,15 @@ def _delete_video_file(sender, instance, **kwargs):
         instance.video.storage.delete(instance.video.name)
     except Exception:  # noqa: BLE001
         pass
+
+
+# Test drive scheduling lives in its own module to keep this file readable; Django only
+# autodiscovers models.py, so they are re-exported here to be picked up by migrations.
+from .booking_models import (  # noqa: E402,F401  (import position is forced by the above)
+    BookingStatus,
+    CustomerProfile,
+    TestDriveBooking,
+    TestDriveSchedule,
+    TestDriveSlot,
+    Weekday,
+)

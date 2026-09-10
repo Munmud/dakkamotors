@@ -1,3 +1,4 @@
+import datetime
 import io
 import os
 import re
@@ -8,12 +9,15 @@ from django.contrib import admin
 from django.contrib.auth.models import Group, Permission
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.utils import timezone
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from PIL import Image
 
 from .management.commands.ensure_inventory_group import GROUP_NAME
+from . import booking as booking_rules
+from .booking_models import CustomerProfile, TestDriveSchedule, TestDriveSlot
 from .models import Car, CarImage, CarStatus, StaffAccount
 from .uploads import UploadRejected, _validate
 
@@ -364,8 +368,24 @@ class InventoryGroupTests(TestCase):
                 # Staff administration via the proxy, never via auth.User.
                 "cars.add_staffaccount", "cars.change_staffaccount",
                 "cars.view_staffaccount",
+                # Test drives: rules, dates, and the bookings themselves.
+                "cars.add_testdriveschedule", "cars.change_testdriveschedule",
+                "cars.delete_testdriveschedule", "cars.view_testdriveschedule",
+                "cars.add_testdriveslot", "cars.change_testdriveslot",
+                "cars.delete_testdriveslot", "cars.view_testdriveslot",
+                "cars.change_testdrivebooking", "cars.view_testdrivebooking",
+                "cars.view_customerprofile",
             },
         )
+
+    def test_group_cannot_delete_bookings_or_edit_customer_details(self):
+        """A cancelled booking is history worth keeping, and customers own their own
+        contact details."""
+        granted = {p.codename for p in self.group.permissions.all()}
+        self.assertNotIn("delete_testdrivebooking", granted)
+        for codename in ("add_customerprofile", "change_customerprofile",
+                         "delete_customerprofile"):
+            self.assertNotIn(codename, granted)
 
     def test_group_cannot_delete_staff_accounts(self):
         """Removing someone means deactivating them, which is reversible."""
@@ -904,6 +924,450 @@ class SlugApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["id"], car.pk)
+
+
+def make_customer(email="buyer@example.com", password="customer-pw-1234", phone="080-1111-2222"):
+    user = get_user_model().objects.create_user(
+        username=email, email=email, password=password, first_name="Test", last_name="Buyer"
+    )
+    CustomerProfile.objects.create(user=user, phone=phone)
+    return user, password
+
+
+def make_schedule(weekday=None, start="18:30", end="19:00", capacity=2, **kwargs):
+    """A rule on a weekday, defaulting to tomorrow's so generated slots are future."""
+    if weekday is None:
+        weekday = (timezone.localdate() + datetime.timedelta(days=1)).weekday()
+    hh, mm = start.split(":")
+    eh, em = end.split(":")
+    return TestDriveSchedule.objects.create(
+        weekday=weekday,
+        start_time=datetime.time(int(hh), int(mm)),
+        end_time=datetime.time(int(eh), int(em)),
+        capacity=capacity,
+        **kwargs,
+    )
+
+
+def future_slot(capacity=2, days=3, hour=15, is_open=True):
+    """A concrete slot comfortably beyond the lead time."""
+    starts = timezone.localtime(timezone.now()) + datetime.timedelta(days=days)
+    starts = starts.replace(hour=hour, minute=0, second=0, microsecond=0)
+    return TestDriveSlot.objects.create(
+        starts_at=starts,
+        ends_at=starts + datetime.timedelta(minutes=30),
+        capacity=capacity,
+        is_open=is_open,
+    )
+
+
+class SlotGenerationTests(TestCase):
+    def test_generation_creates_one_slot_per_matching_day(self):
+        schedule = make_schedule(capacity=2)
+
+        booking_rules.ensure_slots(horizon_days=14)
+
+        slots = TestDriveSlot.objects.filter(schedule=schedule)
+        self.assertEqual(slots.count(), 2)  # one per week over a fortnight
+        self.assertTrue(all(s.capacity == 2 for s in slots))
+
+    def test_generation_is_idempotent(self):
+        make_schedule()
+        booking_rules.ensure_slots(horizon_days=14)
+        before = TestDriveSlot.objects.count()
+
+        booking_rules.ensure_slots(horizon_days=14)
+
+        self.assertEqual(TestDriveSlot.objects.count(), before)
+
+    def test_regenerating_does_not_reopen_a_slot_staff_closed(self):
+        """The whole point of materialising slots: staff overrides must survive."""
+        make_schedule()
+        booking_rules.ensure_slots(horizon_days=14)
+        slot = TestDriveSlot.objects.first()
+        slot.is_open = False
+        slot.save()
+
+        booking_rules.ensure_slots(horizon_days=14)
+
+        slot.refresh_from_db()
+        self.assertFalse(slot.is_open)
+
+    def test_inactive_rules_generate_nothing(self):
+        make_schedule(is_active=False)
+
+        booking_rules.ensure_slots(horizon_days=14)
+
+        self.assertEqual(TestDriveSlot.objects.count(), 0)
+
+    def test_rule_validity_window_is_respected(self):
+        yesterday = timezone.localdate() - datetime.timedelta(days=1)
+        make_schedule(ends_on=yesterday)
+
+        booking_rules.ensure_slots(horizon_days=14)
+
+        self.assertEqual(TestDriveSlot.objects.count(), 0)
+
+    def test_slot_capacity_is_a_snapshot_not_a_live_lookup(self):
+        """Editing a rule must not shrink an evening people already booked."""
+        schedule = make_schedule(capacity=2)
+        booking_rules.ensure_slots(horizon_days=14)
+
+        schedule.capacity = 1
+        schedule.save()
+
+        self.assertTrue(all(s.capacity == 2 for s in TestDriveSlot.objects.all()))
+
+
+class BookingRuleTests(TestCase):
+    def setUp(self):
+        self.user, _ = make_customer()
+        self.car = make_car("BOOK-1", brand="Daihatsu", model_name="Tanto")
+
+    def test_booking_takes_a_seat(self):
+        slot = future_slot(capacity=2)
+
+        booking_rules.create_booking(user=self.user, slot_id=slot.pk, car=self.car)
+
+        slot.refresh_from_db()
+        self.assertEqual(slot.seats_left, 1)
+
+    def test_car_label_is_snapshotted(self):
+        """Deleting a sold car wipes its photos; the booking must still make sense."""
+        slot = future_slot()
+        booking = booking_rules.create_booking(
+            user=self.user, slot_id=slot.pk, car=self.car
+        )
+
+        self.car.delete()
+
+        booking.refresh_from_db()
+        self.assertIsNone(booking.car)
+        self.assertIn("Daihatsu Tanto", booking.car_label)
+
+    def test_a_slot_in_the_past_cannot_be_booked(self):
+        past = future_slot(days=-2)
+
+        with self.assertRaises(booking_rules.BookingError):
+            booking_rules.create_booking(user=self.user, slot_id=past.pk)
+
+    def test_a_slot_inside_the_lead_time_cannot_be_booked(self):
+        starts = timezone.now() + datetime.timedelta(minutes=10)
+        soon = TestDriveSlot.objects.create(
+            starts_at=starts, ends_at=starts + datetime.timedelta(minutes=30), capacity=1
+        )
+
+        with self.assertRaises(booking_rules.BookingError):
+            booking_rules.create_booking(user=self.user, slot_id=soon.pk)
+
+    def test_a_closed_slot_cannot_be_booked(self):
+        closed = future_slot(is_open=False)
+
+        with self.assertRaises(booking_rules.BookingError):
+            booking_rules.create_booking(user=self.user, slot_id=closed.pk)
+
+    def test_a_slot_beyond_the_horizon_cannot_be_booked(self):
+        far = future_slot(days=booking_rules.HORIZON_DAYS + 5)
+
+        with self.assertRaises(booking_rules.BookingError):
+            booking_rules.create_booking(user=self.user, slot_id=far.pk)
+
+    def test_capacity_is_enforced(self):
+        slot = future_slot(capacity=1)
+        other, _ = make_customer("other@example.com")
+        booking_rules.create_booking(user=other, slot_id=slot.pk)
+
+        with self.assertRaises(booking_rules.BookingError):
+            booking_rules.create_booking(user=self.user, slot_id=slot.pk)
+
+    def test_the_same_customer_cannot_take_two_seats_in_one_slot(self):
+        slot = future_slot(capacity=3)
+        booking_rules.create_booking(user=self.user, slot_id=slot.pk)
+
+        with self.assertRaises(booking_rules.BookingError):
+            booking_rules.create_booking(user=self.user, slot_id=slot.pk)
+
+    def test_active_booking_limit(self):
+        for day in range(booking_rules.MAX_ACTIVE_BOOKINGS):
+            slot = future_slot(days=day + 2)
+            booking_rules.create_booking(user=self.user, slot_id=slot.pk)
+
+        one_more = future_slot(days=20)
+        with self.assertRaises(booking_rules.BookingError):
+            booking_rules.create_booking(user=self.user, slot_id=one_more.pk)
+
+    def test_cancelling_frees_the_seat(self):
+        slot = future_slot(capacity=1)
+        booking = booking_rules.create_booking(user=self.user, slot_id=slot.pk)
+
+        booking_rules.cancel_booking(user=self.user, booking_id=booking.pk)
+
+        slot.refresh_from_db()
+        self.assertEqual(slot.seats_left, 1)
+
+    def test_cancelling_frees_the_limit_too(self):
+        slot = future_slot()
+        booking = booking_rules.create_booking(user=self.user, slot_id=slot.pk)
+        booking_rules.cancel_booking(user=self.user, booking_id=booking.pk)
+
+        self.assertEqual(booking_rules.active_bookings_for(self.user).count(), 0)
+
+    def test_rescheduling_moves_the_seat(self):
+        first = future_slot(days=3, capacity=1)
+        second = future_slot(days=5, capacity=1)
+        booking = booking_rules.create_booking(user=self.user, slot_id=first.pk)
+
+        booking_rules.reschedule_booking(
+            user=self.user, booking_id=booking.pk, slot_id=second.pk
+        )
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.seats_left, 1)
+        self.assertEqual(second.seats_left, 0)
+
+    def test_cannot_reschedule_into_a_full_slot(self):
+        first = future_slot(days=3, capacity=1)
+        full = future_slot(days=5, capacity=1)
+        other, _ = make_customer("other@example.com")
+        booking_rules.create_booking(user=other, slot_id=full.pk)
+        booking = booking_rules.create_booking(user=self.user, slot_id=first.pk)
+
+        with self.assertRaises(booking_rules.BookingError):
+            booking_rules.reschedule_booking(
+                user=self.user, booking_id=booking.pk, slot_id=full.pk
+            )
+
+    def test_cannot_reschedule_into_the_past(self):
+        booking = booking_rules.create_booking(
+            user=self.user, slot_id=future_slot(days=3).pk
+        )
+        past = future_slot(days=-1)
+
+        with self.assertRaises(booking_rules.BookingError):
+            booking_rules.reschedule_booking(
+                user=self.user, booking_id=booking.pk, slot_id=past.pk
+            )
+
+    def test_one_customer_cannot_touch_anothers_booking(self):
+        """A booking id in a URL must not be enough to reach a stranger's appointment."""
+        owner, _ = make_customer("owner@example.com")
+        stranger, _ = make_customer("stranger@example.com")
+        booking = booking_rules.create_booking(user=owner, slot_id=future_slot().pk)
+
+        with self.assertRaises(booking_rules.BookingError):
+            booking_rules.cancel_booking(user=stranger, booking_id=booking.pk)
+
+        booking.refresh_from_db()
+        self.assertTrue(booking.is_active)
+
+
+class BookingApiTests(TestCase):
+    def setUp(self):
+        self.user, self.password = make_customer()
+        self.car = make_car("API-BOOK", brand="Honda", model_name="N-Box")
+
+    def login(self):
+        self.client.login(username=self.user.username, password=self.password)
+
+    def test_anonymous_visitors_can_see_availability(self):
+        """Making someone register before they can see if a time suits loses them."""
+        future_slot()
+
+        response = self.client.get("/api/test-drive/slots/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["results"]), 1)
+
+    def test_past_and_closed_slots_are_not_offered(self):
+        future_slot(days=3)
+        future_slot(days=-3)
+        future_slot(days=4, is_open=False)
+
+        results = self.client.get("/api/test-drive/slots/").json()["results"]
+
+        self.assertEqual(len(results), 1)
+
+    def test_a_full_slot_is_not_offered(self):
+        slot = future_slot(capacity=1)
+        booking_rules.create_booking(user=self.user, slot_id=slot.pk)
+
+        results = self.client.get("/api/test-drive/slots/").json()["results"]
+
+        self.assertEqual(results, [])
+
+    def test_anonymous_visitors_cannot_book(self):
+        slot = future_slot()
+
+        response = self.client.post(
+            "/api/test-drive/bookings/",
+            {"slot": slot.pk, "car": self.car.slug},
+            content_type="application/json",
+        )
+
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_booking_through_the_api(self):
+        self.login()
+        slot = future_slot()
+
+        response = self.client.post(
+            "/api/test-drive/bookings/",
+            {"slot": slot.pk, "car": self.car.slug},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertIn("Honda N-Box", response.json()["car_label"])
+
+    def test_api_refuses_a_past_slot_even_if_asked_directly(self):
+        """The list hides them; this is what actually prevents it."""
+        self.login()
+        past = future_slot(days=-2)
+
+        response = self.client.post(
+            "/api/test-drive/bookings/",
+            {"slot": past.pk},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_customers_only_see_their_own_bookings(self):
+        other, _ = make_customer("other@example.com")
+        booking_rules.create_booking(user=other, slot_id=future_slot(days=3).pk)
+        self.login()
+        booking_rules.create_booking(user=self.user, slot_id=future_slot(days=5).pk)
+
+        results = self.client.get("/api/test-drive/bookings/").json()["results"]
+
+        self.assertEqual(len(results), 1)
+
+    def test_cancelling_someone_elses_booking_is_refused(self):
+        other, _ = make_customer("other@example.com")
+        booking = booking_rules.create_booking(user=other, slot_id=future_slot().pk)
+        self.login()
+
+        response = self.client.post(f"/api/test-drive/bookings/{booking.pk}/cancel/")
+
+        self.assertEqual(response.status_code, 400)
+        booking.refresh_from_db()
+        self.assertTrue(booking.is_active)
+
+
+class CustomerAccountTests(TestCase):
+    def test_registration_creates_a_non_staff_account_with_a_phone(self):
+        response = self.client.post(
+            "/api/auth/register/",
+            {
+                "name": "Yuki Tanaka", "email": "Yuki@Example.com",
+                "phone": "080-3333-4444", "password": "a-good-password-42",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        user = get_user_model().objects.get(email="yuki@example.com")
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+        self.assertEqual(user.customer_profile.phone, "080-3333-4444")
+        self.assertEqual(user.username, "yuki@example.com")
+
+    def test_duplicate_email_is_refused(self):
+        make_customer("taken@example.com")
+
+        response = self.client.post(
+            "/api/auth/register/",
+            {"name": "Someone", "email": "taken@example.com", "phone": "080",
+             "password": "another-good-password-9"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_weak_passwords_are_refused(self):
+        response = self.client.post(
+            "/api/auth/register/",
+            {"name": "Someone", "email": "weak@example.com", "phone": "080",
+             "password": "password"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_login_and_me(self):
+        user, password = make_customer("signin@example.com")
+
+        login = self.client.post(
+            "/api/auth/login/",
+            {"email": "signin@example.com", "password": password},
+            content_type="application/json",
+        )
+        me = self.client.get("/api/auth/me/")
+
+        self.assertEqual(login.status_code, 200)
+        self.assertEqual(me.status_code, 200)
+        self.assertEqual(me.json()["email"], "signin@example.com")
+
+    def test_wrong_password_does_not_reveal_whether_the_account_exists(self):
+        make_customer("known@example.com")
+
+        known = self.client.post(
+            "/api/auth/login/",
+            {"email": "known@example.com", "password": "wrong-password"},
+            content_type="application/json",
+        )
+        unknown = self.client.post(
+            "/api/auth/login/",
+            {"email": "nobody@example.com", "password": "wrong-password"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(known.status_code, unknown.status_code)
+        self.assertEqual(known.json()["detail"], unknown.json()["detail"])
+
+    def test_a_customer_cannot_reach_the_admin(self):
+        user, password = make_customer("nosy@example.com")
+        self.client.login(username=user.username, password=password)
+
+        response = self.client.get("/api/admin/")
+
+        self.assertNotEqual(response.status_code, 200)
+
+    def test_customers_do_not_appear_in_staff_administration(self):
+        """They share a table with staff, but a manager has no business reading their
+        details or resetting their passwords."""
+        make_customer("private@example.com")
+        manager, password = make_manager()
+        self.client.login(username=manager.username, password=password)
+
+        body = self.client.get("/api/admin/cars/staffaccount/").content.decode()
+
+        self.assertNotIn("private@example.com", body)
+        self.assertIn(manager.username, body)
+
+
+class AccountPageTests(TestCase):
+    def test_account_routes_render_but_are_not_indexable(self):
+        for path in ("/account", "/account/login", "/account/register"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(
+                    'name="robots" content="noindex, nofollow"',
+                    response.content.decode(),
+                )
+
+    def test_robots_disallows_account_pages(self):
+        self.assertIn("Disallow: /account", self.client.get("/robots.txt").content.decode())
+
+    def test_book_test_drive_page_names_the_car(self):
+        car = make_car("TD-PAGE", brand="Toyota", model_name="Aqua")
+
+        body = self.client.get(f"/cars/{car.slug}/test-drive").content.decode()
+
+        self.assertIn("Toyota Aqua", body)
+        self.assertIn('name="robots" content="noindex, nofollow"', body)
 
 
 class PrimaryImageFallbackTests(TestCase):
