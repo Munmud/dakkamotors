@@ -16,7 +16,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.utils import timezone
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from PIL import Image
@@ -25,6 +25,8 @@ from .management.commands.ensure_inventory_group import GROUP_NAME
 from . import booking as booking_rules
 from . import email_theme
 from . import mail
+from . import notifications
+from . import qa
 from . import seo
 from .notification_models import Notification, NotificationKind
 from .qa_models import CarQuestion
@@ -2149,3 +2151,568 @@ class ProfileEditingTests(ClearsThrottleMixin, TestCase):
     def client_me_is_staff(self):
         self.client.force_login(self.user)
         return self.client.get("/api/auth/me/").json()["is_staff"]
+
+
+@override_settings(**MAIL_SETTINGS)
+class AdminStatusChangeTests(TestCase):
+    """Changing a booking's status in the admin must tell the customer.
+
+    It did not. `list_editable = ("status",)` wrote through a changelist formset, and the
+    change form wrote through the default `save_model` - both moved the status without
+    going near `confirm_booking`, so the row said confirmed and the customer was never
+    told. `save_model` is on both paths, which is where the fix lives.
+    """
+
+    def setUp(self):
+        self.manager, _ = make_manager()
+        self.manager.is_superuser = True
+        self.manager.save()
+        self.client.force_login(self.manager)
+        self.customer, _ = make_customer("buyer@example.com")
+        self.booking = TestDriveBooking.objects.create(
+            customer=self.customer, slot=future_slot(), car_label="Tanto"
+        )
+
+    def change_status(self, status_value):
+        with mock.patch("cars.mail.boto3.client") as client:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(
+                    f"/api/admin/cars/testdrivebooking/{self.booking.pk}/change/",
+                    {"status": status_value, "_save": "Save"},
+                )
+            calls = client.return_value.put_object.call_args_list
+        return [json.loads(c.kwargs["Body"].decode("utf-8")) for c in calls]
+
+    def test_confirming_from_the_change_form_emails_the_customer(self):
+        sent = self.change_status(BookingStatus.CONFIRMED)
+
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, BookingStatus.CONFIRMED)
+        self.assertIsNotNone(self.booking.confirmed_at)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]["to"], ["buyer@example.com"])
+        self.assertIn("confirmed", sent[0]["subject"].lower())
+
+    def test_confirming_from_the_change_form_reaches_the_bell(self):
+        self.change_status(BookingStatus.CONFIRMED)
+
+        self.assertEqual(
+            Notification.objects.filter(
+                customer=self.customer, kind=NotificationKind.BOOKING_CONFIRMED
+            ).count(),
+            1,
+        )
+
+    def test_cancelling_from_the_change_form_emails_the_customer(self):
+        sent = self.change_status(BookingStatus.CANCELLED)
+
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, BookingStatus.CANCELLED)
+        self.assertEqual(len(sent), 1)
+        self.assertIn("cancelled", sent[0]["subject"].lower())
+
+    def test_saving_without_changing_the_status_sends_nothing(self):
+        sent = self.change_status(BookingStatus.PENDING)
+
+        self.assertEqual(sent, [])
+        self.assertEqual(Notification.objects.count(), 0)
+
+    def test_the_changelist_no_longer_offers_status_as_a_tick_box(self):
+        """A bulk save is the wrong affordance for an irreversible email.
+
+        The actions do the same job and name their consequence. If someone reinstates
+        list_editable, save_model still routes it - but this says the decision was
+        deliberate.
+        """
+        from .admin import TestDriveBookingAdmin
+
+        self.assertEqual(TestDriveBookingAdmin.list_editable, ())
+
+
+@override_settings(**MAIL_SETTINGS)
+class AskingTests(ClearsThrottleMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.car = make_car("ASK-1", brand="Daihatsu", model_name="Tanto")
+        self.user, _ = make_customer("asker@example.com")
+
+    def ask(self, **extra):
+        payload = {"car": self.car.slug, "question": "Has it had one owner?"}
+        payload.update(extra)
+        with mock.patch("cars.mail.boto3.client"):
+            with self.captureOnCommitCallbacks(execute=True):
+                return self.client.post("/api/questions/", payload,
+                                        content_type="application/json")
+
+    def test_a_signed_in_customer_can_ask(self):
+        self.client.force_login(self.user)
+
+        response = self.ask()
+
+        self.assertEqual(response.status_code, 201)
+        question = CarQuestion.objects.get()
+        self.assertEqual(question.car, self.car)
+        self.assertEqual(question.customer, self.user)
+        self.assertFalse(question.is_published)
+        self.assertIsNone(question.answered_at)
+
+    def test_a_guest_cannot_ask(self):
+        self.assertEqual(self.ask().status_code, 403)
+        self.assertEqual(CarQuestion.objects.count(), 0)
+
+    def test_asking_alerts_the_shop_and_can_be_replied_to(self):
+        self.client.force_login(self.user)
+
+        with mock.patch("cars.mail.boto3.client") as client:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post("/api/questions/",
+                                 {"car": self.car.slug, "question": "Rust?"},
+                                 content_type="application/json")
+            calls = client.return_value.put_object.call_args_list
+
+        sent = [json.loads(c.kwargs["Body"].decode("utf-8")) for c in calls]
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]["to"], ["staff@example.com"])
+        self.assertEqual(sent[0]["replyTo"], "asker@example.com")
+
+    def test_an_empty_question_is_refused(self):
+        self.client.force_login(self.user)
+
+        self.assertEqual(self.ask(question="   ").status_code, 400)
+
+    def test_an_unknown_car_is_refused(self):
+        self.client.force_login(self.user)
+
+        self.assertEqual(self.ask(car="no-such-car").status_code, 400)
+
+    def test_a_backlog_of_unanswered_questions_is_capped(self):
+        self.client.force_login(self.user)
+        for _ in range(qa.MAX_OPEN_QUESTIONS):
+            CarQuestion.objects.create(car=self.car, customer=self.user, question="?")
+
+        response = self.ask()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(str(qa.MAX_OPEN_QUESTIONS), response.json()["detail"])
+
+    def test_an_answered_question_does_not_count_towards_the_cap(self):
+        self.client.force_login(self.user)
+        for _ in range(qa.MAX_OPEN_QUESTIONS):
+            CarQuestion.objects.create(car=self.car, customer=self.user, question="?",
+                                       answer="Yes.", answered_at=timezone.now())
+
+        self.assertEqual(self.ask().status_code, 201)
+
+    def test_you_only_ever_see_your_own_thread(self):
+        other, _ = make_customer("other@example.com")
+        CarQuestion.objects.create(car=self.car, customer=other, question="Theirs")
+        CarQuestion.objects.create(car=self.car, customer=self.user, question="Mine")
+        self.client.force_login(self.user)
+
+        results = self.client.get(f"/api/questions/?car={self.car.slug}").json()["results"]
+
+        self.assertEqual([r["question"] for r in results], ["Mine"])
+
+
+@override_settings(**MAIL_SETTINGS)
+class AnsweringTests(TestCase):
+    def setUp(self):
+        self.car = make_car("ANS-1", brand="Suzuki", model_name="Every")
+        self.user, _ = make_customer("asker@example.com")
+        self.staff, _ = make_manager()
+        self.question = CarQuestion.objects.create(
+            car=self.car, customer=self.user, question="Any service history?"
+        )
+
+    def answer(self, text="Full history, stamped."):
+        with mock.patch("cars.mail.boto3.client") as client:
+            with self.captureOnCommitCallbacks(execute=True):
+                qa.record_answer(self.question, answer=text, staff=self.staff)
+            calls = client.return_value.put_object.call_args_list
+        return [json.loads(c.kwargs["Body"].decode("utf-8")) for c in calls]
+
+    def test_answering_emails_the_customer_once_and_rings_the_bell_once(self):
+        sent = self.answer()
+
+        self.question.refresh_from_db()
+        self.assertIsNotNone(self.question.answered_at)
+        self.assertEqual(self.question.answered_by, self.staff)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]["to"], ["asker@example.com"])
+        self.assertEqual(
+            Notification.objects.filter(
+                customer=self.user, kind=NotificationKind.QUESTION_ANSWERED
+            ).count(),
+            1,
+        )
+
+    def test_fixing_a_typo_in_an_answer_tells_nobody(self):
+        """answered_at, not a non-empty answer field, is what answered means."""
+        self.answer("Full histroy, stamped.")
+
+        sent = self.answer("Full history, stamped.")
+
+        self.assertEqual(sent, [])
+        self.assertEqual(Notification.objects.count(), 1)
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.answer, "Full history, stamped.")
+
+    def test_a_staff_seeded_question_has_nobody_to_tell(self):
+        seeded = CarQuestion.objects.create(car=self.car, question="Do you take trade-ins?")
+
+        with mock.patch("cars.mail.boto3.client") as client:
+            with self.captureOnCommitCallbacks(execute=True):
+                qa.record_answer(seeded, answer="Yes, bring it in.", staff=self.staff)
+            calls = client.return_value.put_object.call_args_list
+
+        self.assertEqual(calls, [])
+        self.assertEqual(Notification.objects.count(), 0)
+        seeded.refresh_from_db()
+        self.assertIsNotNone(seeded.answered_at)
+
+    def test_a_blank_answer_does_not_count_as_answering(self):
+        sent = self.answer("   ")
+
+        self.assertEqual(sent, [])
+        self.question.refresh_from_db()
+        self.assertIsNone(self.question.answered_at)
+
+
+@override_settings(**MAIL_SETTINGS)
+class PublishingTests(TestCase):
+    def setUp(self):
+        self.car = make_car("PUB-1", brand="Honda", model_name="N-Box")
+        self.user, _ = make_customer("asker@example.com")
+
+    def test_publishing_without_an_answer_is_refused_with_a_reason(self):
+        question = CarQuestion.objects.create(
+            car=self.car, customer=self.user, question="Colour?"
+        )
+
+        with self.assertRaises(qa.QuestionError) as raised:
+            qa.publish(question)
+
+        self.assertIn("answer", str(raised.exception).lower())
+        question.refresh_from_db()
+        self.assertFalse(question.is_published)
+
+    def test_publishing_moves_the_cars_updated_at_so_the_sitemap_notices(self):
+        question = CarQuestion.objects.create(
+            car=self.car, customer=self.user, question="Colour?", answer="Pearl white.",
+            answered_at=timezone.now(),
+        )
+        self.car.refresh_from_db()
+        before = self.car.updated_at
+
+        qa.publish(question)
+
+        self.car.refresh_from_db()
+        self.assertGreater(self.car.updated_at, before)
+
+
+class PublishedQuestionsAreAnonymousTests(TestCase):
+    """The published pair is public content; the person who asked is not."""
+
+    def setUp(self):
+        self.car = make_car("ANON-1", brand="Daihatsu", model_name="Tanto")
+        self.user, _ = make_customer("yuki.tanaka@example.com")
+        self.user.first_name = "Yuki"
+        self.user.last_name = "Tanaka"
+        self.user.save()
+        self.question = CarQuestion.objects.create(
+            car=self.car, customer=self.user,
+            question="Has it had one owner?", answer="Yes, one owner from new.",
+            answered_at=timezone.now(), is_published=True,
+        )
+
+    def test_the_public_payload_carries_exactly_these_keys(self):
+        """An equality assertion, so adding `customer` later fails loudly.
+
+        Not even `customer_id`: an id is stable across pages, so publishing one would
+        let a reader join up every question the same person asked. That is attribution
+        by another name.
+        """
+        body = self.client.get(f"/api/cars/{self.car.slug}/").json()
+
+        self.assertEqual(
+            set(body["questions"][0]),
+            {"id", "question", "answer", "language", "created_at", "answered_at"},
+        )
+
+    def test_the_rendered_page_never_names_the_asker(self):
+        html = self.client.get(f"/cars/{self.car.slug}").content.decode("utf-8")
+
+        self.assertIn("Has it had one owner?", html)
+        self.assertIn("one owner from new", html)
+        for leak in ("Yuki", "Tanaka", "yuki.tanaka@example.com"):
+            self.assertNotIn(leak, html)
+
+    def test_an_unanswered_or_unpublished_question_is_nowhere(self):
+        CarQuestion.objects.create(car=self.car, customer=self.user,
+                                   question="Secret pending question")
+        CarQuestion.objects.create(car=self.car, customer=self.user,
+                                   question="Answered but private",
+                                   answer="Not for the page.", answered_at=timezone.now())
+
+        html = self.client.get(f"/cars/{self.car.slug}").content.decode("utf-8")
+        api = self.client.get(f"/api/cars/{self.car.slug}/").json()
+
+        self.assertNotIn("Secret pending question", html)
+        self.assertNotIn("Answered but private", html)
+        self.assertEqual(len(api["questions"]), 1)
+
+    def test_another_cars_questions_do_not_leak_in(self):
+        other = make_car("ANON-2", brand="Suzuki", model_name="Alto")
+        CarQuestion.objects.create(car=other, customer=self.user,
+                                   question="About the other car",
+                                   answer="Different car.", answered_at=timezone.now(),
+                                   is_published=True)
+
+        api = self.client.get(f"/api/cars/{self.car.slug}/").json()
+
+        self.assertEqual([q["question"] for q in api["questions"]],
+                         ["Has it had one owner?"])
+
+
+class QuestionSeoTests(TestCase):
+    def setUp(self):
+        self.car = make_car("SEO-1", brand="Honda", model_name="N-Box")
+        self.user, _ = make_customer("asker@example.com")
+
+    def publish(self, question, answer, language="en"):
+        return CarQuestion.objects.create(
+            car=self.car, customer=self.user, question=question, answer=answer,
+            answered_at=timezone.now(), is_published=True, language=language,
+        )
+
+    def ld_json(self, response):
+        html = response.content.decode("utf-8")
+        raw = html.split('<script type="application/ld+json">')[1].split("</script>")[0]
+        return json.loads(raw.replace("\\u003c", "<"))
+
+    def test_a_published_pair_appears_in_the_body_and_the_graph_identically(self):
+        self.publish("Is it rust free?", "Yes, the underside is clean.")
+
+        response = self.client.get(f"/cars/{self.car.slug}")
+        html = response.content.decode("utf-8")
+        faq = [n for n in self.ld_json(response)["@graph"] if n["@type"] == "FAQPage"]
+
+        self.assertIn("Is it rust free?", html)
+        self.assertEqual(len(faq), 1)
+        entity = faq[0]["mainEntity"][0]
+        self.assertEqual(entity["name"], "Is it rust free?")
+        self.assertEqual(entity["acceptedAnswer"]["text"], "Yes, the underside is clean.")
+
+    def test_no_faq_node_is_emitted_when_there_is_nothing_published(self):
+        """An empty mainEntity is an invalid node, not a harmless one."""
+        response = self.client.get(f"/cars/{self.car.slug}")
+
+        types = [n["@type"] for n in self.ld_json(response)["@graph"]]
+        self.assertNotIn("FAQPage", types)
+
+    def test_a_question_cannot_break_out_of_the_json_ld_block(self):
+        """Customer text now reaches the graph, so this stopped being theoretical."""
+        self.publish("</script><img src=x onerror=alert(1)>", "Nice try.")
+
+        html = self.client.get(f"/cars/{self.car.slug}").content.decode("utf-8")
+
+        opened = html.count('<script type="application/ld+json">')
+        self.assertEqual(opened, 1)
+        self.assertNotIn("<img src=x onerror=alert(1)>", html)
+        # Escaping the "<" is what matters and is sufficient: with the bracket gone the
+        # string "</script>" cannot occur, so the block cannot be terminated early.
+        self.assertIn("\\u003c/script>", html)
+
+    def test_the_page_shows_pairs_in_the_language_it_is_served_in(self):
+        self.publish("Is it rust free?", "Underside is clean.", language="en")
+        self.publish("錆はありますか？", "下回りはきれいです。", language="ja")
+
+        english = self.rendered_body("en")
+        japanese = self.rendered_body("ja")
+
+        self.assertIn("Is it rust free?", english)
+        self.assertNotIn("錆はありますか？", english)
+        self.assertIn("錆はありますか？", japanese)
+        self.assertNotIn("Is it rust free?", japanese)
+
+    def test_pairs_in_the_other_language_are_shown_rather_than_an_empty_section(self):
+        self.publish("錆はありますか？", "下回りはきれいです。", language="ja")
+
+        self.assertIn("錆はありますか？", self.rendered_body("en"))
+
+    def rendered_body(self, language):
+        """Just what a reader sees.
+
+        Not the whole document: the initial-data payload deliberately carries every
+        published pair with its language so the app can re-filter when someone uses the
+        language switch, without going back to the server.
+        """
+        html = self.client.get(
+            f"/cars/{self.car.slug}?lang={language}"
+        ).content.decode("utf-8")
+        return html.split('<div id="root">')[1].split("</div>")[0]
+
+    def test_the_page_costs_the_same_number_of_queries_however_many_pairs(self):
+        """Catches a .filter() defeating the Prefetch - invisible until it is not."""
+        self.publish("One?", "Yes.")
+        baseline = self._queries_for_page()
+
+        for i in range(9):
+            self.publish(f"Question {i}?", "Yes.")
+
+        self.assertEqual(self._queries_for_page(), baseline)
+
+    def _queries_for_page(self):
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as captured:
+            self.client.get(f"/cars/{self.car.slug}")
+        return len(captured)
+
+
+@override_settings(**MAIL_SETTINGS)
+class NotificationApiTests(TestCase):
+    """A bell is one person's history. The isolation cases carry the weight."""
+
+    def setUp(self):
+        self.user, _ = make_customer("mine@example.com")
+        self.other, _ = make_customer("theirs@example.com")
+        self.client.force_login(self.user)
+
+    def make(self, user=None, kind=NotificationKind.QUESTION_ANSWERED, **extra):
+        return notifications.notify(user=user or self.user, kind=kind, **extra)
+
+    def test_you_see_only_your_own(self):
+        self.make()
+        self.make(user=self.other)
+
+        body = self.client.get("/api/notifications/").json()
+
+        self.assertEqual(len(body["results"]), 1)
+        self.assertEqual(body["unread"], 1)
+
+    def test_a_guest_gets_nothing(self):
+        self.client.logout()
+
+        self.assertEqual(self.client.get("/api/notifications/").status_code, 403)
+
+    def test_marking_read_clears_the_count(self):
+        self.make()
+        self.make()
+
+        body = self.client.post("/api/notifications/read/", {},
+                                content_type="application/json").json()
+
+        self.assertEqual(body["unread"], 0)
+        self.assertEqual(self.client.get("/api/notifications/").json()["unread"], 0)
+
+    def test_marking_someone_elses_notification_read_does_nothing(self):
+        theirs = self.make(user=self.other)
+
+        self.client.post("/api/notifications/read/", {"ids": [theirs.pk]},
+                         content_type="application/json")
+
+        theirs.refresh_from_db()
+        self.assertIsNone(theirs.read_at)
+
+    def test_a_dedupe_key_means_one_entry_however_often_it_fires(self):
+        for _ in range(3):
+            self.make(dedupe_key="booking:1:confirmed")
+
+        self.assertEqual(Notification.objects.filter(customer=self.user).count(), 1)
+
+    def test_a_closed_account_has_no_bell_to_ring(self):
+        self.user.is_active = False
+
+        self.assertIsNone(self.make())
+
+    def test_there_is_nobody_to_tell_when_there_is_no_user(self):
+        self.assertIsNone(notifications.notify(user=None,
+                                               kind=NotificationKind.QUESTION_ANSWERED))
+
+    def test_read_history_is_trimmed_on_write_but_unread_is_never_touched(self):
+        """Nothing may sweep this table on a timer - Aurora scales to zero.
+
+        So the trim runs where the table is already being written, and it must never
+        take something the customer has not seen.
+        """
+        old = timezone.now() - datetime.timedelta(days=400)
+        for _ in range(3):
+            row = self.make()
+            Notification.objects.filter(pk=row.pk).update(
+                read_at=old, created_at=old
+            )
+        unread = self.make()
+        Notification.objects.filter(pk=unread.pk).update(created_at=old)
+
+        self.make()  # any write triggers the trim
+
+        remaining = set(Notification.objects.filter(customer=self.user)
+                        .values_list("pk", flat=True))
+        self.assertIn(unread.pk, remaining)
+        self.assertEqual(len(remaining), 2)
+
+
+@override_settings(**MAIL_SETTINGS)
+class BookingNotificationTests(TestCase):
+    """Booking events reach the bell without sending a second email."""
+
+    def setUp(self):
+        self.user, _ = make_customer("buyer@example.com")
+        self.booking = TestDriveBooking.objects.create(
+            customer=self.user, slot=future_slot(), car_label="Tanto"
+        )
+
+    def run_and_capture(self, fn):
+        with mock.patch("cars.mail.boto3.client") as client:
+            with self.captureOnCommitCallbacks(execute=True):
+                fn()
+            calls = client.return_value.put_object.call_args_list
+        return [json.loads(c.kwargs["Body"].decode("utf-8")) for c in calls]
+
+    def test_confirming_sends_one_email_and_creates_one_notification(self):
+        sent = self.run_and_capture(lambda: booking_rules.confirm_booking(self.booking))
+
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(
+            Notification.objects.filter(
+                customer=self.user, kind=NotificationKind.BOOKING_CONFIRMED
+            ).count(),
+            1,
+        )
+
+    def test_confirming_twice_still_tells_them_once(self):
+        self.run_and_capture(lambda: booking_rules.confirm_booking(self.booking))
+        self.run_and_capture(lambda: booking_rules.confirm_booking(self.booking))
+
+        self.assertEqual(Notification.objects.count(), 1)
+
+    def test_a_customer_cancelling_their_own_booking_is_not_notified(self):
+        """They just did it. Telling them is noise."""
+        sent = self.run_and_capture(
+            lambda: booking_rules.cancel_booking(
+                user=self.user, booking_id=self.booking.pk
+            )
+        )
+
+        self.assertEqual(sent, [])
+        self.assertEqual(Notification.objects.count(), 0)
+
+    def test_the_notification_carries_what_it_needs_to_render_later(self):
+        """Strings, not foreign keys - a sold car must not blank out someone's history."""
+        self.run_and_capture(lambda: booking_rules.confirm_booking(self.booking))
+
+        context = Notification.objects.get().context
+        self.assertEqual(context["car_label"], "Tanto")
+        self.assertIn("starts_at", context)
+
+    def test_a_rolled_back_confirmation_leaves_no_notification(self):
+        """Proves notify() sits inside the transaction rather than beside it."""
+        try:
+            with transaction.atomic():
+                booking_rules.confirm_booking(self.booking)
+                raise RuntimeError("something later failed")
+        except RuntimeError:
+            pass
+
+        self.assertEqual(Notification.objects.count(), 0)

@@ -53,9 +53,27 @@ class CarDetailSerializer(serializers.ModelSerializer):
     fuel_type_display = serializers.CharField(source="get_fuel_type_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     video = serializers.SerializerMethodField()
+    questions = serializers.SerializerMethodField()
 
     def get_video(self, obj):
         return obj.video.url if obj.video else None
+
+    def get_questions(self, obj):
+        """Published pairs, anonymously.
+
+        Reads the prefetched `published_questions` through qa.published_for rather than
+        filtering here: a .filter() on the related manager throws the prefetch away and
+        issues its own query, which is invisible until the page has a few of these.
+
+        The car page is also server-rendered with this payload embedded, but the app
+        fetches it fresh whenever someone arrives by an in-app link rather than landing
+        directly - so it has to be in the API as well, or the section would appear on a
+        hard refresh and vanish on navigation.
+        """
+        from .qa import published_for
+        from .qa_views import PublicQuestionSerializer
+
+        return PublicQuestionSerializer(published_for(obj), many=True).data
 
     class Meta:
         model = Car
@@ -79,6 +97,7 @@ class CarDetailSerializer(serializers.ModelSerializer):
             "description_ja",
             "images",
             "video",
+            "questions",
             "created_at",
             "updated_at",
         ]

@@ -22,6 +22,7 @@ import boto3
 from django.conf import settings
 from django.http import Http404, HttpResponse
 
+from . import qa
 from . import seo
 from .models import Car, CarStatus
 from .serializers import CarDetailSerializer, CarListSerializer
@@ -96,11 +97,14 @@ def _head(*, title, description, canonical, language, image=None, robots=None,
         tags += f"""
     <meta name="robots" content="{_esc(robots)}" />"""
     if structured_data:
-        tags += (
-            '\n    <script type="application/ld+json">'
-            + json.dumps(structured_data, ensure_ascii=False, separators=(",", ":"))
-            + "</script>"
-        )
+        # Escaped exactly the way the initial-data block is. Until now every value in
+        # the graph was typed by staff, so this was theoretical - but a customer's own
+        # words go into the FAQ node, and "</script><img src=x onerror=...>" inside a
+        # ld+json block is executable, on a public page, cached at the edge for minutes.
+        encoded = json.dumps(
+            structured_data, ensure_ascii=False, separators=(",", ":")
+        ).replace("<", "\\u003c")
+        tags += f'\n    <script type="application/ld+json">{encoded}</script>'
     return tags
 
 
@@ -239,7 +243,10 @@ def home(request):
 def car_detail(request, slug):
     language = _language_from(request)
     try:
-        car = Car.objects.prefetch_related("images").get(slug=slug)
+        car = (
+            Car.objects.prefetch_related("images", qa.published_questions_prefetch())
+            .get(slug=slug)
+        )
     except Car.DoesNotExist:
         raise Http404("No such car")
 
@@ -286,10 +293,25 @@ def car_detail(request, slug):
         if value
     )
     description_text = (car.description_ja if language == "ja" else car.description_en) or ""
+
+    # Rendered here rather than fetched, so a crawler and a reader with no JavaScript
+    # both get the words. A <dl> is the right structure for question and answer and
+    # reads correctly with no stylesheet at all, which is what those readers see.
+    # The asker is never named: these are published anonymously.
+    questions = qa.visible_in(qa.published_for(car), language)
+    qa_block = ""
+    if questions:
+        heading = "この車についてのご質問" if language == "ja" else "Questions about this car"
+        pairs = "".join(
+            f"<dt>{_esc(q.question)}</dt><dd>{_esc(q.answer)}</dd>" for q in questions
+        )
+        qa_block = f"<h2>{_esc(heading)}</h2><dl>{pairs}</dl>"
+
     body = (
         f"<h1>{_esc(name)}</h1><p>{_esc(price)}</p>"
         f"<ul>{spec_rows}</ul>"
         f"<p>{_esc(description_text)}</p>"
+        f"{qa_block}"
         f'<p><a href="tel:{_esc(seo.BUSINESS["telephone"])}">'
         f'{_esc(seo.BUSINESS["telephone_display"])}</a></p>'
         f'<p><a href="/">{_esc("在庫一覧" if language == "ja" else "All cars")}</a></p>'
@@ -311,6 +333,9 @@ def car_detail(request, slug):
                     seo.breadcrumb_schema(
                         [("Home", f"{seo.SITE_URL}/"), (name, canonical)]
                     ),
+                    # Same pairs, same language as the block rendered above. Structured
+                    # data that does not match the visible page is a policy violation.
+                    seo.faq_schema(questions, language),
                 ),
             ),
             body=body,

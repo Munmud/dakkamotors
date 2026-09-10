@@ -1,7 +1,7 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from . import auth_views, booking_views
+from . import auth_views, booking_views, notification_views, qa_views
 from .views import CarViewSet
 
 router = DefaultRouter()
@@ -21,6 +21,16 @@ urlpatterns = router.urls + [
          name="auth-password-reset"),
     path("auth/password-reset/confirm/", auth_views.PasswordResetConfirmView.as_view(),
          name="auth-password-reset-confirm"),
+
+    # Deliberately not under /api/cars/: that prefix is a CloudFront behaviour allowing
+    # only GET, HEAD and OPTIONS, so a POST there is rejected by the CDN before Django
+    # ever sees it - while working fine locally.
+    path("questions/", qa_views.QuestionListCreateView.as_view(), name="question-list"),
+
+    path("notifications/", notification_views.NotificationListView.as_view(),
+         name="notification-list"),
+    path("notifications/read/", notification_views.NotificationReadView.as_view(),
+         name="notification-read"),
 
     path("test-drive/slots/", booking_views.SlotListView.as_view(), name="slot-list"),
     path(

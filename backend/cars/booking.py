@@ -11,7 +11,9 @@ from django.db import transaction
 from django.utils import timezone
 
 from . import mail
+from . import notifications
 
+from .notification_models import NotificationKind
 from .booking_models import (
     ACTIVE_STATUSES,
     BookingStatus,
@@ -175,6 +177,28 @@ def create_booking(*, user, slot_id, car=None, now=None):
     return booking
 
 
+def _notify_about(booking, kind, event, now):
+    """One bell entry per booking event.
+
+    Deliberately not a post_save signal on TestDriveBooking. A signal would also fire on
+    paths that send no email - and a customer who sees "confirmed" in the app but never
+    receives the message carrying the address, the licence reminder and the cancel link
+    is worse off than one who saw nothing. Notifications belong next to the email, on
+    the paths that send it.
+    """
+    notifications.notify(
+        user=booking.customer,
+        kind=kind,
+        context={
+            "car_label": booking.car_label or "",
+            "starts_at": booking.slot.starts_at.isoformat(),
+            "booking_id": booking.pk,
+        },
+        dedupe_key=f"booking:{booking.pk}:{event}",
+        now=now,
+    )
+
+
 @transaction.atomic
 def confirm_booking(booking, now=None):
     """Staff accept a request. The only thing that emails the customer."""
@@ -185,6 +209,10 @@ def confirm_booking(booking, now=None):
     booking.status = BookingStatus.CONFIRMED
     booking.confirmed_at = now
     booking.save(update_fields=["status", "confirmed_at", "updated_at"])
+    # The bell entry goes inside the transaction so it rolls back with the booking; the
+    # email stays on_commit so a rollback cannot send a message about a booking that was
+    # never confirmed. No second email here - the one below is already the message.
+    _notify_about(booking, NotificationKind.BOOKING_CONFIRMED, "confirmed", now)
     transaction.on_commit(lambda: mail.confirm_booking_with_customer(booking))
     return booking
 
@@ -196,6 +224,7 @@ def cancel_by_staff(booking, now=None):
     booking.status = BookingStatus.CANCELLED
     booking.cancelled_at = now
     booking.save(update_fields=["status", "cancelled_at", "updated_at"])
+    _notify_about(booking, NotificationKind.BOOKING_CANCELLED, "cancelled", now)
     transaction.on_commit(lambda: mail.notify_customer_of_cancellation(booking))
     return booking
 

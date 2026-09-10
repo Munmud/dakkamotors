@@ -231,6 +231,10 @@ REST_FRAMEWORK = {
         # Applied to registration and login only. Without email verification an
         # account costs nothing to create, so the sign-up endpoint needs a ceiling.
         "auth": "20/hour",
+            # Asking is authenticated, so this has to be a UserRateThrottle scope -
+            # AnonRateThrottle keys on IP and returns no key at all for a signed-in
+            # request, which would make it decoration.
+            "ask": "10/day",
     },
 }
 

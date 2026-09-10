@@ -382,3 +382,124 @@ def send_password_reset_email(user, link, language="en"):
         )
 
     return queue_email(to=user.email, subject=subject, html=html, text=text)
+
+
+# --------------------------------------------------------------------------------------
+# Questions about a car
+# --------------------------------------------------------------------------------------
+
+
+def notify_staff_of_question(question):
+    """Someone has asked something about a car and is waiting on an answer."""
+    recipients = _config("STAFF_ALERT_EMAIL")
+    if not recipients:
+        return False
+
+    customer = question.customer
+    name = (customer.get_full_name() or customer.username) if customer else "a visitor"
+    email = customer.email if customer else ""
+    admin_url = f"{seo.SITE_URL}/api/admin/cars/carquestion/{question.pk}/change/"
+
+    html = theme.render(
+        heading="A question about a car",
+        preheader=f"{question.car} — {question.question[:80]}",
+        body="".join([
+            theme.lead(f"<strong>{_esc(name)}</strong> has asked about the "
+                       f"{_esc(str(question.car))}."),
+            theme.callout(_esc(question.question).replace("\n", "<br>")),
+            theme.details([
+                ("Car", _esc(str(question.car))),
+                ("Asked in", "Japanese" if question.language == "ja" else "English"),
+                ("Customer", _esc(name)),
+                ("Email", f'<a href="mailto:{_esc(email)}" style="color:{theme.INK};">'
+                          f"{_esc(email)}</a>" if email else "—"),
+            ]),
+            theme.paragraph(
+                "Answering emails them straight away. Publishing is a separate step, so "
+                "you can reply privately and decide about the public page afterwards."
+            ),
+            theme.button("Answer this question", admin_url),
+            theme.fallback_link(admin_url),
+        ]),
+    )
+
+    text = (
+        f"{name} has asked about the {question.car}.\n\n"
+        f"{question.question}\n\n"
+        f"Asked in: {'Japanese' if question.language == 'ja' else 'English'}\n"
+        f"Customer: {name}\n"
+        f"Email:    {email or '-'}\n\n"
+        "Answering emails them straight away. Publishing is a separate step.\n"
+        f"Answer here: {admin_url}\n"
+    )
+
+    return queue_email(
+        to=[address.strip() for address in recipients.split(",")],
+        subject=f"Question about the {question.car}",
+        html=html,
+        text=text,
+        reply_to=email or None,
+    )
+
+
+def notify_customer_of_answer(question):
+    """Their question has been answered. Sent once, on the first answer only."""
+    customer = question.customer
+    if not customer or not customer.email:
+        return False
+
+    b = seo.BUSINESS
+    car_url = f"{seo.SITE_URL}/cars/{question.car.slug}"
+    name = customer.first_name or customer.username
+
+    if question.language == "ja":
+        subject = f"ご質問への回答 - {question.car}"
+        html = theme.render(
+            language="ja",
+            heading="ご質問への回答",
+            preheader=f"{question.car}についてのご質問にお答えしました。",
+            body="".join([
+                theme.lead(f"{_esc(name)} 様 — お問い合わせありがとうございました。"),
+                theme.paragraph("いただいたご質問:"),
+                theme.callout(_esc(question.question).replace("\n", "<br>")),
+                theme.paragraph(_esc(question.answer).replace("\n", "<br>")),
+                theme.button("この車を見る", car_url),
+                theme.note(
+                    "他にもご不明な点がございましたら、車両ページからお気軽にご質問ください。"
+                    f"お急ぎの場合は {b['telephone_display']} までお電話ください。"
+                ),
+            ]),
+        )
+        text = (
+            f"{name} 様\n\nお問い合わせありがとうございました。\n\n"
+            f"ご質問:\n{question.question}\n\n"
+            f"回答:\n{question.answer}\n\n"
+            f"車両ページ: {car_url}\n"
+            f"お電話: {b['telephone_display']}\n\n{b['name_ja']}\n"
+        )
+    else:
+        subject = f"Your question about the {question.car}"
+        html = theme.render(
+            heading="We have answered your question",
+            preheader=f"About the {question.car}.",
+            body="".join([
+                theme.lead(f"Hello {_esc(name)} — thanks for asking."),
+                theme.paragraph("You asked:"),
+                theme.callout(_esc(question.question).replace("\n", "<br>")),
+                theme.paragraph(_esc(question.answer).replace("\n", "<br>")),
+                theme.button("See the car", car_url),
+                theme.note(
+                    "Anything else you want to know, ask from the car's page — or call "
+                    f"us on {b['telephone_display']} if it is easier."
+                ),
+            ]),
+        )
+        text = (
+            f"Hello {name},\n\nThanks for asking about the {question.car}.\n\n"
+            f"You asked:\n{question.question}\n\n"
+            f"Our answer:\n{question.answer}\n\n"
+            f"See the car: {car_url}\n"
+            f"Or call us on {b['telephone_display']}.\n\n{b['name']}\n"
+        )
+
+    return queue_email(to=customer.email, subject=subject, html=html, text=text)

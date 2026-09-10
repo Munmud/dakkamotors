@@ -178,3 +178,39 @@ def website_schema():
 def graph(*nodes):
     """Wrap nodes in a single @graph, which is how multiple entities share one block."""
     return {"@context": "https://schema.org", "@graph": [n for n in nodes if n]}
+
+
+def faq_schema(questions, language="en"):
+    """Published question-and-answer pairs, as a FAQPage node.
+
+    Returns None when there are none. That matters: an empty `mainEntity` is an invalid
+    node, and Search Console reports it as an error rather than ignoring it.
+
+    A note on expectations - Google restricted FAQ rich results to government and health
+    sites in August 2023, so this will not put dropdowns under the search result. It is
+    here because the pairs are real page content and because the answer engines the rest
+    of this file is written for read structured data directly.
+
+    Whatever goes in here must also be visible in the rendered body, and in the same
+    language: structured data that does not match the page is a policy violation, not a
+    clever trick.
+    """
+    entries = [q for q in questions if (q.answer or "").strip()]
+    if not entries:
+        return None
+
+    return {
+        "@type": "FAQPage",
+        "inLanguage": "ja" if language == "ja" else "en",
+        "mainEntity": [
+            {
+                "@type": "Question",
+                "name": question.question.strip(),
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": question.answer.strip(),
+                },
+            }
+            for question in entries
+        ],
+    }
