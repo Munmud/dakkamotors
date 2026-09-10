@@ -19,6 +19,7 @@ import boto3
 from django.conf import settings
 from django.utils import timezone
 
+from . import email_theme as theme
 from . import seo
 
 logger = logging.getLogger(__name__)
@@ -70,12 +71,13 @@ def queue_email(*, to, subject, html, text="", reply_to=None):
 
     return True
 
-
 # --------------------------------------------------------------------------------------
 # Messages
 #
-# Both are plain, deliberately. A used-car dealer sending a heavily designed template
-# from a new domain is more likely to be filtered than one sending a short, useful note.
+# Each one is built from the fragments in `email_theme`, so they share a masthead, a type
+# scale and a footer. The plain-text part is written by hand rather than stripped from the
+# HTML: it is what a text-only client shows, and a message with no text alternative scores
+# badly with spam filters.
 # --------------------------------------------------------------------------------------
 
 
@@ -98,9 +100,9 @@ def _address_lines():
 def notify_staff_of_booking(booking):
     """Tell the shop someone has asked for a test drive.
 
-    This is the message that closes the gap where a booking existed only in the admin
-    and nobody knew to look, so it leads with what has to be decided: who, when, and a
-    link to confirm it.
+    This is the message that closes the gap where a booking existed only in the admin and
+    nobody knew to look, so it leads with what has to be decided - who, when - and ends
+    with the one button that decides it.
     """
     recipients = _config("STAFF_ALERT_EMAIL")
     if not recipients:
@@ -114,17 +116,27 @@ def notify_staff_of_booking(booking):
     car = booking.car_label or "no car specified"
     admin_url = f"{seo.SITE_URL}/api/admin/cars/testdrivebooking/{booking.pk}/change/"
 
-    html = f"""<p><strong>New test drive request &mdash; awaiting your confirmation.</strong></p>
-<table cellpadding="4">
-  <tr><td>When</td><td><strong>{when}</strong></td></tr>
-  <tr><td>Car</td><td>{car}</td></tr>
-  <tr><td>Customer</td><td>{name}</td></tr>
-  <tr><td>Phone</td><td><a href="tel:{phone}">{phone}</a></td></tr>
-  <tr><td>Email</td><td><a href="mailto:{customer.email}">{customer.email}</a></td></tr>
-</table>
-<p>The place is held for them, but <strong>they have not been told it is confirmed</strong>.
-Confirm it here and they will be emailed automatically:</p>
-<p><a href="{admin_url}">{admin_url}</a></p>"""
+    html = theme.render(
+        heading="New test drive request",
+        preheader=f"{name} · {when} · {car}",
+        body="".join([
+            theme.lead(f"<strong>{_esc(name)}</strong> has asked for a test drive."),
+            theme.details([
+                ("When", f"<strong>{_esc(when)}</strong>"),
+                ("Car", _esc(car)),
+                ("Customer", _esc(name)),
+                ("Phone", f'<a href="tel:{_esc(phone)}" style="color:{theme.INK};">{_esc(phone)}</a>'),
+                ("Email", f'<a href="mailto:{_esc(customer.email)}" style="color:{theme.INK};">'
+                          f"{_esc(customer.email)}</a>"),
+            ]),
+            theme.callout(
+                "The slot is held for them, but <strong>they have not been told it is "
+                "confirmed</strong>. Confirming it emails them automatically."
+            ),
+            theme.button("Confirm this booking", admin_url),
+            theme.fallback_link(admin_url),
+        ]),
+    )
 
     text = (
         f"New test drive request - awaiting your confirmation.\n\n"
@@ -156,25 +168,35 @@ def confirm_booking_with_customer(booking):
     b = seo.BUSINESS
     when = _when(booking.slot)
     car = booking.car_label or ""
-    address = "<br>".join(_address_lines())
+    greeting = customer.first_name or customer.username
     manage_url = f"{seo.SITE_URL}/account"
+    address_html = "<br>".join(_esc(line) for line in _address_lines()[1:])
 
-    html = f"""<p>Hello {customer.first_name or customer.username},</p>
-<p>Your test drive at {b['name']} is <strong>confirmed</strong>.</p>
-<table cellpadding="4">
-  <tr><td>When</td><td><strong>{when}</strong> (Japan time)</td></tr>
-  {f'<tr><td>Car</td><td>{car}</td></tr>' if car else ''}
-</table>
-<p><strong>Where</strong><br>{address}</p>
-<p><strong>Phone</strong><br>
-  <a href="tel:{b['telephone']}">{b['telephone_display']}</a>
-  &mdash; call us if you are running late or cannot make it.</p>
-<p>Please bring your driving licence. We will have the car ready for you.</p>
-<p>You can change or cancel this yourself at <a href="{manage_url}">{manage_url}</a>.</p>
-<p>See you soon.<br>{b['name']}</p>"""
+    html = theme.render(
+        heading="Your test drive is confirmed",
+        preheader=f"{when} at {b['name']}, Hamura",
+        body="".join([
+            theme.lead(f"Hello {_esc(greeting)} — we will have the car ready for you."),
+            theme.details([
+                ("When", f"<strong>{_esc(when)}</strong><br>"
+                         f'<span style="font-size:12px;color:{theme.MUTED};">Japan time</span>'),
+                ("Car", _esc(car)),
+                ("Where", address_html),
+                ("Phone", f'<a href="tel:{b["telephone"]}" style="color:{theme.INK};">'
+                          f'{b["telephone_display"]}</a>'),
+            ]),
+            theme.callout("Please bring your driving licence — we cannot let you drive without it."),
+            theme.button("Change or cancel this booking", manage_url),
+            theme.note(
+                f'Running late or cannot make it? Call us on '
+                f'<a href="tel:{b["telephone"]}" style="color:{theme.MUTED};">'
+                f'{b["telephone_display"]}</a> and we will hold the car.'
+            ),
+        ]),
+    )
 
     text = (
-        f"Hello {customer.first_name or customer.username},\n\n"
+        f"Hello {greeting},\n\n"
         f"Your test drive at {b['name']} is confirmed.\n\n"
         f"When:  {when} (Japan time)\n"
         + (f"Car:   {car}\n" if car else "")
@@ -203,17 +225,34 @@ def notify_customer_of_cancellation(booking):
 
     b = seo.BUSINESS
     when = _when(booking.slot)
-    html = f"""<p>Hello {customer.first_name or customer.username},</p>
-<p>We are sorry, but we have had to cancel your test drive on <strong>{when}</strong>.</p>
-<p>Please call us on <a href="tel:{b['telephone']}">{b['telephone_display']}</a> and we
-will find another time, or book one yourself at
-<a href="{seo.SITE_URL}/account">{seo.SITE_URL}/account</a>.</p>
-<p>{b['name']}</p>"""
+    greeting = customer.first_name or customer.username
+    book_url = f"{seo.SITE_URL}/account"
+
+    html = theme.render(
+        heading="We had to cancel your test drive",
+        preheader=f"Your booking for {when} is cancelled. We can find you another time.",
+        body="".join([
+            theme.lead(
+                f"Hello {_esc(greeting)} — we are sorry. Your test drive on "
+                f"<strong>{_esc(when)}</strong> is cancelled."
+            ),
+            theme.paragraph(
+                "We would still like to get you behind the wheel. Pick another time that "
+                "suits you, or call and we will sort it out between us."
+            ),
+            theme.button("Find another time", book_url),
+            theme.note(
+                f'Or call us on <a href="tel:{b["telephone"]}" style="color:{theme.MUTED};">'
+                f'{b["telephone_display"]}</a>.'
+            ),
+        ]),
+    )
+
     text = (
-        f"Hello {customer.first_name or customer.username},\n\n"
+        f"Hello {greeting},\n\n"
         f"We are sorry, but we have had to cancel your test drive on {when}.\n\n"
         f"Please call us on {b['telephone_display']} and we will find another time, "
-        f"or book one yourself at {seo.SITE_URL}/account\n\n{b['name']}\n"
+        f"or book one yourself at {book_url}\n\n{b['name']}\n"
     )
 
     return queue_email(to=customer.email, subject=f"Test drive cancelled: {when}", html=html, text=text)
@@ -222,8 +261,8 @@ will find another time, or book one yourself at
 # --------------------------------------------------------------------------------------
 # Account emails
 #
-# Bilingual, because half the customers read Japanese. Each is one clear link and
-# nothing else - a verification mail that looks like marketing gets ignored or filtered.
+# Bilingual, because half the customers read Japanese. Each carries exactly one action -
+# a verification mail that looks like marketing gets ignored, or filtered.
 # --------------------------------------------------------------------------------------
 
 
@@ -231,13 +270,24 @@ def send_verification_email(pending, link):
     b = seo.BUSINESS
     if pending.language == "ja":
         subject = "メールアドレスのご確認 - ダッカモータース"
-        html = f"""<p>{_esc(pending.name)} 様</p>
-<p>ダッカモータースへのご登録ありがとうございます。
-下のリンクをクリックすると、アカウントの作成が完了します。</p>
-<p><a href="{link}">{link}</a></p>
-<p>このリンクは3日間有効です。心当たりがない場合は、このメールは破棄してください。
-アカウントは作成されません。</p>
-<p>{b['name_ja']}<br>{b['telephone_display']}</p>"""
+        html = theme.render(
+            language="ja",
+            heading="メールアドレスのご確認",
+            preheader="下のボタンで登録が完了します。3日間有効です。",
+            body="".join([
+                theme.lead(f"{_esc(pending.name)} 様 — ご登録ありがとうございます。"),
+                theme.paragraph(
+                    "下のボタンを押すと、アカウントの作成が完了します。"
+                    "<strong>押していただくまで、アカウントは作成されません。</strong>"
+                ),
+                theme.button("メールアドレスを確認する", link),
+                theme.fallback_link(link, "ja"),
+                theme.note(
+                    "このリンクは3日間有効です。心当たりがない場合は、このメールを破棄してください。"
+                    "アカウントは作成されません。"
+                ),
+            ]),
+        )
         text = (
             f"{pending.name} 様\n\n"
             "ダッカモータースへのご登録ありがとうございます。\n"
@@ -249,13 +299,23 @@ def send_verification_email(pending, link):
         )
     else:
         subject = "Confirm your email - Dakka Motors"
-        html = f"""<p>Hello {_esc(pending.name)},</p>
-<p>Thanks for signing up with {b['name']}. Click the link below to finish creating your
-account &mdash; until you do, no account exists.</p>
-<p><a href="{link}">{link}</a></p>
-<p>The link works for three days. If you did not request this, ignore this email and
-nothing will be created.</p>
-<p>{b['name']}<br>{b['telephone_display']}</p>"""
+        html = theme.render(
+            heading="Confirm your email",
+            preheader="One click finishes your account. The link works for three days.",
+            body="".join([
+                theme.lead(f"Hello {_esc(pending.name)} — thanks for signing up."),
+                theme.paragraph(
+                    "One click finishes your account and you can book a test drive. "
+                    "<strong>Until you do, no account exists.</strong>"
+                ),
+                theme.button("Confirm my email address", link),
+                theme.fallback_link(link),
+                theme.note(
+                    "The link works for three days. If you did not sign up, ignore this "
+                    "email — nothing has been created and nothing will be."
+                ),
+            ]),
+        )
         text = (
             f"Hello {pending.name},\n\n"
             f"Thanks for signing up with {b['name']}. Open the link below to finish\n"
@@ -274,12 +334,21 @@ def send_password_reset_email(user, link, language="en"):
     name = user.first_name or user.username
     if language == "ja":
         subject = "パスワードの再設定 - ダッカモータース"
-        html = f"""<p>{_esc(name)} 様</p>
-<p>パスワード再設定のご依頼を承りました。下のリンクから新しいパスワードを設定してください。</p>
-<p><a href="{link}">{link}</a></p>
-<p>このリンクは24時間有効で、一度だけ使用できます。
-心当たりがない場合は破棄してください。パスワードは変更されません。</p>
-<p>{b['name_ja']}</p>"""
+        html = theme.render(
+            language="ja",
+            heading="パスワードの再設定",
+            preheader="24時間有効、一度だけ使用できます。",
+            body="".join([
+                theme.lead(f"{_esc(name)} 様 — パスワード再設定のご依頼を承りました。"),
+                theme.paragraph("下のボタンから、新しいパスワードを設定してください。"),
+                theme.button("新しいパスワードを設定する", link),
+                theme.fallback_link(link, "ja"),
+                theme.note(
+                    "このリンクは24時間有効で、一度だけ使用できます。"
+                    "心当たりがない場合は破棄してください。パスワードは変更されません。"
+                ),
+            ]),
+        )
         text = (
             f"{name} 様\n\nパスワード再設定のご依頼を承りました。\n"
             f"下のリンクから新しいパスワードを設定してください。\n\n{link}\n\n"
@@ -289,13 +358,20 @@ def send_password_reset_email(user, link, language="en"):
         )
     else:
         subject = "Reset your password - Dakka Motors"
-        html = f"""<p>Hello {_esc(name)},</p>
-<p>Someone asked to reset the password for this account. Use the link below to choose a
-new one.</p>
-<p><a href="{link}">{link}</a></p>
-<p>It works once and expires in 24 hours. If this was not you, ignore this email &mdash;
-your password stays as it is.</p>
-<p>{b['name']}</p>"""
+        html = theme.render(
+            heading="Reset your password",
+            preheader="Choose a new one. The link works once and expires in 24 hours.",
+            body="".join([
+                theme.lead(f"Hello {_esc(name)} — someone asked to reset this account's password."),
+                theme.paragraph("If that was you, choose a new one here."),
+                theme.button("Choose a new password", link),
+                theme.fallback_link(link),
+                theme.note(
+                    "The link works once and expires in 24 hours. If this was not you, "
+                    "ignore this email — your password stays exactly as it is."
+                ),
+            ]),
+        )
         text = (
             f"Hello {name},\n\n"
             "Someone asked to reset the password for this account. Use the link below\n"

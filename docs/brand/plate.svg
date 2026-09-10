@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 132 66" width="132" height="66" role="img" aria-label="Dakka Motors">
+  <title>Dakka Motors</title>
+  <!-- 2:1, the proportion of the Japanese small-size plate (330 x 165 mm). -->
+  <rect x="2" y="2" width="128" height="62" rx="9" fill="#fbd200" stroke="#1b2430" stroke-width="4"/>
+  <g transform="translate(45.1 13) scale(0.909)">
+    <path fill="#1b2430" fill-rule="evenodd"
+          d="M0 0 H30 Q46 0 46 16 V28 Q46 44 30 44 H0 Z
+             M12 12 H27 Q34 12 34 19 V25 Q34 32 27 32 H12 Z"/>
+  </g>
+</svg>

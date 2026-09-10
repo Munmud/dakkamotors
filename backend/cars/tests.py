@@ -22,11 +22,14 @@ from PIL import Image
 
 from .management.commands.ensure_inventory_group import GROUP_NAME
 from . import booking as booking_rules
+from . import email_theme
 from . import mail
+from . import seo
 from .booking_models import (
     BookingStatus,
     CustomerProfile,
     PendingRegistration,
+    TestDriveBooking,
     TestDriveSchedule,
     TestDriveSlot,
 )
@@ -1844,3 +1847,80 @@ class PrimaryImageFallbackTests(TestCase):
 
     def test_returns_none_when_there_are_no_images(self):
         self.assertIsNone(make_car("EMPTY").primary_image)
+
+
+class EmailTemplateTests(TestCase):
+    """The shell every message is rendered into.
+
+    The point of these is that the logo survives the two things that usually break it:
+    images being blocked, and Japanese content.
+    """
+
+    def render(self, **kwargs):
+        kwargs.setdefault("heading", "Confirm your email")
+        kwargs.setdefault("body", email_theme.paragraph("Body copy."))
+        return email_theme.render(**kwargs)
+
+    def test_the_plate_is_drawn_by_the_client_not_the_image(self):
+        """With images off the cell still has its yellow ground, so the mark shows."""
+        html = self.render()
+
+        self.assertIn(f'bgcolor="{email_theme.PLATE}"', html)
+        self.assertIn(f"background-color:{email_theme.PLATE}", html)
+
+    def test_the_letter_has_alt_text_to_fall_back_to(self):
+        html = self.render()
+
+        self.assertIn('alt="D"', html)
+        self.assertIn("/assets/email-mark-d.png", html)
+
+    def test_the_logo_image_is_an_absolute_url(self):
+        """A relative src resolves against nothing in a mail client."""
+        html = self.render()
+
+        self.assertIn(f'src="{seo.SITE_URL}/assets/email-mark-d.png"', html)
+
+    def test_the_preheader_is_hidden_but_present(self):
+        html = self.render(preheader="One click finishes your account.")
+
+        self.assertIn("One click finishes your account.", html)
+        self.assertIn("display:none", html)
+
+    def test_japanese_renders_with_a_japanese_address(self):
+        html = self.render(language="ja", heading="メールアドレスのご確認")
+
+        self.assertIn('lang="ja"', html)
+        self.assertIn(seo.BUSINESS["locality_ja"], html)
+        self.assertIn("Hiragino", html)
+
+    def test_every_message_carries_a_plain_text_alternative(self):
+        """A text part is what text-only clients show, and its absence scores as spam."""
+        pending = PendingRegistration.objects.create(
+            email="new@example.com", name="Yuki", phone="080-1234-5678",
+            password_hash="x", token_hash="y",
+            expires_at=timezone.now() + datetime.timedelta(days=3),
+        )
+        with override_settings(**MAIL_SETTINGS):
+            with mock.patch("cars.mail.boto3.client") as client:
+                mail.send_verification_email(pending, "https://dakkamotors.com/v?token=abc")
+                body = json.loads(client.return_value.put_object.call_args.kwargs["Body"].decode())
+
+        self.assertTrue(body["text"].strip())
+        self.assertIn("https://dakkamotors.com/v?token=abc", body["text"])
+        self.assertNotIn("<", body["text"])
+
+    def test_a_customer_name_cannot_inject_markup(self):
+        """The staff alert interpolates a name the customer chose."""
+        user, _ = make_customer("sneaky@example.com")
+        user.first_name = "<script>alert(1)</script>"
+        user.save()
+        slot = future_slot()
+        booking = TestDriveBooking.objects.create(customer=user, slot=slot, car_label="Tanto")
+
+        with override_settings(**MAIL_SETTINGS):
+            with mock.patch("cars.mail.boto3.client") as client:
+                mail.notify_staff_of_booking(booking)
+                body = json.loads(client.return_value.put_object.call_args.kwargs["Body"].decode())
+
+        self.assertNotIn("<script>", body["html"])
+        self.assertIn("&lt;script&gt;", body["html"])

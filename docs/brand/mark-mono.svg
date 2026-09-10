@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Dakka Motors">
+  <title>Dakka Motors</title>
+  <!-- One colour, for stamps, embroidery, faxed paperwork and anywhere yellow is not
+       available. currentColor so it inherits ink or white from context. -->
+  <rect x="2" y="2" width="60" height="60" rx="11" fill="none" stroke="currentColor" stroke-width="4"/>
+  <g transform="translate(14.25 15) scale(0.7727)">
+    <path fill="currentColor" fill-rule="evenodd"
+          d="M0 0 H30 Q46 0 46 16 V28 Q46 44 30 44 H0 Z
+             M12 12 H27 Q34 12 34 19 V25 Q34 32 27 32 H12 Z"/>
+  </g>
+</svg>

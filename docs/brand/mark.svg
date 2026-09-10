@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Dakka Motors">
+  <title>Dakka Motors</title>
+  <!-- The Japanese kei-car number plate: yellow ground, black border. In Japan a yellow
+       plate is what legally marks a vehicle as kei class, so it does the job the van
+       illustration used to do, in one shape. -->
+  <rect x="2" y="2" width="60" height="60" rx="11" fill="#fbd200" stroke="#1b2430" stroke-width="4"/>
+  <!-- D, built to the kei silhouette: flat stem for the vertical tailgate, squared bowl,
+       and a landscape counter that reads as side glass. -->
+  <g transform="translate(14.25 15) scale(0.7727)">
+    <path fill="#1b2430" fill-rule="evenodd"
+          d="M0 0 H30 Q46 0 46 16 V28 Q46 44 30 44 H0 Z
+             M12 12 H27 Q34 12 34 19 V25 Q34 32 27 32 H12 Z"/>
+  </g>
+</svg>
