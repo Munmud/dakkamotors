@@ -37,6 +37,10 @@ jobs:
 
       - run: npm ci
 
+      # fallbackLng silently serves English for a key missing from ja.json, so drift
+      # between the two files is invisible at runtime rather than an error. Catch it here.
+      - run: npm run check-i18n
+
       # Reads .env.production: API at /api (same origin) and the contact number.
       - run: npm run build
 

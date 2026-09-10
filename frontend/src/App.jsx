@@ -10,6 +10,7 @@ import BookTestDrive from "./pages/BookTestDrive";
 import CarDetail from "./pages/CarDetail";
 import Home from "./pages/Home";
 import { AuthProvider } from "./lib/AuthContext";
+import { NotificationProvider } from "./lib/NotificationContext";
 
 function Footer() {
   const { t } = useTranslation();
@@ -24,12 +25,10 @@ function Footer() {
           © {year} {t("footer.rights")}
         </p>
         {/*
-          A plain anchor, not a router Link: /api/admin/ is rendered by Django, so
-          client-side routing would swallow it and show an empty page.
+          No staff login link here any more. It sat on every page of a public site
+          advertising where the admin lives, and bought nothing: staff know the URL, and
+          they now get an Admin button in the masthead once signed in.
         */}
-        <a className="footer__staff" href="/api/admin/">
-          {t("footer.staffLogin")}
-        </a>
       </div>
     </footer>
   );
@@ -37,23 +36,27 @@ function Footer() {
 
 export default function App() {
   return (
+    // Inside AuthProvider, because the bell only ever fetches once it knows there is a
+    // signed-in customer to fetch for.
     <AuthProvider>
-    <div className="l-shell">
-      <Header />
-      <main className="l-main">
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/cars/:slug" element={<CarDetail />} />
-          <Route path="/cars/:slug/test-drive" element={<BookTestDrive />} />
-          <Route path="/account" element={<Account />} />
-          <Route path="/account/login" element={<Account mode="login" />} />
-          <Route path="/account/register" element={<Account mode="register" />} />
-          <Route path="/account/verify" element={<VerifyEmail />} />
-          <Route path="/account/reset" element={<ResetPassword />} />
-        </Routes>
-      </main>
-      <Footer />
-    </div>
+      <NotificationProvider>
+        <div className="l-shell">
+          <Header />
+          <main className="l-main">
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/cars/:slug" element={<CarDetail />} />
+              <Route path="/cars/:slug/test-drive" element={<BookTestDrive />} />
+              <Route path="/account" element={<Account />} />
+              <Route path="/account/login" element={<Account mode="login" />} />
+              <Route path="/account/register" element={<Account mode="register" />} />
+              <Route path="/account/verify" element={<VerifyEmail />} />
+              <Route path="/account/reset" element={<ResetPassword />} />
+            </Routes>
+          </main>
+          <Footer />
+        </div>
+      </NotificationProvider>
     </AuthProvider>
   );
 }

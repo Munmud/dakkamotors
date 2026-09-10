@@ -112,6 +112,37 @@ export async function rescheduleBooking(id, slot) {
   return post(`/test-drive/bookings/${id}/reschedule/`, { slot });
 }
 
+/* ------------------------------------------------------------------ questions --- */
+
+/** Ask about one car. Signed-in only; the server refuses anonymous askers. */
+export async function askQuestion({ car, question, language }) {
+  return post("/questions/", { car, question, language });
+}
+
+/** Your own thread for a car, including answers that are not on the public page. */
+export async function fetchMyQuestions(carSlug) {
+  const { data } = await api.get("/questions/", { params: { car: carSlug } });
+  return data.results ?? [];
+}
+
+/* -------------------------------------------------------------- notifications --- */
+
+/**
+ * The bell.
+ *
+ * `unread` rides along with the list rather than having its own endpoint: this is
+ * fetched on every signed-in page load, and a second uncached round trip just to count
+ * a number would double the cost of the whole feature.
+ */
+export async function fetchNotifications() {
+  const { data } = await api.get("/notifications/");
+  return { items: data.results ?? [], unread: data.unread ?? 0 };
+}
+
+export async function markNotificationsRead(ids) {
+  return post("/notifications/read/", ids ? { ids } : {});
+}
+
 /** Turn a DRF error into something worth showing a customer. */
 export function errorMessage(error, fallback) {
   const data = error?.response?.data;

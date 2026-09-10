@@ -3,7 +3,8 @@
   "tagline": "日本の中古車販売。実車のご確認も、お電話でのお問い合わせも歓迎します。",
   "nav": {
     "allCars": "在庫一覧",
-    "back": "在庫一覧"
+    "back": "在庫一覧",
+    "admin": "管理"
   },
   "language": {
     "label": "言語",
@@ -61,8 +62,7 @@
   "loading": "読み込み中",
   "footer": {
     "rights": "ダッカモータース",
-    "callPrompt": "車についてのご質問は",
-    "staffLogin": "スタッフログイン"
+    "callPrompt": "車についてのご質問は"
   },
   "auth": {
     "signIn": "ログイン",
@@ -131,5 +131,26 @@
     "saving": "保存中…",
     "saved": "保存しました。",
     "emailFixed": "ログインに使用するアドレスです。変更が必要な場合はお電話ください。"
+  },
+  "qa": {
+    "heading": "この車についてのご質問",
+    "ask": "この車について質問する",
+    "placeholder": "ワンオーナーですか？整備記録はありますか？",
+    "submit": "質問を送る",
+    "sending": "送信中…",
+    "sent": "送信しました。回答をメールでお知らせします。",
+    "signInToAsk": "ログインしてこの車について質問する",
+    "none": "この車についてのご質問はまだありません。",
+    "awaitingAnswer": "回答をお待ちください。メールでお知らせします。"
+  },
+  "notifications": {
+    "bell_one": "お知らせ 未読{{count}}件",
+    "bell_other": "お知らせ 未読{{count}}件",
+    "title": "お知らせ",
+    "empty": "お知らせはありません。",
+    "booking_confirmed": "{{when}}の試乗が確定しました。",
+    "booking_cancelled": "{{when}}の試乗はキャンセルされました。",
+    "question_answered": "{{car}}についてのご質問に回答しました。",
+    "generic": "アカウントに変更がありました。"
   }
 }

@@ -3,7 +3,8 @@
   "tagline": "Used cars in Japan. Come and see them, or call and ask.",
   "nav": {
     "allCars": "All cars",
-    "back": "All cars"
+    "back": "All cars",
+    "admin": "Admin"
   },
   "language": {
     "label": "Language",
@@ -61,8 +62,7 @@
   "loading": "Loading cars",
   "footer": {
     "rights": "Dakka Motors",
-    "callPrompt": "Questions about a car?",
-    "staffLogin": "Staff login"
+    "callPrompt": "Questions about a car?"
   },
   "auth": {
     "signIn": "Sign in",
@@ -131,5 +131,26 @@
     "saving": "Saving…",
     "saved": "Saved.",
     "emailFixed": "This is how you sign in. Call us if you need it changed."
+  },
+  "qa": {
+    "heading": "Questions about this car",
+    "ask": "Ask about this car",
+    "placeholder": "Has it had one owner? Any service history?",
+    "submit": "Send question",
+    "sending": "Sending…",
+    "sent": "Sent. We will email you when we answer.",
+    "signInToAsk": "Sign in to ask about this car",
+    "none": "No questions about this car yet.",
+    "awaitingAnswer": "Waiting for an answer — we will email you."
+  },
+  "notifications": {
+    "bell_one": "Notifications, {{count}} unread",
+    "bell_other": "Notifications, {{count}} unread",
+    "title": "Notifications",
+    "empty": "Nothing yet.",
+    "booking_confirmed": "Your test drive on {{when}} is confirmed.",
+    "booking_cancelled": "Your test drive on {{when}} was cancelled.",
+    "question_answered": "We answered your question about the {{car}}.",
+    "generic": "Something has changed on your account."
   }
 }

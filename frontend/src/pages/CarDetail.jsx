@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { fetchCar } from "../api/client";
 import CallButton from "../components/CallButton";
+import CarQuestions from "../components/CarQuestions";
 import CarVideo from "../components/CarVideo";
 import Gallery from "../components/Gallery";
 import SpecTable from "../components/SpecTable";
@@ -138,6 +139,8 @@ export default function CarDetail() {
           <p className="prose prose--muted">{t("detail.noDescription")}</p>
         )}
       </section>
+
+      <CarQuestions car={car} />
     </>
   );
 }

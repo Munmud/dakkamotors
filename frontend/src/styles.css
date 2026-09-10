@@ -876,3 +876,189 @@ a {
   color: var(--muted);
   cursor: not-allowed;
 }
+
+/* ------------------------------------------------------------- questions --- */
+
+.qa {
+  margin: 0 0 1.5rem;
+  display: grid;
+  gap: 1.1rem;
+}
+
+.qa__pair {
+  border-left: 3px solid var(--plate);
+  padding-left: 0.9rem;
+}
+
+.qa__question {
+  margin: 0 0 0.3rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.qa__answer {
+  margin: 0;
+  color: var(--ink-soft);
+  max-width: var(--measure);
+}
+
+/* Their own thread: quieter than the published pairs, because it is not the page's
+   content — it is a receipt. */
+.qa__mine {
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.qa__mineitem {
+  background: var(--paper);
+  border-radius: var(--radius-plate);
+  padding: 0.8rem 1rem;
+}
+
+.qa__waiting {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.qa__form {
+  display: grid;
+  gap: 0.7rem;
+  justify-items: start;
+  max-width: 34rem;
+}
+
+.qa__input {
+  font: inherit;
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-plate);
+  background: var(--surface);
+  color: var(--ink);
+  resize: vertical;
+}
+
+.qa__input:focus-visible {
+  border-color: var(--ink);
+  outline: none;
+}
+
+/* ------------------------------------------------------------------ bell --- */
+
+.bell {
+  position: relative;
+  display: flex;
+}
+
+.bell__button {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0.2rem;
+  cursor: pointer;
+  color: #ccd2da;
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.bell__button:hover,
+.bell__button:focus-visible {
+  color: #fff;
+}
+
+.bell__icon {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.bell__count {
+  position: absolute;
+  top: -0.25rem;
+  right: -0.45rem;
+  min-width: 1.05rem;
+  padding: 0 0.2rem;
+  border-radius: 999px;
+  background: var(--plate);
+  color: var(--ink);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.05rem;
+  text-align: center;
+}
+
+.bell__panel {
+  position: absolute;
+  top: calc(100% + 0.6rem);
+  right: 0;
+  z-index: 20;
+  width: min(20rem, calc(100vw - 2rem));
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-plate);
+  box-shadow: 0 10px 30px rgb(27 36 48 / 18%);
+  padding: 0.6rem;
+}
+
+.bell__title {
+  margin: 0 0 0.4rem;
+  padding: 0 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bell__empty {
+  margin: 0;
+  padding: 0.5rem 0.4rem 0.7rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.bell__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.bell__item {
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+  padding: 0.55rem 0.4rem;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.bell__item:hover,
+.bell__item:focus-visible {
+  background: var(--paper);
+}
+
+.masthead__admin {
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  color: var(--plate);
+}
+
+.masthead__admin:hover,
+.masthead__admin:focus-visible {
+  color: #fff;
+}
