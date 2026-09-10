@@ -459,6 +459,29 @@ class CreateInventoryUserTests(TestCase):
         user.refresh_from_db()
         self.assertTrue(user.check_password("chosen-by-them-678"))
 
+    def test_details_can_come_from_the_environment(self):
+        """Zappa splits the command string on whitespace and ignores quotes, so any
+        name containing a space can only be passed this way."""
+        env = {
+            "INVENTORY_USER_PASSWORD": "env-pw-123456",
+            "INVENTORY_USER_USERNAME": "envhire",
+            "INVENTORY_USER_EMAIL": "env@example.com",
+            "INVENTORY_USER_FIRST_NAME": "Mohammad Mahsiul",
+            "INVENTORY_USER_LAST_NAME": "Islam",
+        }
+        with mock.patch.dict(os.environ, env):
+            call_command("create_inventory_user", stdout=io.StringIO())
+
+        user = get_user_model().objects.get(username="envhire")
+        self.assertEqual(user.first_name, "Mohammad Mahsiul")
+        self.assertEqual(user.last_name, "Islam")
+        self.assertTrue(user.groups.filter(name=GROUP_NAME).exists())
+
+    def test_requires_a_username_from_somewhere(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(CommandError):
+                call_command("create_inventory_user", stdout=io.StringIO())
+
     def test_refuses_to_modify_a_superuser(self):
         """A typo matching the owner's account must not quietly demote it."""
         get_user_model().objects.create_superuser("boss", password="owner-pw-12345")

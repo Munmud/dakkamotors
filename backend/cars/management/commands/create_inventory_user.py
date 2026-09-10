@@ -7,6 +7,11 @@ in a private subnet with only an S3 gateway endpoint and cannot reach the SSM AP
 all, so `remote_env` (a private encrypted object in S3) is the only channel available.
 
 Written to be reused for the next hire rather than hardcoded to one person.
+
+Every option also falls back to an environment variable, because Zappa splits the
+command string on whitespace and does not honour quotes - so `--first-name 'Mohammad
+Mahsiul'` arrives as two arguments and argparse rejects it. Any value containing a space
+has to come through the environment.
 """
 
 import os
@@ -22,14 +27,28 @@ class Command(BaseCommand):
     help = f"Create a staff user in the {GROUP_NAME!r} group. Safe to re-run."
 
     def add_arguments(self, parser):
-        parser.add_argument("--username", required=True)
+        # Not required: the environment can supply any of these, and must supply any
+        # value containing a space. See the module docstring.
+        parser.add_argument("--username", default="")
         parser.add_argument("--email", default="")
         parser.add_argument("--first-name", default="")
         parser.add_argument("--last-name", default="")
 
     def handle(self, *args, **options):
         User = get_user_model()
-        username = options["username"]
+
+        def setting(option, env_name):
+            return options[option] or os.environ.get(env_name, "")
+
+        username = setting("username", "INVENTORY_USER_USERNAME")
+        email = setting("email", "INVENTORY_USER_EMAIL")
+        first_name = setting("first_name", "INVENTORY_USER_FIRST_NAME")
+        last_name = setting("last_name", "INVENTORY_USER_LAST_NAME")
+
+        if not username:
+            raise CommandError(
+                "No username given. Pass --username, or set INVENTORY_USER_USERNAME."
+            )
 
         try:
             group = Group.objects.get(name=GROUP_NAME)
@@ -60,9 +79,9 @@ class Command(BaseCommand):
             user = User(username=username)
             user.set_password(password)
 
-        user.email = options["email"] or user.email
-        user.first_name = options["first_name"] or user.first_name
-        user.last_name = options["last_name"] or user.last_name
+        user.email = email or user.email
+        user.first_name = first_name or user.first_name
+        user.last_name = last_name or user.last_name
         user.is_staff = True       # required to reach the admin at all
         user.is_superuser = False  # the whole point of the role
         user.is_active = True
