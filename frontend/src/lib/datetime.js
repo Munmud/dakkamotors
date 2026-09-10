@@ -87,3 +87,49 @@ export function groupSlotsByTokyoDate(slots) {
   }
   return [...days.values()];
 }
+
+/**
+ * Sunday-first weekday initials for a calendar header.
+ *
+ * 1 January 2023 was a Sunday, so seven days from there gives the week in order without
+ * hardcoding names in either language. Japan reads calendars Sunday-first, and so does
+ * the en-US convention, so one order serves both.
+ */
+export function weekdayInitials(language) {
+  const format = new Intl.DateTimeFormat(locale(language), {
+    weekday: "short",
+    timeZone: "UTC",
+  });
+  return Array.from({ length: 7 }, (_, index) =>
+    format.format(new Date(Date.UTC(2023, 0, 1 + index))),
+  );
+}
+
+/** "September 2026" / "2026年9月" — the calendar's heading. */
+export function formatMonthLabel(year, month, language) {
+  return new Intl.DateTimeFormat(locale(language), {
+    year: "numeric",
+    month: "long",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(year, month, 1)));
+}
+
+/**
+ * The cells of one month, Sunday-first: nulls for the blanks before the 1st, then day
+ * numbers. Built in UTC so the grid is pure calendar arithmetic and cannot be shifted by
+ * the viewer's timezone — the availability keys are already pinned to Tokyo.
+ */
+export function monthCells(year, month) {
+  const leading = new Date(Date.UTC(year, month, 1)).getUTCDay();
+  const days = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return [
+    ...Array.from({ length: leading }, () => null),
+    ...Array.from({ length: days }, (_, index) => index + 1),
+  ];
+}
+
+/** The "YYYY-MM-DD" key for a calendar cell, matching tokyoDateKey's shape. */
+export function dateKey(year, month, day) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${year}-${pad(month + 1)}-${pad(day)}`;
+}

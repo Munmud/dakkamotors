@@ -121,7 +121,9 @@
     "changeDate": "‹ 日付を変更",
     "timesAvailable_one": "残り{{count}}枚",
     "timesAvailable_other": "残り{{count}}枚",
-    "dateGone": "この日の最後の枠がちょうど埋まりました。別の日を選んでください。"
+    "dateGone": "この日の最後の枠がちょうど埋まりました。別の日を選んでください。",
+    "previousMonth": "前の月",
+    "nextMonth": "次の月"
   },
   "account": {
     "yourDetails": "お客様情報",

@@ -663,74 +663,109 @@ a {
   font-weight: 700;
 }
 
-.slotpicker__dates {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* A month at a time. Only dates the server offered are pressable; the rest are shown
+   greyed rather than hidden, so the shape of the month stays readable. */
+.cal {
   width: 100%;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
-  gap: 0.6rem;
-}
-
-.slotpicker__date {
-  appearance: none;
-  font: inherit;
-  cursor: pointer;
-  width: 100%;
-  display: grid;
-  gap: 0.1rem;
-  justify-items: center;
-  padding: 0.7rem 0.5rem 0.6rem;
-  background: var(--surface);
-  color: var(--ink);
+  max-width: 22rem;
   border: 2px solid var(--line);
   border-radius: var(--radius-plate);
+  background: var(--surface);
+  padding: 0.6rem;
 }
 
-.slotpicker__date:hover,
-.slotpicker__date:focus-visible {
+.cal__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.1rem 0.15rem 0.5rem;
+}
+
+.cal__month {
+  font-weight: 700;
+}
+
+.cal__nav {
+  appearance: none;
+  font: inherit;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  width: 2rem;
+  height: 2rem;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-plate);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.cal__nav:hover:not(:disabled),
+.cal__nav:focus-visible {
   border-color: var(--ink);
 }
 
-.slotpicker__date:disabled {
+.cal__nav:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.cal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.15rem;
+}
+
+.cal__weekday {
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--muted);
+  padding-bottom: 0.2rem;
+}
+
+.cal__blank {
+  aspect-ratio: 1;
+}
+
+.cal__day {
+  appearance: none;
+  font: inherit;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-plate);
+  border: 2px solid transparent;
+  background: none;
+  font-size: 0.9rem;
+}
+
+.cal__day--off {
+  color: var(--line);
+}
+
+.cal__day--open {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 700;
+  border-color: var(--line);
+}
+
+.cal__day--open:hover,
+.cal__day--open:focus-visible {
+  border-color: var(--ink);
+}
+
+.cal__day--open[aria-pressed="true"] {
+  background: var(--plate);
+  border-color: var(--ink);
+}
+
+.cal__day--open:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.slotpicker__weekday {
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-.slotpicker__daynum {
-  font-size: var(--step-2);
-  font-weight: 700;
-  line-height: 1.1;
-}
-
-.slotpicker__count {
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-
-/* Reads as a way back, not as another thing to choose. */
-.slotpicker__back {
-  appearance: none;
-  background: none;
-  border: 0;
-  font: inherit;
-  font-size: 0.9rem;
-  padding: 0.2rem 0;
-  color: var(--muted);
-  cursor: pointer;
-  text-decoration: underline;
-}
-
-.slotpicker__back:hover,
-.slotpicker__back:focus-visible {
-  color: var(--ink);
-}
 
 .slotpicker__times {
   list-style: none;

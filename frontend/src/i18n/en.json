@@ -121,7 +121,9 @@
     "changeDate": "‹ Change date",
     "timesAvailable_one": "{{count}} time",
     "timesAvailable_other": "{{count}} times",
-    "dateGone": "The last place on that date has just gone. Please pick another."
+    "dateGone": "The last place on that date has just gone. Please pick another.",
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month"
   },
   "account": {
     "yourDetails": "Your details",
