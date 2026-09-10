@@ -1,11 +1,18 @@
+from django import forms
 from django.contrib import admin, messages
+from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.contrib.auth.forms import UserChangeForm
+from django.contrib.auth.models import Group
 from django.utils import timezone
 from django.utils.html import format_html
 
 from .forms import CarAdminForm, CarImageForm
 from .images import build_derivatives
 from .tasks import process_pending
-from .models import Car, CarImage
+from .management.commands.ensure_inventory_group import (
+    GROUP_NAME as INVENTORY_GROUP_NAME,
+)
+from .models import Car, CarImage, StaffAccount
 
 
 class CarImageInline(admin.TabularInline):
@@ -141,3 +148,154 @@ class CarAdmin(admin.ModelAdmin):
 class CarImageAdmin(admin.ModelAdmin):
     list_display = ("__str__", "car", "is_primary", "order")
     list_filter = ("is_primary",)
+
+
+class StaffAccountForm(UserChangeForm):
+    """Guards that belong to the data rather than to a particular view.
+
+    Built on UserChangeForm rather than a plain ModelForm so `password` stays the
+    read-only hash field with its "change password" link. A plain ModelForm turns it
+    into a required text input, and every save fails with "This field is required".
+    """
+
+    class Meta(UserChangeForm.Meta):
+        model = StaffAccount
+        fields = "__all__"
+
+    def clean(self):
+        cleaned = super().clean()
+        editor = getattr(self, "editing_user", None)
+
+        # One careless tick would otherwise log you out of your own account with no way
+        # back in short of asking the owner.
+        if editor is not None and self.instance.pk == editor.pk:
+            if "is_active" in cleaned and not cleaned["is_active"]:
+                self.add_error("is_active", "You cannot deactivate your own account.")
+            if "is_staff" in cleaned and not cleaned["is_staff"]:
+                self.add_error("is_staff", "You cannot remove your own staff access.")
+        return cleaned
+
+
+@admin.register(StaffAccount)
+class StaffAccountAdmin(DjangoUserAdmin):
+    """Staff administration that a non-superuser can be trusted with.
+
+    Django's stock UserAdmin plus `auth.change_user` is a complete privilege
+    escalation: the holder can open the owner's account and reset its password, tick
+    "superuser" on themselves, or grant themselves any permission that exists. None of
+    that is a bug - it is what the permission means. So members of Inventory Managers
+    get this sandbox instead, and never an `auth` permission at all.
+
+    A superuser gets Django's behaviour untouched.
+    """
+
+    form = StaffAccountForm
+    list_display = ("username", "get_full_name", "email", "is_active", "is_staff")
+    list_filter = ("is_active", "is_staff", "groups")
+    ordering = ("username",)
+
+    #: Groups a non-superuser is allowed to hand out. Anything more powerful added
+    #: later is invisible here, so it cannot be joined by someone sandboxed.
+    ASSIGNABLE_GROUPS = (INVENTORY_GROUP_NAME,)
+
+    SANDBOXED_FIELDSETS = (
+        (None, {"fields": ("username", "password")}),
+        ("Personal info", {"fields": ("first_name", "last_name", "email")}),
+        (
+            "Access",
+            {
+                "fields": ("is_active", "is_staff", "groups"),
+                "description": (
+                    "Untick Active to stop someone logging in. Accounts are never "
+                    "deleted here, so their edit history stays intact."
+                ),
+            },
+        ),
+    )
+
+    # --- who is looking -------------------------------------------------------------
+
+    @staticmethod
+    def _unrestricted(request):
+        return request.user.is_superuser
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        if self._unrestricted(request):
+            return queryset
+        # The owner's account is not listed, searchable, or selectable.
+        return queryset.filter(is_superuser=False)
+
+    def _forbidden_target(self, request, obj):
+        return obj is not None and obj.is_superuser and not self._unrestricted(request)
+
+    # Checked as well as filtering the queryset, so a guessed primary key in the URL is
+    # refused rather than merely absent from the list.
+    def has_view_permission(self, request, obj=None):
+        if self._forbidden_target(request, obj):
+            return False
+        return super().has_view_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        if self._forbidden_target(request, obj):
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        # Deactivate, never delete: reversible, and it keeps the admin history readable.
+        if not self._unrestricted(request):
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if not self._unrestricted(request):
+            actions.pop("delete_selected", None)
+        return actions
+
+    # --- what they can edit ---------------------------------------------------------
+
+    def get_fieldsets(self, request, obj=None):
+        if obj is None or self._unrestricted(request):
+            return super().get_fieldsets(request, obj)
+        # No is_superuser (self-promotion) and no user_permissions (granting anything).
+        return self.SANDBOXED_FIELDSETS
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        # Let the form recognise "this is me" for the self-lockout guard.
+        form.editing_user = request.user
+        return form
+
+    def formfield_for_manytomany(self, db_field, request, **kwargs):
+        if db_field.name == "groups" and not self._unrestricted(request):
+            kwargs["queryset"] = Group.objects.filter(name__in=self.ASSIGNABLE_GROUPS)
+        return super().formfield_for_manytomany(db_field, request, **kwargs)
+
+    # --- what actually gets written -------------------------------------------------
+
+    def save_model(self, request, obj, form, change):
+        if not self._unrestricted(request):
+            # Belt and braces: a crafted POST cannot set these even if the field were
+            # somehow rendered.
+            obj.is_superuser = False
+            if not change:
+                # A colleague who cannot log in is a confusing thing to hand someone.
+                obj.is_staff = True
+                obj.is_active = True
+        super().save_model(request, obj, form, change)
+        if not self._unrestricted(request):
+            obj.user_permissions.clear()
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        if self._unrestricted(request):
+            return
+        obj = form.instance
+        # New accounts join the role automatically; there is only one they could be
+        # given, and an account with no group sees an empty admin.
+        if not change:
+            obj.groups.add(Group.objects.get(name=INVENTORY_GROUP_NAME))
+        # Re-assert the allowlist after the form has written the M2M.
+        for group in obj.groups.exclude(name__in=self.ASSIGNABLE_GROUPS):
+            obj.groups.remove(group)

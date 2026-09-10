@@ -1,5 +1,6 @@
 import posixpath
 
+from django.contrib.auth.models import User
 from django.core.files.storage import default_storage
 from django.db import models
 from django.db.models.signals import post_delete
@@ -8,6 +9,26 @@ from django.dispatch import receiver
 # Widths generated for every uploaded photo. 320 covers gallery thumbnails, 800 the
 # listing cards, 1600 the gallery's main image on a high-density screen.
 DERIVATIVE_WIDTHS = (320, 800, 1600)
+
+
+class StaffAccount(User):
+    """The staff list as inventory managers see it.
+
+    A proxy over the ordinary user model, so its permissions live under `cars`
+    (`cars.change_staffaccount`) instead of `auth`. That is the point: the group never
+    holds an `auth` permission, so `/api/admin/auth/user/` keeps returning 403 and the
+    real user admin stays reachable only by a superuser. It also reads better - the
+    entry sits under Inventory next to Cars, rather than under "Authentication and
+    Authorization".
+
+    The sandbox itself lives in `StaffAccountAdmin`; this model only decides where the
+    permissions hang.
+    """
+
+    class Meta:
+        proxy = True
+        verbose_name = "staff account"
+        verbose_name_plural = "staff accounts"
 
 
 class FuelType(models.TextChoices):

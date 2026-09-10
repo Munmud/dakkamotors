@@ -100,8 +100,26 @@ Two levels of access exist.
 
 | | Can do | Cannot do |
 |---|---|---|
-| `admin` (superuser) | Everything, including creating and deleting accounts | — |
-| **Inventory Managers** group | Add, edit, delete cars and photos; upload media | See or edit users, groups or permissions |
+| `admin` (superuser) | Everything, including deleting accounts and editing other superusers | — |
+| **Inventory Managers** group | Add, edit, delete cars and photos; upload media; add and edit staff colleagues | Reach the owner's account, become a superuser, grant permissions, or delete an account |
+
+### Why staff administration is a proxy model
+
+Members manage colleagues through **`cars.StaffAccount`**, a proxy over `auth.User`, so
+the permissions are `cars.*_staffaccount` and the group **never holds an `auth`
+permission**. That is deliberate: `/api/admin/auth/user/` keeps returning 403 for them,
+and the real user admin stays superuser-only.
+
+Handing a non-superuser `auth.change_user` with Django's stock `UserAdmin` is a complete
+privilege escalation — the holder can reset the owner's password, tick "superuser" on
+themselves, or grant themselves any permission. `StaffAccountAdmin` closes each route:
+superusers are filtered from the queryset *and* refused by the permission hooks, the
+`is_superuser` and `user_permissions` fields are absent from the fieldsets *and* forced
+on save, group choices are limited to an allowlist, and nobody can deactivate their own
+account. Superusers get Django's untouched behaviour.
+
+Removing someone means unticking **Active**, not deleting: reversible, and it keeps the
+admin history of their edits readable. The group has no `delete_staffaccount`.
 
 The restriction is not cosmetic. Django's admin renders only the models a user holds
 permissions for, *and* re-checks on every view, so a member sees no Authentication

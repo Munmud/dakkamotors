@@ -27,6 +27,13 @@ PERMISSIONS = [
     ("cars", "change_carimage"),
     ("cars", "delete_carimage"),
     ("cars", "view_carimage"),
+    # Staff administration, through the StaffAccount proxy rather than auth.User, so
+    # this group never holds an auth permission and the real user admin stays superuser
+    # only. No delete_staffaccount: removing someone means unticking Active, which is
+    # reversible and keeps their edit history readable.
+    ("cars", "add_staffaccount"),
+    ("cars", "change_staffaccount"),
+    ("cars", "view_staffaccount"),
 ]
 
 # Granting any of these would let a member edit users or hand themselves more rights,

@@ -3,6 +3,7 @@ import os
 from unittest import mock
 
 from django.contrib.auth import get_user_model
+from django.contrib import admin
 from django.contrib.auth.models import Group, Permission
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -12,7 +13,7 @@ from django.urls import reverse
 from PIL import Image
 
 from .management.commands.ensure_inventory_group import GROUP_NAME
-from .models import Car, CarImage, CarStatus
+from .models import Car, CarImage, CarStatus, StaffAccount
 from .uploads import UploadRejected, _validate
 
 # A 1x1 GIF — smallest thing Pillow will accept as a real image.
@@ -359,8 +360,16 @@ class InventoryGroupTests(TestCase):
                 "cars.add_car", "cars.change_car", "cars.delete_car", "cars.view_car",
                 "cars.add_carimage", "cars.change_carimage",
                 "cars.delete_carimage", "cars.view_carimage",
+                # Staff administration via the proxy, never via auth.User.
+                "cars.add_staffaccount", "cars.change_staffaccount",
+                "cars.view_staffaccount",
             },
         )
+
+    def test_group_cannot_delete_staff_accounts(self):
+        """Removing someone means deactivating them, which is reversible."""
+        granted = {p.codename for p in self.group.permissions.all()}
+        self.assertNotIn("delete_staffaccount", granted)
 
     def test_group_grants_nothing_outside_the_cars_app(self):
         """Anything from auth or admin would let a member hand themselves more."""
@@ -495,6 +504,231 @@ class CreateInventoryUserTests(TestCase):
         with mock.patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(CommandError):
                 call_command("create_inventory_user", username="nopw", stdout=io.StringIO())
+
+
+class StaffAdministrationTests(TestCase):
+    """Each test is an escalation a member could actually attempt from a browser."""
+
+    STAFF_URL = "/api/admin/cars/staffaccount/"
+
+    def setUp(self):
+        self.manager, self.password = make_manager()
+        self.owner = get_user_model().objects.create_superuser(
+            "owner", password="owner-pw-123456"
+        )
+        self.colleague, _ = make_manager("colleague", "colleague-pw-1234")
+        self.client.login(username=self.manager.username, password=self.password)
+
+    def change_url(self, user):
+        return f"{self.STAFF_URL}{user.pk}/change/"
+
+    def post_change(self, user, **overrides):
+        data = {
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": user.email,
+            "is_active": "on",
+            "is_staff": "on",
+            "groups": [str(Group.objects.get(name=GROUP_NAME).pk)],
+        }
+        data.update(overrides)
+        return self.client.post(self.change_url(user), data)
+
+    # --- the role works ------------------------------------------------------------
+
+    def test_manager_can_list_staff(self):
+        self.assertEqual(self.client.get(self.STAFF_URL).status_code, 200)
+
+    def test_manager_can_edit_a_colleague(self):
+        self.post_change(self.colleague, first_name="Renamed")
+        self.colleague.refresh_from_db()
+        self.assertEqual(self.colleague.first_name, "Renamed")
+
+    def test_created_colleague_can_log_in_and_has_the_role(self):
+        self.client.post(
+            f"{self.STAFF_URL}add/",
+            {"username": "newmate", "password1": "brand-new-pw-77",
+             "password2": "brand-new-pw-77"},
+        )
+        created = get_user_model().objects.get(username="newmate")
+        self.assertTrue(created.is_staff)
+        self.assertTrue(created.is_active)
+        self.assertTrue(created.groups.filter(name=GROUP_NAME).exists())
+        self.assertFalse(created.is_superuser)
+
+    # --- the owner is out of reach --------------------------------------------------
+
+    def test_superuser_is_not_listed(self):
+        body = self.client.get(self.STAFF_URL).content.decode()
+        self.assertNotIn("owner", body)
+        self.assertIn("colleague", body)
+
+    def test_superuser_change_page_is_refused_by_direct_url(self):
+        """Filtering the list is not enough; a guessed pk must be refused too.
+
+        The refusal is a redirect rather than a 403: the filtered queryset means the
+        admin cannot find the object at all, so it bounces with "does not exist" before
+        the permission hook is consulted. Either way the page never renders.
+        """
+        response = self.client.get(self.change_url(self.owner))
+
+        self.assertIn(response.status_code, (302, 403))
+        self.assertNotEqual(response.status_code, 200)
+
+    def test_permission_hook_refuses_a_superuser_target_directly(self):
+        """The second line of defence, independent of the queryset filter."""
+        from .admin import StaffAccountAdmin
+
+        request = type("Req", (), {"user": self.manager})()
+        self.assertFalse(
+            StaffAccountAdmin.has_change_permission(
+                StaffAccountAdmin(StaffAccount, admin.site), request, self.owner
+            )
+        )
+
+    def test_cannot_take_over_the_owner_account(self):
+        self.post_change(self.owner, username="owner")
+        self.owner.refresh_from_db()
+        self.assertTrue(self.owner.is_superuser)
+        self.assertTrue(self.owner.check_password("owner-pw-123456"))
+
+    # --- escalation attempts --------------------------------------------------------
+
+    def test_cannot_make_themselves_a_superuser(self):
+        self.post_change(self.manager, is_superuser="on")
+
+        self.manager.refresh_from_db()
+        self.assertFalse(self.manager.is_superuser)
+
+    def test_cannot_promote_a_colleague_to_superuser(self):
+        self.post_change(self.colleague, is_superuser="on")
+
+        self.colleague.refresh_from_db()
+        self.assertFalse(self.colleague.is_superuser)
+
+    def test_cannot_grant_themselves_arbitrary_permissions(self):
+        escalation = Permission.objects.get(
+            content_type__app_label="auth", codename="change_user"
+        )
+
+        self.post_change(self.manager, user_permissions=[str(escalation.pk)])
+
+        self.manager.refresh_from_db()
+        self.assertEqual(self.manager.user_permissions.count(), 0)
+        self.assertFalse(self.manager.has_perm("auth.change_user"))
+
+    def test_cannot_join_a_group_outside_the_allowlist(self):
+        privileged = Group.objects.create(name="Owners")
+        privileged.permissions.add(
+            Permission.objects.get(
+                content_type__app_label="auth", codename="change_user"
+            )
+        )
+
+        self.post_change(self.manager, groups=[str(privileged.pk)])
+
+        self.manager.refresh_from_db()
+        self.assertFalse(self.manager.groups.filter(name="Owners").exists())
+        self.assertFalse(self.manager.has_perm("auth.change_user"))
+
+    def test_save_model_forces_is_superuser_false_even_if_set(self):
+        """Exercises the guard directly.
+
+        Posting is_superuser to the change view proves little on its own: the field is
+        not rendered, so Django would drop it regardless. This calls save_model with the
+        flag already set, which is what a leaked field or a future fieldset mistake
+        would look like.
+        """
+        from .admin import StaffAccountAdmin
+
+        model_admin = StaffAccountAdmin(StaffAccount, admin.site)
+        request = type("Req", (), {"user": self.manager})()
+        target = StaffAccount.objects.get(pk=self.colleague.pk)
+        target.is_superuser = True
+
+        model_admin.save_model(request, target, form=None, change=True)
+
+        target.refresh_from_db()
+        self.assertFalse(target.is_superuser)
+
+    def test_save_model_leaves_a_superuser_alone_for_the_owner(self):
+        """The same hook must not neuter the owner's own admin."""
+        from .admin import StaffAccountAdmin
+
+        model_admin = StaffAccountAdmin(StaffAccount, admin.site)
+        request = type("Req", (), {"user": self.owner})()
+        target = StaffAccount.objects.get(pk=self.colleague.pk)
+        target.is_superuser = True
+
+        model_admin.save_model(request, target, form=None, change=True)
+
+        target.refresh_from_db()
+        self.assertTrue(target.is_superuser)
+
+    def test_sandboxed_fieldsets_expose_no_escalation_fields(self):
+        body = self.client.get(self.change_url(self.colleague)).content.decode()
+
+        self.assertNotIn('name="is_superuser"', body)
+        self.assertNotIn('name="user_permissions"', body)
+        # The fields they legitimately need are present.
+        self.assertIn('name="is_active"', body)
+        self.assertIn('name="groups"', body)
+
+    def test_the_original_user_admin_is_still_out_of_bounds(self):
+        """The proxy exists precisely so this stays true."""
+        self.assertEqual(self.client.get("/api/admin/auth/user/").status_code, 403)
+        self.assertEqual(self.client.get("/api/admin/auth/group/").status_code, 403)
+
+    # --- deactivate, not delete -----------------------------------------------------
+
+    def test_deletion_is_refused(self):
+        response = self.client.post(f"{self.STAFF_URL}{self.colleague.pk}/delete/")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(get_user_model().objects.filter(pk=self.colleague.pk).exists())
+
+    def test_bulk_delete_action_is_not_offered(self):
+        body = self.client.get(self.STAFF_URL).content.decode()
+        self.assertNotIn("delete_selected", body)
+
+    def test_deactivating_a_colleague_works(self):
+        self.post_change(self.colleague, is_active="")
+
+        self.colleague.refresh_from_db()
+        self.assertFalse(self.colleague.is_active)
+
+    # --- self-lockout ---------------------------------------------------------------
+
+    def test_cannot_deactivate_their_own_account(self):
+        self.post_change(self.manager, is_active="")
+
+        self.manager.refresh_from_db()
+        self.assertTrue(self.manager.is_active)
+
+    def test_cannot_remove_their_own_staff_access(self):
+        self.post_change(self.manager, is_staff="")
+
+        self.manager.refresh_from_db()
+        self.assertTrue(self.manager.is_staff)
+
+
+class SuperuserUnaffectedTests(TestCase):
+    def test_superuser_still_sees_every_account(self):
+        get_user_model().objects.create_superuser("owner", password="owner-pw-123456")
+        other, _ = make_manager("other", "other-pw-12345")
+        self.client.login(username="owner", password="owner-pw-123456")
+
+        body = self.client.get("/api/admin/cars/staffaccount/").content.decode()
+
+        self.assertIn("owner", body)
+        self.assertIn("other", body)
+
+    def test_superuser_keeps_the_real_user_admin(self):
+        get_user_model().objects.create_superuser("owner", password="owner-pw-123456")
+        self.client.login(username="owner", password="owner-pw-123456")
+
+        self.assertEqual(self.client.get("/api/admin/auth/user/").status_code, 200)
 
 
 class PrimaryImageFallbackTests(TestCase):

@@ -10,6 +10,7 @@ Two deliberate fallbacks keep local development free of cloud dependencies:
   * no AWS_STORAGE_BUCKET_NAME -> uploads on local disk
 """
 
+import sys
 from pathlib import Path
 
 import environ
@@ -101,6 +102,12 @@ else:
 # down to zero while a connection is held open, and persistent connections are useless
 # in Lambda anyway.
 DATABASES["default"]["CONN_MAX_AGE"] = 0
+
+# Password hashing is deliberately slow, which is right in production and painful in a
+# suite that creates dozens of accounts - it took the staff-permission tests from a few
+# seconds to well over a minute. Only ever applied while running tests.
+if "test" in sys.argv:
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
