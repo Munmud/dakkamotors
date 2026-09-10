@@ -225,6 +225,19 @@ function MyBookings({ customer, onSignOut }) {
                 <p className="bookings__when u-nums">
                   {formatSlotFull(booking.starts_at, i18n.language)}
                 </p>
+                {/* Says plainly whether we have agreed to it, so nobody drives over
+                    for a slot that is still only a request. */}
+                <p
+                  className={
+                    booking.status === "confirmed"
+                      ? "bookings__status bookings__status--ok"
+                      : "bookings__status"
+                  }
+                >
+                  {booking.status === "confirmed"
+                    ? t("booking.confirmed")
+                    : t("booking.awaiting")}
+                </p>
                 {booking.car_label && (
                   <p className="bookings__car">{booking.car_label}</p>
                 )}

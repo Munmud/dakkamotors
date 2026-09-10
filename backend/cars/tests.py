@@ -1,5 +1,6 @@
 import datetime
 import io
+import json
 import os
 import re
 from unittest import mock
@@ -11,13 +12,19 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.utils import timezone
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from PIL import Image
 
 from .management.commands.ensure_inventory_group import GROUP_NAME
 from . import booking as booking_rules
-from .booking_models import CustomerProfile, TestDriveSchedule, TestDriveSlot
+from . import mail
+from .booking_models import (
+    BookingStatus,
+    CustomerProfile,
+    TestDriveSchedule,
+    TestDriveSlot,
+)
 from .models import Car, CarImage, CarStatus, StaffAccount
 from .uploads import UploadRejected, _validate
 
@@ -1368,6 +1375,188 @@ class AccountPageTests(TestCase):
 
         self.assertIn("Toyota Aqua", body)
         self.assertIn('name="robots" content="noindex, nofollow"', body)
+
+
+@override_settings(
+    OUTBOX_BUCKET="test-outbox",
+    MAIL_FROM="noreply@dakkamotors.com",
+    MAIL_FROM_NAME="Dakka Motors",
+    MAIL_REPLY_TO="owner@example.com",
+    STAFF_ALERT_EMAIL="staff@example.com",
+)
+class QueueEmailTests(TestCase):
+    """Django cannot send mail itself - no route out of the VPC - so 'sending' means
+    writing one object to S3 for a Lambda outside the VPC to pick up."""
+
+    def test_a_message_is_written_to_the_outbox(self):
+        with mock.patch("cars.mail.boto3.client") as client:
+            queued = mail.queue_email(
+                to="buyer@example.com", subject="Hello", html="<p>Hi</p>", text="Hi"
+            )
+
+        self.assertTrue(queued)
+        put = client.return_value.put_object
+        put.assert_called_once()
+        kwargs = put.call_args.kwargs
+        self.assertEqual(kwargs["Bucket"], "test-outbox")
+        self.assertTrue(kwargs["Key"].startswith("outbox/"))
+
+        body = json.loads(kwargs["Body"].decode("utf-8"))
+        self.assertEqual(body["to"], ["buyer@example.com"])
+        self.assertEqual(body["from"], "noreply@dakkamotors.com")
+        self.assertEqual(body["replyTo"], "owner@example.com")
+        self.assertEqual(body["subject"], "Hello")
+
+    def test_queuing_failures_never_reach_the_caller(self):
+        """A booking must not fail because an email could not be queued."""
+        with mock.patch("cars.mail.boto3.client") as client:
+            client.return_value.put_object.side_effect = RuntimeError("S3 is down")
+            queued = mail.queue_email(to="a@b.com", subject="x", html="y")
+
+        self.assertFalse(queued)
+
+
+class UnconfiguredEmailTests(TestCase):
+    @override_settings(OUTBOX_BUCKET="", MAIL_FROM="")
+    def test_nothing_is_sent_when_email_is_not_configured(self):
+        """Local development must not be able to email a real customer by accident."""
+        with mock.patch("cars.mail.boto3.client") as client:
+            queued = mail.queue_email(to="a@b.com", subject="x", html="y")
+
+        self.assertFalse(queued)
+        client.assert_not_called()
+
+
+class BookingApprovalTests(TestCase):
+    def setUp(self):
+        self.user, _ = make_customer()
+        self.car = make_car("APPROVE-1", brand="Daihatsu", model_name="Tanto")
+
+    def test_a_new_booking_is_awaiting_confirmation(self):
+        booking = booking_rules.create_booking(
+            user=self.user, slot_id=future_slot().pk, car=self.car
+        )
+
+        self.assertEqual(booking.status, BookingStatus.PENDING)
+        self.assertTrue(booking.is_active)
+
+    def test_a_pending_booking_holds_the_seat(self):
+        """Otherwise two customers could both be pending for one place, and one would
+        have to be turned away after the fact."""
+        slot = future_slot(capacity=1)
+        booking_rules.create_booking(user=self.user, slot_id=slot.pk)
+        other, _ = make_customer("other@example.com")
+
+        with self.assertRaises(booking_rules.BookingError):
+            booking_rules.create_booking(user=other, slot_id=slot.pk)
+
+        slot.refresh_from_db()
+        self.assertEqual(slot.seats_left, 0)
+
+    def test_pending_bookings_count_towards_the_limit(self):
+        for day in range(booking_rules.MAX_ACTIVE_BOOKINGS):
+            booking_rules.create_booking(user=self.user, slot_id=future_slot(days=day + 2).pk)
+
+        with self.assertRaises(booking_rules.BookingError):
+            booking_rules.create_booking(user=self.user, slot_id=future_slot(days=20).pk)
+
+    def test_confirming_records_the_time_and_status(self):
+        booking = booking_rules.create_booking(user=self.user, slot_id=future_slot().pk)
+
+        booking_rules.confirm_booking(booking)
+
+        booking.refresh_from_db()
+        self.assertEqual(booking.status, BookingStatus.CONFIRMED)
+        self.assertIsNotNone(booking.confirmed_at)
+
+
+@override_settings(
+    OUTBOX_BUCKET="test-outbox",
+    MAIL_FROM="noreply@dakkamotors.com",
+    STAFF_ALERT_EMAIL="staff@example.com",
+)
+class BookingEmailTests(TestCase):
+    def setUp(self):
+        self.user, _ = make_customer(email="buyer@example.com")
+        self.car = make_car("MAIL-1", brand="Honda", model_name="N-Box")
+
+    def queued_messages(self, fn):
+        """Run fn and return the messages it queued.
+
+        on_commit callbacks do not fire inside a TestCase's transaction, so they have to
+        be captured explicitly - without this the emails would silently never be checked.
+        """
+        with mock.patch("cars.mail.boto3.client") as client:
+            with self.captureOnCommitCallbacks(execute=True):
+                fn()
+            calls = client.return_value.put_object.call_args_list
+        return [json.loads(call.kwargs["Body"].decode("utf-8")) for call in calls]
+
+    def test_booking_alerts_staff_and_says_it_is_not_confirmed(self):
+        messages = self.queued_messages(
+            lambda: booking_rules.create_booking(
+                user=self.user, slot_id=future_slot().pk, car=self.car
+            )
+        )
+
+        self.assertEqual(len(messages), 1)
+        alert = messages[0]
+        self.assertEqual(alert["to"], ["staff@example.com"])
+        self.assertIn("Honda N-Box", alert["subject"])
+        self.assertIn("not been told it is confirmed", alert["text"])
+        # Replying to the alert should reach the customer, not a noreply void.
+        self.assertEqual(alert["replyTo"], "buyer@example.com")
+
+    def test_booking_does_not_email_the_customer(self):
+        """They are told on screen that it is awaiting confirmation; the email only
+        goes out once staff accept."""
+        messages = self.queued_messages(
+            lambda: booking_rules.create_booking(user=self.user, slot_id=future_slot().pk)
+        )
+
+        self.assertNotIn("buyer@example.com", [to for m in messages for to in m["to"]])
+
+    def test_confirming_emails_the_customer_with_time_address_and_phone(self):
+        booking = booking_rules.create_booking(
+            user=self.user, slot_id=future_slot().pk, car=self.car
+        )
+
+        messages = self.queued_messages(lambda: booking_rules.confirm_booking(booking))
+
+        self.assertEqual(len(messages), 1)
+        confirmation = messages[0]
+        self.assertEqual(confirmation["to"], ["buyer@example.com"])
+        self.assertIn("confirmed", confirmation["subject"].lower())
+        self.assertIn("Hamura", confirmation["text"])
+        self.assertIn("205-0023", confirmation["text"])
+        self.assertIn("080-9282-3601", confirmation["text"])
+
+    def test_confirming_twice_does_not_email_twice(self):
+        booking = booking_rules.create_booking(user=self.user, slot_id=future_slot().pk)
+        booking_rules.confirm_booking(booking)
+
+        messages = self.queued_messages(lambda: booking_rules.confirm_booking(booking))
+
+        self.assertEqual(messages, [])
+
+    def test_staff_cancelling_tells_the_customer(self):
+        booking = booking_rules.create_booking(user=self.user, slot_id=future_slot().pk)
+
+        messages = self.queued_messages(lambda: booking_rules.cancel_by_staff(booking))
+
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0]["to"], ["buyer@example.com"])
+        self.assertIn("cancelled", messages[0]["subject"].lower())
+
+    def test_a_customer_cancelling_their_own_booking_sends_nothing(self):
+        """They already know - an email would just be noise."""
+        booking = booking_rules.create_booking(user=self.user, slot_id=future_slot().pk)
+
+        messages = self.queued_messages(
+            lambda: booking_rules.cancel_booking(user=self.user, booking_id=booking.pk)
+        )
+
+        self.assertEqual(messages, [])
 
 
 class PrimaryImageFallbackTests(TestCase):

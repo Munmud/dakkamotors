@@ -114,7 +114,7 @@ class TestDriveSlot(models.Model):
 
     @property
     def booked_count(self):
-        return self.bookings.filter(status=BookingStatus.BOOKED).count()
+        return self.bookings.filter(status__in=ACTIVE_STATUSES).count()
 
     @property
     def seats_left(self):
@@ -127,10 +127,18 @@ class TestDriveSlot(models.Model):
 
 
 class BookingStatus(models.TextChoices):
-    BOOKED = "booked", "Booked"
+    # A request until staff accept it. The seat is held meanwhile - otherwise two
+    # customers could both be pending for one place and one would have to be turned
+    # away afterwards, which is worse than briefly showing the slot as full.
+    PENDING = "pending", "Awaiting confirmation"
+    CONFIRMED = "confirmed", "Confirmed"
     CANCELLED = "cancelled", "Cancelled"
     COMPLETED = "completed", "Completed"
     NO_SHOW = "no_show", "Did not attend"
+
+
+#: Statuses that occupy a seat and count towards a customer's limit.
+ACTIVE_STATUSES = (BookingStatus.PENDING, BookingStatus.CONFIRMED)
 
 
 class TestDriveBooking(models.Model):
@@ -153,8 +161,9 @@ class TestDriveBooking(models.Model):
     # it, and staff still need to know what the appointment was about.
     car_label = models.CharField(max_length=160, blank=True)
     status = models.CharField(
-        max_length=12, choices=BookingStatus.choices, default=BookingStatus.BOOKED
+        max_length=12, choices=BookingStatus.choices, default=BookingStatus.PENDING
     )
+    confirmed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
@@ -166,7 +175,7 @@ class TestDriveBooking(models.Model):
             # history, so the constraint has to be conditional.
             models.UniqueConstraint(
                 fields=["slot", "customer"],
-                condition=models.Q(status="booked"),
+                condition=models.Q(status__in=["pending", "confirmed"]),
                 name="one_live_booking_per_customer_per_slot",
             )
         ]
@@ -176,7 +185,8 @@ class TestDriveBooking(models.Model):
 
     @property
     def is_active(self):
-        return self.status == BookingStatus.BOOKED
+        """Holds a seat: either awaiting confirmation or confirmed."""
+        return self.status in ACTIVE_STATUSES
 
     def save(self, *args, **kwargs):
         if self.car and not self.car_label:

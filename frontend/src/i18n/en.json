@@ -98,6 +98,10 @@
     "booked": "Booked",
     "confirmCancel": "Cancel this test drive?",
     "success": "Your test drive is booked. We look forward to seeing you.",
-    "callNote": "We will have the car ready. If anything changes, call us on {{phone}}."
+    "callNote": "We will have the car ready. If anything changes, call us on {{phone}}.",
+    "requested": "Request sent. We will confirm it shortly.",
+    "requestedNote": "You will get an email once we confirm the time. If it is urgent, call us on {{phone}}.",
+    "awaiting": "Awaiting confirmation",
+    "confirmed": "Confirmed"
   }
 }

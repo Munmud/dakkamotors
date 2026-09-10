@@ -12,8 +12,10 @@ from .tasks import process_pending
 from .management.commands.ensure_inventory_group import (
     GROUP_NAME as INVENTORY_GROUP_NAME,
 )
-from .booking import ensure_slots
+from .booking import cancel_by_staff, confirm_booking, ensure_slots
 from .booking_models import (
+    ACTIVE_STATUSES,
+    BookingStatus,
     CustomerProfile,
     TestDriveBooking,
     TestDriveSchedule,
@@ -401,6 +403,7 @@ class TestDriveBookingAdmin(admin.ModelAdmin):
         "car_label", "status",
     )
     list_filter = ("status", "slot__starts_at")
+    ordering = ("status", "slot__starts_at")
     search_fields = (
         "customer__first_name", "customer__last_name", "customer__email",
         "customer__customer_profile__phone", "car_label",
@@ -409,7 +412,7 @@ class TestDriveBookingAdmin(admin.ModelAdmin):
     date_hierarchy = "slot__starts_at"
     readonly_fields = (
         "slot", "customer", "car", "car_label", "created_at", "updated_at",
-        "cancelled_at",
+        "confirmed_at", "cancelled_at",
     )
 
     def get_queryset(self, request):
@@ -431,6 +434,37 @@ class TestDriveBookingAdmin(admin.ModelAdmin):
     @admin.display(description="Email")
     def customer_email(self, obj):
         return obj.customer.email
+
+    @admin.action(description="Confirm selected (emails the customer)")
+    def confirm_bookings(self, request, queryset):
+        """The only thing that tells a customer their appointment is on."""
+        confirmed = 0
+        for booking in queryset.exclude(status=BookingStatus.CONFIRMED):
+            if booking.status in ACTIVE_STATUSES:
+                confirm_booking(booking)
+                confirmed += 1
+        if confirmed:
+            self.message_user(
+                request, f"Confirmed {confirmed} booking(s). The customer has been emailed."
+            )
+        else:
+            self.message_user(
+                request,
+                "Nothing to confirm - those are already confirmed or no longer active.",
+                level=messages.WARNING,
+            )
+
+    @admin.action(description="Cancel selected (tells the customer)")
+    def cancel_bookings(self, request, queryset):
+        cancelled = 0
+        for booking in queryset.filter(status__in=ACTIVE_STATUSES):
+            cancel_by_staff(booking)
+            cancelled += 1
+        self.message_user(
+            request, f"Cancelled {cancelled} booking(s) and let the customer know."
+        )
+
+    actions = ["confirm_bookings", "cancel_bookings"]
 
 
 @admin.register(CustomerProfile)

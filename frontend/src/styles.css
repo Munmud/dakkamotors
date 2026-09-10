@@ -773,3 +773,14 @@ a {
     grid-column: 1 / -1;
   }
 }
+
+.bookings__status {
+  margin: 0.2rem 0 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--flag);
+}
+
+.bookings__status--ok {
+  color: #2e7d32;
+}

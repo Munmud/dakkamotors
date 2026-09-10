@@ -29,6 +29,14 @@ env = environ.Env(
         list,
         ["https://dakkamotors.com", "https://www.dakkamotors.com"],
     ),
+    # Email. Django cannot send directly - the Lambda has no route to the internet -
+    # so messages are written to this bucket and a function outside the VPC sends them.
+    # See cars/mail.py and infra/mailer.yaml.
+    OUTBOX_BUCKET=(str, ""),
+    MAIL_FROM=(str, ""),
+    MAIL_FROM_NAME=(str, "Dakka Motors"),
+    MAIL_REPLY_TO=(str, ""),
+    STAFF_ALERT_EMAIL=(str, ""),
 )
 
 # Read .env when present. Absent in Lambda, where real env vars are used instead.
@@ -152,6 +160,15 @@ USE_TZ = True
 # --------------------------------------------------------------------------------------
 
 AWS_STORAGE_BUCKET_NAME = env("AWS_STORAGE_BUCKET_NAME")
+
+# Left blank locally, which makes queue_email a no-op that just logs - development
+# should never be able to email a real customer by accident.
+OUTBOX_BUCKET = env("OUTBOX_BUCKET")
+MAIL_FROM = env("MAIL_FROM")
+MAIL_FROM_NAME = env("MAIL_FROM_NAME")
+MAIL_REPLY_TO = env("MAIL_REPLY_TO")
+STAFF_ALERT_EMAIL = env("STAFF_ALERT_EMAIL")
+AWS_S3_REGION_NAME = env("AWS_S3_REGION_NAME")
 
 STATIC_URL = "/static/"
 MEDIA_URL = "/media/"

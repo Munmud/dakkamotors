@@ -10,7 +10,10 @@ import datetime as dt
 from django.db import transaction
 from django.utils import timezone
 
+from . import mail
+
 from .booking_models import (
+    ACTIVE_STATUSES,
     BookingStatus,
     TestDriveBooking,
     TestDriveSchedule,
@@ -102,7 +105,7 @@ def bookable_slots(now=None):
 
 def active_bookings_for(user):
     return TestDriveBooking.objects.filter(
-        customer=user, status=BookingStatus.BOOKED
+        customer=user, status__in=ACTIVE_STATUSES
     ).select_related("slot", "car")
 
 
@@ -147,23 +150,54 @@ def create_booking(*, user, slot_id, car=None, now=None):
         )
 
     if TestDriveBooking.objects.filter(
-        slot=slot, customer=user, status=BookingStatus.BOOKED
+        slot=slot, customer=user, status__in=ACTIVE_STATUSES
     ).exists():
         raise BookingError("You have already booked that time.")
 
     # Counted inside the lock, so it cannot go stale between check and write.
     taken = TestDriveBooking.objects.filter(
-        slot=slot, status=BookingStatus.BOOKED
+        slot=slot, status__in=ACTIVE_STATUSES
     ).count()
     if taken >= slot.capacity:
         raise BookingError("That time has just been taken. Please choose another.")
 
-    return TestDriveBooking.objects.create(
+    booking = TestDriveBooking.objects.create(
         slot=slot,
         customer=user,
         car=car,
         car_label=car.seo_title_plain if car else "",
     )
+
+    # Queued, not sent: the write goes to S3 and a Lambda outside the VPC does the
+    # sending. Failures are swallowed there - losing a notification must never cost the
+    # customer their booking.
+    transaction.on_commit(lambda: mail.notify_staff_of_booking(booking))
+    return booking
+
+
+@transaction.atomic
+def confirm_booking(booking, now=None):
+    """Staff accept a request. The only thing that emails the customer."""
+    now = now or timezone.now()
+    if booking.status == BookingStatus.CONFIRMED:
+        return booking
+
+    booking.status = BookingStatus.CONFIRMED
+    booking.confirmed_at = now
+    booking.save(update_fields=["status", "confirmed_at", "updated_at"])
+    transaction.on_commit(lambda: mail.confirm_booking_with_customer(booking))
+    return booking
+
+
+@transaction.atomic
+def cancel_by_staff(booking, now=None):
+    """The shop calls it off, so the customer has to be told."""
+    now = now or timezone.now()
+    booking.status = BookingStatus.CANCELLED
+    booking.cancelled_at = now
+    booking.save(update_fields=["status", "cancelled_at", "updated_at"])
+    transaction.on_commit(lambda: mail.notify_customer_of_cancellation(booking))
+    return booking
 
 
 @transaction.atomic
@@ -199,7 +233,7 @@ def reschedule_booking(*, user, booking_id, slot_id, now=None):
     _check_slot_is_offerable(slot, now)
 
     taken = (
-        TestDriveBooking.objects.filter(slot=slot, status=BookingStatus.BOOKED)
+        TestDriveBooking.objects.filter(slot=slot, status__in=ACTIVE_STATUSES)
         .exclude(pk=booking.pk)
         .count()
     )
@@ -208,7 +242,7 @@ def reschedule_booking(*, user, booking_id, slot_id, now=None):
 
     if (
         TestDriveBooking.objects.filter(
-            slot=slot, customer=user, status=BookingStatus.BOOKED
+            slot=slot, customer=user, status__in=ACTIVE_STATUSES
         )
         .exclude(pk=booking.pk)
         .exists()
@@ -233,6 +267,6 @@ def _own_active_booking(user, booking_id):
     except TestDriveBooking.DoesNotExist:
         raise BookingError("Booking not found.") from None
 
-    if booking.status != BookingStatus.BOOKED:
+    if booking.status not in ACTIVE_STATUSES:
         raise BookingError("That booking is no longer active.")
     return booking

@@ -1,0 +1,178 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Dakka Motors - outbound email via Brevo (ap-northeast-1).
+
+  The Django Lambda runs in a private subnet with no NAT gateway and only an S3 gateway
+  endpoint: it has NO route to the internet, so it cannot reach api.brevo.com at all - a
+  call would simply hang until the function times out. A NAT gateway would fix that for
+  roughly $32/month, several times what this whole site costs to run.
+
+  So Django writes a message to S3, which it *can* reach, and the object-created event
+  pushes an invocation to this function. This one is deliberately NOT attached to the
+  VPC, which is the entire reason it works: outside the VPC it has ordinary internet
+  access. Cost is one PUT and one short invocation per email.
+
+  Its own bucket rather than the media bucket: a notification config is a property of
+  the bucket, so sharing would put the Lambda ARN in the core stack and the bucket ARN
+  here, which is circular.
+
+Parameters:
+  ApiKeyParameter:
+    Type: String
+    Default: /dakkamotors/BREVO_API_KEY
+    Description: SSM SecureString holding the Brevo API key. Read by this function only.
+
+  OutboxBucketName:
+    Type: String
+    Default: dakkamotors-outbox
+
+Resources:
+  OutboxBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: MailerInvokePermission
+    Properties:
+      BucketName: !Ref OutboxBucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          # Anything still here after a week is a message that never sent. Expire it so
+          # a persistent failure cannot quietly accumulate forever.
+          - Id: expire-old-messages
+            Status: Enabled
+            ExpirationInDays: 7
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: outbox/
+            Function: !GetAtt MailerFunction.Arn
+
+  MailerInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt MailerFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      # By name, not by !Ref: referencing the bucket here would be circular.
+      SourceArn: !Sub arn:aws:s3:::${OutboxBucketName}
+
+  MailerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: mailer
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:DeleteObject, s3:PutObject]
+                Resource: !Sub arn:aws:s3:::${OutboxBucketName}/*
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ApiKeyParameter}
+
+  MailerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: dakkamotors-mailer
+      Runtime: python3.13
+      Handler: index.handler
+      Role: !GetAtt MailerRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      # No VpcConfig on purpose. Attaching this to the VPC would take away the internet
+      # access that is the whole reason this function exists.
+      Environment:
+        Variables:
+          API_KEY_PARAM: !Ref ApiKeyParameter
+      Code:
+        ZipFile: |
+          """Send one queued message through Brevo. Stdlib only, so nothing to package."""
+          import json, os, urllib.error, urllib.parse, urllib.request
+          import boto3
+
+          s3 = boto3.client("s3")
+          ssm = boto3.client("ssm")
+          _key = None
+
+          def api_key():
+              global _key
+              if _key is None:
+                  _key = ssm.get_parameter(
+                      Name=os.environ["API_KEY_PARAM"], WithDecryption=True
+                  )["Parameter"]["Value"]
+              return _key
+
+          def send(m):
+              payload = {
+                  "sender": {"email": m["from"], "name": m.get("fromName", "")},
+                  "to": [{"email": a} for a in m["to"]],
+                  "subject": m["subject"],
+                  "htmlContent": m["html"],
+              }
+              if m.get("text"):
+                  payload["textContent"] = m["text"]
+              if m.get("replyTo"):
+                  payload["replyTo"] = {"email": m["replyTo"]}
+              req = urllib.request.Request(
+                  "https://api.brevo.com/v3/smtp/email",
+                  data=json.dumps(payload).encode("utf-8"),
+                  method="POST",
+                  headers={
+                      "api-key": api_key(),
+                      "content-type": "application/json",
+                      "accept": "application/json",
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=20) as response:
+                  response.read()
+
+          def handler(event, context):
+              for record in event.get("Records", []):
+                  bucket = record["s3"]["bucket"]["name"]
+                  key = urllib.parse.unquote_plus(record["s3"]["object"]["key"])
+                  message = json.loads(
+                      s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+                  )
+                  try:
+                      send(message)
+                  except urllib.error.HTTPError as exc:
+                      detail = exc.read().decode("utf-8", "replace")[:400]
+                      if 400 <= exc.code < 500:
+                          # Brevo refused it. Retrying cannot help, so park the message
+                          # where it can be found instead of looping.
+                          s3.copy_object(
+                              Bucket=bucket,
+                              Key="failed/" + key.split("/", 1)[-1],
+                              CopySource={"Bucket": bucket, "Key": key},
+                          )
+                          s3.delete_object(Bucket=bucket, Key=key)
+                          print("REJECTED", exc.code, detail)
+                          continue
+                      # 5xx: let it raise so Lambda retries the event.
+                      print("UPSTREAM ERROR", exc.code, detail)
+                      raise
+                  s3.delete_object(Bucket=bucket, Key=key)
+                  print("SENT", message.get("subject"))
+
+Outputs:
+  OutboxBucket:
+    Value: !Ref OutboxBucket
+  MailerFunction:
+    Value: !Ref MailerFunction

@@ -79,8 +79,10 @@ export default function BookTestDrive() {
   if (done) {
     return (
       <section className="state">
-        <h1 className="state__title">{t("booking.success")}</h1>
-        <p className="state__body">{t("booking.callNote", { phone: phoneDisplay })}</p>
+        <h1 className="state__title">{t("booking.requested")}</h1>
+        <p className="state__body">
+          {t("booking.requestedNote", { phone: phoneDisplay })}
+        </p>
         <Link className="btn" to="/account">
           {t("booking.myBookings")}
         </Link>
