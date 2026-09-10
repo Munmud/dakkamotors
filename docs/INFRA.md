@@ -85,6 +85,40 @@ query the database, and Aurora only scales to zero after ten idle minutes. Polli
 timer would keep it permanently awake and undo the saving. Image resizing therefore runs
 inline under a time budget - see `cars/tasks.py`.
 
+### Why Django serves the HTML
+
+CloudFront's default behaviour points at Django, not at the S3 bundle. A static
+`index.html` can only ever carry one title and one description, so every URL returned
+the same document: sharing a car showed a generic "Dakka Motors" with no photo or
+price, and anything that does not run JavaScript saw an empty `<div>`.
+
+Django reads the **already-built** `index.html` out of the frontend bucket and injects a
+real `<head>` plus a text summary. There is still one build of the app and the script
+tags always match whatever the frontend workflow last deployed, with no manifest to keep
+in step. The page also embeds the data the app needs for its first paint, which removed
+a 0.309 cumulative layout shift and a round-trip.
+
+HTML is cached at the edge for five minutes, so crawlers and repeat visitors rarely reach
+Lambda and Aurora keeps scaling to zero. Hashed bundles under `/assets/*` and the favicon
+still come straight from S3 and never touch the origin.
+
+`robots.txt`, `sitemap.xml` and `llms.txt` are generated from the database, so the sitemap
+cannot advertise a car that has been sold. Business facts - address, hours, service area -
+live in `cars/seo.py`.
+
+### Deploys must not race the schema
+
+Zappa probes `/` immediately after uploading, before migrations run, so **any release
+that adds a column fails that probe even though the deploy is fine**. Retrying it while
+the schema is behind is how a half-applied migration happens. The workflow therefore
+treats the probe as a warning and gates on a smoke test that runs *after* migrations,
+hitting the origin directly so a cached page cannot mask a broken deploy.
+
+One Django trap worth remembering: `SlugField` sets `db_index=True` by default. Adding
+one and then altering it to `unique=True` in the same migration makes Postgres build the
+same `..._like` index twice and the migration dies on "relation already exists". The
+intermediate column has to be `db_index=False`.
+
 ### Why there is no CORS configuration
 
 One CloudFront distribution serves the React app at `/` and proxies `/api/*` to API
