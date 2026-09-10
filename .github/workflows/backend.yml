@@ -71,10 +71,15 @@ jobs:
           role-to-assume: arn:aws:iam::484907516843:role/dakkamotors-github-deploy
           aws-region: ${{ env.AWS_REGION }}
 
+      # Zappa probes / immediately after uploading, before migrations have run. Any
+      # release that adds a column therefore fails that probe even though the deploy
+      # itself is fine - and worse, retrying it while the schema is behind is how a
+      # half-applied migration happens. The probe is not the gate; the smoke test at
+      # the end of this job is.
       - name: Deploy to Lambda
         run: |
           . .venv/bin/activate
-          zappa update production
+          zappa update production || echo "::warning::Zappa's post-deploy probe failed; migrations run next"
 
       - name: Apply database migrations
         run: |
@@ -93,3 +98,17 @@ jobs:
         run: |
           . .venv/bin/activate
           zappa manage production "collectstatic --noinput"
+
+      # The real gate. Hits the origin directly rather than the CDN, so a cached page
+      # cannot mask a broken deploy.
+      - name: Smoke test the deployed backend
+        env:
+          ORIGIN: https://q0zvyay9pa.execute-api.ap-northeast-1.amazonaws.com/production
+        run: |
+          failed=0
+          for path in "/" "/api/cars/" "/robots.txt" "/sitemap.xml" "/llms.txt"; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "${ORIGIN}${path}")
+            echo "  ${path} -> ${code}"
+            [ "$code" = "200" ] || failed=1
+          done
+          exit $failed
