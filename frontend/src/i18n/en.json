@@ -97,7 +97,6 @@
     "book": "Book a test drive",
     "heading": "Book a test drive",
     "forCar": "Test drive: {{car}}",
-    "chooseTime": "Choose a time",
     "noSlots": "No times are available at the moment. Please call us instead.",
     "seatsLeft_one": "{{count}} place left",
     "seatsLeft_other": "{{count}} places left",
@@ -117,6 +116,11 @@
     "requested": "Request sent. We will confirm it shortly.",
     "requestedNote": "You will get an email once we confirm the time. If it is urgent, call us on {{phone}}.",
     "awaiting": "Awaiting confirmation",
-    "confirmed": "Confirmed"
+    "confirmed": "Confirmed",
+    "chooseDate": "Choose a date",
+    "changeDate": "‹ Change date",
+    "timesAvailable_one": "{{count}} time",
+    "timesAvailable_other": "{{count}} times",
+    "dateGone": "The last place on that date has just gone. Please pick another."
   }
 }

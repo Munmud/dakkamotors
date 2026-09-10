@@ -291,9 +291,15 @@ function MyBookings({ customer, onSignOut }) {
               {rescheduling === booking.id && (
                 <div className="bookings__picker">
                   <SlotPicker
+                    // Remounts per booking, so the picker always opens on its date step
+                    // rather than on the day the previous reschedule was left showing.
+                    key={rescheduling}
                     slots={slots}
                     selected={null}
-                    onSelect={(slotId) => move(booking.id, slotId)}
+                    // Picking a time here reschedules immediately. The picker also
+                    // reports null when someone goes back to change the date, which is
+                    // not a choice and must not move the booking.
+                    onSelect={(slotId) => slotId && move(booking.id, slotId)}
                   />
                   <button
                     type="button"

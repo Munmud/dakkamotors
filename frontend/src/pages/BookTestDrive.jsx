@@ -99,7 +99,6 @@ export default function BookTestDrive() {
       <h1 className="section__title">{t("booking.heading")}</h1>
       {car && <p className="state__body">{t("booking.forCar", { car: carTitle(car) })}</p>}
 
-      <h2 className="section__title">{t("booking.chooseTime")}</h2>
       {error && <p className="authform__error" role="alert">{error}</p>}
 
       <SlotPicker

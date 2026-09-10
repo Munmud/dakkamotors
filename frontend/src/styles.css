@@ -648,17 +648,88 @@ a {
   gap: 1rem;
 }
 
-/* Times, grouped by day. */
+/* Pick a date, then a time. The date step only ever lists days that have a bookable
+   slot left, so there is nothing disabled to render. */
 .slotpicker {
   display: grid;
-  gap: 1.5rem;
+  gap: 0.9rem;
   margin: 1rem 0 1.5rem;
+  justify-items: start;
+}
+
+.slotpicker__step {
+  margin: 0;
+  font-size: var(--step-1);
+  font-weight: 700;
+}
+
+.slotpicker__dates {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+  gap: 0.6rem;
 }
 
 .slotpicker__date {
-  margin: 0 0 0.6rem;
-  font-size: var(--step-1);
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  width: 100%;
+  display: grid;
+  gap: 0.1rem;
+  justify-items: center;
+  padding: 0.7rem 0.5rem 0.6rem;
+  background: var(--surface);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  border-radius: var(--radius-plate);
+}
+
+.slotpicker__date:hover,
+.slotpicker__date:focus-visible {
+  border-color: var(--ink);
+}
+
+.slotpicker__date:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.slotpicker__weekday {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.slotpicker__daynum {
+  font-size: var(--step-2);
   font-weight: 700;
+  line-height: 1.1;
+}
+
+.slotpicker__count {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* Reads as a way back, not as another thing to choose. */
+.slotpicker__back {
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.2rem 0;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.slotpicker__back:hover,
+.slotpicker__back:focus-visible {
+  color: var(--ink);
 }
 
 .slotpicker__times {

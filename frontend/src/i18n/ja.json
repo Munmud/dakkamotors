@@ -97,7 +97,6 @@
     "book": "試乗を予約する",
     "heading": "試乗のご予約",
     "forCar": "試乗車：{{car}}",
-    "chooseTime": "ご希望の時間を選択",
     "noSlots": "現在ご予約可能な時間がありません。お電話でお問い合わせください。",
     "seatsLeft_one": "残り{{count}}枠",
     "seatsLeft_other": "残り{{count}}枠",
@@ -117,6 +116,11 @@
     "requested": "ご希望を承りました。確認後にご連絡いたします。",
     "requestedNote": "確定しましたらメールでお知らせします。お急ぎの場合は {{phone}} までお電話ください。",
     "awaiting": "確認待ち",
-    "confirmed": "確定済み"
+    "confirmed": "確定済み",
+    "chooseDate": "日付を選んでください",
+    "changeDate": "‹ 日付を変更",
+    "timesAvailable_one": "残り{{count}}枚",
+    "timesAvailable_other": "残り{{count}}枚",
+    "dateGone": "この日の最後の枠がちょうど埋まりました。別の日を選んでください。"
   }
 }
