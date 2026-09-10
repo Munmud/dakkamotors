@@ -94,6 +94,49 @@ adding `django-cors-headers`, something has drifted from this design.
 
 ---
 
+## Staff accounts
+
+Two levels of access exist.
+
+| | Can do | Cannot do |
+|---|---|---|
+| `admin` (superuser) | Everything, including creating and deleting accounts | — |
+| **Inventory Managers** group | Add, edit, delete cars and photos; upload media | See or edit users, groups or permissions |
+
+The restriction is not cosmetic. Django's admin renders only the models a user holds
+permissions for, *and* re-checks on every view, so a member sees no Authentication
+section and gets a 403 on `/api/admin/auth/user/` if the URL is typed directly. They
+cannot escalate because granting rights needs `auth.change_user`, which the group does
+not include.
+
+`is_staff` is what the presigned upload endpoint checks (`IsAdminUser` in DRF means
+staff, not superuser), so members can upload photos and video without extra permissions.
+
+The group is defined in `cars/management/commands/ensure_inventory_group.py` and
+reconciled on every deploy, so that file is the source of truth — permissions added by
+hand in the admin are removed again on the next release.
+
+### Adding someone
+
+```bash
+# 1. Generate a password and keep it somewhere durable
+python -c "import secrets,string;print(''.join(secrets.choice(string.ascii_letters+string.digits+'!#%-_') for _ in range(20)))"
+MSYS_NO_PATHCONV=1 aws ssm put-parameter --name "/dakkamotors/<NAME>_PASSWORD"   --type SecureString --value '<generated>' --region ap-northeast-1
+
+# 2. Put it where the Lambda can read it. It cannot reach the SSM API from inside the
+#    VPC, so the password travels through remote_env (config/env.json in S3) exactly as
+#    DJANGO_ADMIN_PASSWORD does. Add INVENTORY_USER_PASSWORD, then run:
+cd backend && source .venv/Scripts/activate
+zappa manage production "create_inventory_user --username <user> --email <email>   --first-name '<First>' --last-name '<Last>'"
+
+# 3. Remove INVENTORY_USER_PASSWORD from config/env.json afterwards.
+```
+
+Re-running `create_inventory_user` never resets an existing password, and it refuses to
+modify a superuser, so a mistyped username cannot quietly demote the owner's account.
+
+---
+
 ## Secrets
 
 Stored as SSM **SecureString** parameters (Parameter Store, not Secrets Manager — no

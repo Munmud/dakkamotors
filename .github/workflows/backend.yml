@@ -81,6 +81,14 @@ jobs:
           . .venv/bin/activate
           zappa manage production migrate
 
+      # Re-asserted every deploy so ensure_inventory_group.py stays the source of
+      # truth: permissions granted by hand in the admin are reconciled away here.
+      # Creating accounts is deliberately not part of a deploy.
+      - name: Reconcile the Inventory Managers group
+        run: |
+          . .venv/bin/activate
+          zappa manage production ensure_inventory_group
+
       - name: Collect static files to S3
         run: |
           . .venv/bin/activate

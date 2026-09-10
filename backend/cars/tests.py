@@ -1,11 +1,17 @@
 import io
+import os
+from unittest import mock
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group, Permission
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from PIL import Image
 
+from .management.commands.ensure_inventory_group import GROUP_NAME
 from .models import Car, CarImage, CarStatus
 from .uploads import UploadRejected, _validate
 
@@ -333,6 +339,139 @@ class SignUploadEndpointTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("MP4", response.json()["detail"])
+
+
+class InventoryGroupTests(TestCase):
+    """The role is a security boundary, so the negative cases carry the weight."""
+
+    def setUp(self):
+        call_command("ensure_inventory_group", stdout=io.StringIO())
+        self.group = Group.objects.get(name=GROUP_NAME)
+
+    def test_group_grants_exactly_the_cars_permissions(self):
+        granted = {
+            f"{p.content_type.app_label}.{p.codename}"
+            for p in self.group.permissions.all()
+        }
+        self.assertEqual(
+            granted,
+            {
+                "cars.add_car", "cars.change_car", "cars.delete_car", "cars.view_car",
+                "cars.add_carimage", "cars.change_carimage",
+                "cars.delete_carimage", "cars.view_carimage",
+            },
+        )
+
+    def test_group_grants_nothing_outside_the_cars_app(self):
+        """Anything from auth or admin would let a member hand themselves more."""
+        labels = {p.content_type.app_label for p in self.group.permissions.all()}
+        self.assertEqual(labels, {"cars"})
+
+    def test_rerunning_strips_permissions_added_by_hand(self):
+        escalation = Permission.objects.get(
+            content_type__app_label="auth", codename="change_user"
+        )
+        self.group.permissions.add(escalation)
+
+        call_command("ensure_inventory_group", stdout=io.StringIO())
+
+        self.assertNotIn(escalation, self.group.permissions.all())
+
+
+def make_manager(username="manager", password="inventory-pw-12345"):
+    call_command("ensure_inventory_group", stdout=io.StringIO())
+    user = get_user_model().objects.create_user(username=username, password=password)
+    user.is_staff = True
+    user.save()
+    user.groups.add(Group.objects.get(name=GROUP_NAME))
+    return user, password
+
+
+class InventoryManagerAccessTests(TestCase):
+    def setUp(self):
+        self.user, self.password = make_manager()
+        self.client.login(username=self.user.username, password=self.password)
+
+    def test_manager_is_staff_but_not_a_superuser(self):
+        self.assertTrue(self.user.is_staff)
+        self.assertFalse(self.user.is_superuser)
+
+    def test_manager_can_manage_cars(self):
+        """The role has to actually work, not just be safely locked down."""
+        response = self.client.get("/api/admin/cars/car/")
+        self.assertEqual(response.status_code, 200)
+
+    def test_manager_cannot_reach_user_administration(self):
+        """Hiding the link is not the protection - the view checks too."""
+        response = self.client.get("/api/admin/auth/user/")
+        self.assertEqual(response.status_code, 403)
+
+    def test_manager_cannot_reach_group_administration(self):
+        response = self.client.get("/api/admin/auth/group/")
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_index_offers_no_user_management(self):
+        body = self.client.get("/api/admin/").content.decode()
+        self.assertNotIn("/api/admin/auth/user/", body)
+        self.assertNotIn("/api/admin/auth/group/", body)
+        # ...but the job they are here to do is on the page.
+        self.assertIn("/api/admin/cars/car/", body)
+
+    def test_manager_can_sign_uploads(self):
+        """Photo upload is gated on is_staff, so the role must clear it."""
+        response = self.client.post(
+            "/api/admin/uploads/sign/",
+            {"kind": "video", "content_type": "video/quicktime", "size": 1024},
+            content_type="application/json",
+        )
+        # 400 (not 403) proves authorisation passed and validation rejected the type.
+        self.assertEqual(response.status_code, 400)
+
+
+class CreateInventoryUserTests(TestCase):
+    def setUp(self):
+        call_command("ensure_inventory_group", stdout=io.StringIO())
+
+    def test_creates_a_staff_member_in_the_group(self):
+        with mock.patch.dict(os.environ, {"INVENTORY_USER_PASSWORD": "first-pw-12345"}):
+            call_command(
+                "create_inventory_user", username="newhire", email="a@b.com",
+                first_name="New", last_name="Hire", stdout=io.StringIO(),
+            )
+
+        user = get_user_model().objects.get(username="newhire")
+        self.assertTrue(user.is_staff)
+        self.assertFalse(user.is_superuser)
+        self.assertTrue(user.groups.filter(name=GROUP_NAME).exists())
+        self.assertTrue(user.check_password("first-pw-12345"))
+
+    def test_rerunning_does_not_reset_an_existing_password(self):
+        """Otherwise a redeploy would silently lock someone out of their own account."""
+        with mock.patch.dict(os.environ, {"INVENTORY_USER_PASSWORD": "first-pw-12345"}):
+            call_command("create_inventory_user", username="newhire", stdout=io.StringIO())
+        user = get_user_model().objects.get(username="newhire")
+        user.set_password("chosen-by-them-678")
+        user.save()
+
+        with mock.patch.dict(os.environ, {"INVENTORY_USER_PASSWORD": "different-pw-999"}):
+            call_command("create_inventory_user", username="newhire", stdout=io.StringIO())
+
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("chosen-by-them-678"))
+
+    def test_refuses_to_modify_a_superuser(self):
+        """A typo matching the owner's account must not quietly demote it."""
+        get_user_model().objects.create_superuser("boss", password="owner-pw-12345")
+
+        with self.assertRaises(CommandError):
+            call_command("create_inventory_user", username="boss", stdout=io.StringIO())
+
+        self.assertTrue(get_user_model().objects.get(username="boss").is_superuser)
+
+    def test_requires_a_password_for_a_new_account(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(CommandError):
+                call_command("create_inventory_user", username="nopw", stdout=io.StringIO())
 
 
 class PrimaryImageFallbackTests(TestCase):
