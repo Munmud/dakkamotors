@@ -135,6 +135,10 @@ DATABASES["default"]["CONN_MAX_AGE"] = 0
 if "test" in sys.argv:
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
+# Django defaults to three days. With customers allowed weak passwords, a reset link is
+# the strongest route into an account, so it should not stay usable for that long.
+PASSWORD_RESET_TIMEOUT = 60 * 60 * 24
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_PASSWORD_VALIDATORS = [

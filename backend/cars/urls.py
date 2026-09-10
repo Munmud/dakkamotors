@@ -15,6 +15,12 @@ urlpatterns = router.urls + [
     path("auth/login/", auth_views.LoginView.as_view(), name="auth-login"),
     path("auth/logout/", auth_views.LogoutView.as_view(), name="auth-logout"),
     path("auth/me/", auth_views.MeView.as_view(), name="auth-me"),
+    path("auth/verify/", auth_views.VerifyView.as_view(), name="auth-verify"),
+    path("auth/resend/", auth_views.ResendVerificationView.as_view(), name="auth-resend"),
+    path("auth/password-reset/", auth_views.PasswordResetView.as_view(),
+         name="auth-password-reset"),
+    path("auth/password-reset/confirm/", auth_views.PasswordResetConfirmView.as_view(),
+         name="auth-password-reset-confirm"),
 
     path("test-drive/slots/", booking_views.SlotListView.as_view(), name="slot-list"),
     path(

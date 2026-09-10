@@ -263,6 +263,7 @@ from .booking_models import (  # noqa: E402,F401  (import position is forced by 
     ACTIVE_STATUSES,
     BookingStatus,
     CustomerProfile,
+    PendingRegistration,
     TestDriveBooking,
     TestDriveSchedule,
     TestDriveSlot,

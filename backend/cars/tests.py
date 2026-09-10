@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import io
 import json
 import os
@@ -7,7 +8,10 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.contrib import admin
+from django.contrib.auth.hashers import check_password
 from django.contrib.auth.models import Group, Permission
+from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.utils import timezone
@@ -22,6 +26,7 @@ from . import mail
 from .booking_models import (
     BookingStatus,
     CustomerProfile,
+    PendingRegistration,
     TestDriveSchedule,
     TestDriveSlot,
 )
@@ -57,6 +62,19 @@ def attach_image(car, name, *, is_primary=False, order=0):
         is_primary=is_primary,
         order=order,
     )
+
+
+class ClearsThrottleMixin:
+    """Reset the rate-limit counter between tests.
+
+    DRF keeps throttle history in Django's cache, which lives for the whole test
+    process - so auth tests start tripping the 20/hour limit partway through a run and
+    fail with 429 for reasons that have nothing to do with what they assert.
+    """
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
 
 
 class CarListApiTests(TestCase):
@@ -1262,24 +1280,7 @@ class BookingApiTests(TestCase):
         self.assertTrue(booking.is_active)
 
 
-class CustomerAccountTests(TestCase):
-    def test_registration_creates_a_non_staff_account_with_a_phone(self):
-        response = self.client.post(
-            "/api/auth/register/",
-            {
-                "name": "Yuki Tanaka", "email": "Yuki@Example.com",
-                "phone": "080-3333-4444", "password": "a-good-password-42",
-            },
-            content_type="application/json",
-        )
-
-        self.assertEqual(response.status_code, 201)
-        user = get_user_model().objects.get(email="yuki@example.com")
-        self.assertFalse(user.is_staff)
-        self.assertFalse(user.is_superuser)
-        self.assertEqual(user.customer_profile.phone, "080-3333-4444")
-        self.assertEqual(user.username, "yuki@example.com")
-
+class CustomerAccountTests(ClearsThrottleMixin, TestCase):
     def test_duplicate_email_is_refused(self):
         make_customer("taken@example.com")
 
@@ -1287,16 +1288,6 @@ class CustomerAccountTests(TestCase):
             "/api/auth/register/",
             {"name": "Someone", "email": "taken@example.com", "phone": "080",
              "password": "another-good-password-9"},
-            content_type="application/json",
-        )
-
-        self.assertEqual(response.status_code, 400)
-
-    def test_weak_passwords_are_refused(self):
-        response = self.client.post(
-            "/api/auth/register/",
-            {"name": "Someone", "email": "weak@example.com", "phone": "080",
-             "password": "password"},
             content_type="application/json",
         )
 
@@ -1557,6 +1548,290 @@ class BookingEmailTests(TestCase):
         )
 
         self.assertEqual(messages, [])
+
+
+MAIL_SETTINGS = dict(
+    OUTBOX_BUCKET="test-outbox",
+    MAIL_FROM="noreply@dakkamotors.com",
+    STAFF_ALERT_EMAIL="staff@example.com",
+)
+
+
+def register(client, email="new@example.com", password="simple", **extra):
+    payload = {"name": "Yuki Tanaka", "email": email, "phone": "080-1234-5678",
+               "password": password}
+    payload.update(extra)
+    return client.post("/api/auth/register/", payload, content_type="application/json")
+
+
+def link_token(pending_email):
+    """The raw token only exists in the email, so read it back out of the outbox."""
+    return PendingRegistration.objects.get(email=pending_email)
+
+
+@override_settings(**MAIL_SETTINGS)
+class RegistrationCreatesNoAccountTests(ClearsThrottleMixin, TestCase):
+    """The whole point: a User row only ever exists for a proved address."""
+
+    def test_registering_creates_no_user(self):
+        with mock.patch("cars.mail.boto3.client"):
+            response = register(self.client)
+
+        self.assertEqual(response.status_code, 202)
+        self.assertFalse(get_user_model().objects.filter(email="new@example.com").exists())
+        self.assertTrue(PendingRegistration.objects.filter(email="new@example.com").exists())
+
+    def test_registering_does_not_sign_anyone_in(self):
+        with mock.patch("cars.mail.boto3.client"):
+            register(self.client)
+
+        self.assertEqual(self.client.get("/api/auth/me/").status_code, 403)
+
+    def test_the_password_is_never_stored_in_plaintext(self):
+        with mock.patch("cars.mail.boto3.client"):
+            register(self.client, password="hunter2ish")
+
+        pending = PendingRegistration.objects.get(email="new@example.com")
+        self.assertNotIn("hunter2ish", pending.password_hash)
+        self.assertTrue(check_password("hunter2ish", pending.password_hash))
+
+    def test_the_raw_token_is_not_stored(self):
+        """A database leak must not hand someone a working activation link."""
+        with mock.patch("cars.mail.boto3.client") as client:
+            register(self.client)
+            body = json.loads(client.return_value.put_object.call_args.kwargs["Body"].decode())
+
+        raw = re.search(r"token=([\w\-]+)", body["text"]).group(1)
+        pending = PendingRegistration.objects.get(email="new@example.com")
+        self.assertNotEqual(pending.token_hash, raw)
+        self.assertEqual(pending.token_hash, hashlib.sha256(raw.encode()).hexdigest())
+
+    def test_registering_twice_replaces_the_pending_row(self):
+        """A typo on the first attempt must not lock that address out for three days."""
+        with mock.patch("cars.mail.boto3.client"):
+            register(self.client)
+            first = PendingRegistration.objects.get(email="new@example.com").token_hash
+            register(self.client, phone="080-9999-0000")
+
+        pending = PendingRegistration.objects.get(email="new@example.com")
+        self.assertEqual(PendingRegistration.objects.count(), 1)
+        self.assertNotEqual(pending.token_hash, first)
+        self.assertEqual(pending.phone, "080-9999-0000")
+
+    def test_an_address_that_already_has_an_account_is_told_to_sign_in(self):
+        make_customer("taken@example.com")
+
+        with mock.patch("cars.mail.boto3.client"):
+            response = register(self.client, email="taken@example.com")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(PendingRegistration.objects.count(), 0)
+
+    def test_customers_may_use_an_easy_password(self):
+        with mock.patch("cars.mail.boto3.client"):
+            response = register(self.client, password="123456")
+
+        self.assertEqual(response.status_code, 202)
+
+    def test_a_password_under_six_characters_is_still_refused(self):
+        with mock.patch("cars.mail.boto3.client"):
+            response = register(self.client, password="12345")
+
+        self.assertEqual(response.status_code, 400)
+
+
+@override_settings(**MAIL_SETTINGS)
+class VerificationTests(ClearsThrottleMixin, TestCase):
+    def register_and_get_token(self, **extra):
+        with mock.patch("cars.mail.boto3.client") as client:
+            register(self.client, **extra)
+            body = json.loads(client.return_value.put_object.call_args.kwargs["Body"].decode())
+        return re.search(r"token=([\w\-]+)", body["text"]).group(1)
+
+    def verify(self, token):
+        return self.client.post("/api/auth/verify/", {"token": token},
+                                content_type="application/json")
+
+    def test_the_link_creates_the_account_and_signs_them_in(self):
+        token = self.register_and_get_token()
+
+        response = self.verify(token)
+
+        self.assertEqual(response.status_code, 200)
+        user = get_user_model().objects.get(email="new@example.com")
+        self.assertEqual(user.customer_profile.phone, "080-1234-5678")
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+        self.assertTrue(check_password("simple", user.password))
+        # Signed in on this device.
+        self.assertEqual(self.client.get("/api/auth/me/").status_code, 200)
+
+    def test_the_pending_row_is_consumed(self):
+        token = self.register_and_get_token()
+
+        self.verify(token)
+
+        self.assertEqual(PendingRegistration.objects.count(), 0)
+
+    def test_the_same_link_cannot_be_used_twice(self):
+        token = self.register_and_get_token()
+        self.verify(token)
+
+        second = self.verify(token)
+
+        self.assertEqual(second.status_code, 400)
+        self.assertEqual(get_user_model().objects.filter(email="new@example.com").count(), 1)
+
+    def test_a_bogus_token_creates_nothing(self):
+        response = self.verify("not-a-real-token")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(get_user_model().objects.count(), 0)
+
+    def test_an_expired_link_is_refused_and_leaves_no_account(self):
+        token = self.register_and_get_token()
+        PendingRegistration.objects.update(
+            expires_at=timezone.now() - datetime.timedelta(minutes=1)
+        )
+
+        response = self.verify(token)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(get_user_model().objects.filter(email="new@example.com").exists())
+        self.assertEqual(PendingRegistration.objects.count(), 0)
+
+    def test_they_are_returned_to_the_booking_they_started(self):
+        token = self.register_and_get_token(next="/cars/2008-daihatsu-tanto/test-drive")
+
+        response = self.verify(token)
+
+        self.assertEqual(response.json()["next"], "/cars/2008-daihatsu-tanto/test-drive")
+
+    def test_an_offsite_next_is_discarded(self):
+        """//evil.com and https://evil.com are both followable by a browser."""
+        for hostile in ("//evil.com", "https://evil.com", "javascript:alert(1)"):
+            with self.subTest(hostile=hostile):
+                PendingRegistration.objects.all().delete()
+                get_user_model().objects.all().delete()
+                token = self.register_and_get_token(next=hostile)
+
+                landing = self.verify(token).json()["next"]
+
+                self.assertEqual(landing, "/account")
+
+    def test_expired_rows_are_swept_when_someone_registers(self):
+        self.register_and_get_token()
+        PendingRegistration.objects.update(
+            expires_at=timezone.now() - datetime.timedelta(days=1)
+        )
+
+        with mock.patch("cars.mail.boto3.client"):
+            register(self.client, email="someone.else@example.com")
+
+        self.assertEqual(
+            list(PendingRegistration.objects.values_list("email", flat=True)),
+            ["someone.else@example.com"],
+        )
+
+    def test_resend_is_silent_about_whether_the_signup_exists(self):
+        with mock.patch("cars.mail.boto3.client"):
+            known = self.client.post("/api/auth/resend/", {"email": "nobody@example.com"},
+                                     content_type="application/json")
+        self.assertEqual(known.status_code, 202)
+
+
+@override_settings(**MAIL_SETTINGS)
+class PasswordResetTests(ClearsThrottleMixin, TestCase):
+    def request_reset(self, email):
+        with mock.patch("cars.mail.boto3.client") as client:
+            response = self.client.post("/api/auth/password-reset/", {"email": email},
+                                        content_type="application/json")
+            calls = client.return_value.put_object.call_args_list
+        bodies = [json.loads(c.kwargs["Body"].decode()) for c in calls]
+        return response, bodies
+
+    def link_parts(self, body):
+        uid = re.search(r"uid=([\w\-]+)", body["text"]).group(1)
+        token = re.search(r"token=([\w\-]+)", body["text"]).group(1)
+        return uid, token
+
+    def test_a_customer_gets_a_link(self):
+        user, _ = make_customer("buyer@example.com")
+
+        response, bodies = self.request_reset("buyer@example.com")
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(len(bodies), 1)
+        self.assertEqual(bodies[0]["to"], ["buyer@example.com"])
+
+    def test_an_unknown_address_gets_the_same_answer_and_no_email(self):
+        response, bodies = self.request_reset("nobody@example.com")
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(bodies, [])
+
+    def test_a_staff_address_gets_no_link(self):
+        """A manager can edit inventory and other staff. Anyone able to read that inbox
+        must not be able to take the account over."""
+        manager, _ = make_manager()
+        manager.email = "manager@example.com"
+        manager.save()
+
+        response, bodies = self.request_reset("manager@example.com")
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(bodies, [])
+
+    def test_the_link_sets_a_new_password_and_signs_them_in(self):
+        make_customer("buyer@example.com", password="old-password-1")
+        _, bodies = self.request_reset("buyer@example.com")
+        uid, token = self.link_parts(bodies[0])
+
+        response = self.client.post("/api/auth/password-reset/confirm/",
+                                    {"uid": uid, "token": token, "password": "newpass"},
+                                    content_type="application/json")
+
+        self.assertEqual(response.status_code, 200)
+        user = get_user_model().objects.get(email="buyer@example.com")
+        self.assertTrue(check_password("newpass", user.password))
+        self.assertEqual(self.client.get("/api/auth/me/").status_code, 200)
+
+    def test_the_link_dies_once_the_password_changes(self):
+        make_customer("buyer@example.com", password="old-password-1")
+        _, bodies = self.request_reset("buyer@example.com")
+        uid, token = self.link_parts(bodies[0])
+        payload = {"uid": uid, "token": token, "password": "newpass"}
+        self.client.post("/api/auth/password-reset/confirm/", payload,
+                         content_type="application/json")
+
+        again = self.client.post("/api/auth/password-reset/confirm/", payload,
+                                 content_type="application/json")
+
+        self.assertEqual(again.status_code, 400)
+
+    def test_a_reset_password_may_be_easy_but_not_tiny(self):
+        make_customer("buyer@example.com", password="old-password-1")
+        _, bodies = self.request_reset("buyer@example.com")
+        uid, token = self.link_parts(bodies[0])
+
+        response = self.client.post("/api/auth/password-reset/confirm/",
+                                    {"uid": uid, "token": token, "password": "abc"},
+                                    content_type="application/json")
+
+        self.assertEqual(response.status_code, 400)
+
+
+class StaffPasswordsStayStrictTests(TestCase):
+    def test_staff_password_rules_are_unchanged(self):
+        """Relaxing things for customers must not relax them for staff."""
+        from django.contrib.auth.password_validation import validate_password
+
+        with self.assertRaises(DjangoValidationError):
+            validate_password("123456")  # global validators still apply
+
+        # ...while the customer set accepts it.
+        from cars.auth_views import CUSTOMER_PASSWORD_VALIDATORS
+        validate_password("123456", password_validators=CUSTOMER_PASSWORD_VALIDATORS)
 
 
 class PrimaryImageFallbackTests(TestCase):

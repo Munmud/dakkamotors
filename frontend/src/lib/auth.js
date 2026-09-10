@@ -31,8 +31,26 @@ async function post(path, body) {
   return data;
 }
 
-export async function register({ name, email, phone, password }) {
-  return post("/auth/register/", { name, email, phone, password });
+/** Returns 202 and NO session: no account exists until the emailed link is clicked. */
+export async function register({ name, email, phone, password, next, language }) {
+  return post("/auth/register/", { name, email, phone, password, next, language });
+}
+
+export async function resendVerification(email) {
+  return post("/auth/resend/", { email });
+}
+
+/** The link. This is what actually creates the account and signs them in. */
+export async function verifyEmail(token) {
+  return post("/auth/verify/", { token });
+}
+
+export async function requestPasswordReset(email, language) {
+  return post("/auth/password-reset/", { email, language });
+}
+
+export async function confirmPasswordReset({ uid, token, password }) {
+  return post("/auth/password-reset/confirm/", { uid, token, password });
 }
 
 export async function login({ email, password }) {

@@ -10,6 +10,7 @@ Queuing is fire-and-forget on purpose. A customer's booking must never fail beca
 email could not be written; a lost notification is a smaller problem than a lost sale.
 """
 
+import html as html_module
 import json
 import logging
 import uuid
@@ -21,6 +22,10 @@ from django.utils import timezone
 from . import seo
 
 logger = logging.getLogger(__name__)
+
+
+def _esc(value):
+    return html_module.escape(str(value or ""), quote=True)
 
 
 def _config(name, default=""):
@@ -212,3 +217,92 @@ will find another time, or book one yourself at
     )
 
     return queue_email(to=customer.email, subject=f"Test drive cancelled: {when}", html=html, text=text)
+
+
+# --------------------------------------------------------------------------------------
+# Account emails
+#
+# Bilingual, because half the customers read Japanese. Each is one clear link and
+# nothing else - a verification mail that looks like marketing gets ignored or filtered.
+# --------------------------------------------------------------------------------------
+
+
+def send_verification_email(pending, link):
+    b = seo.BUSINESS
+    if pending.language == "ja":
+        subject = "メールアドレスのご確認 - ダッカモータース"
+        html = f"""<p>{_esc(pending.name)} 様</p>
+<p>ダッカモータースへのご登録ありがとうございます。
+下のリンクをクリックすると、アカウントの作成が完了します。</p>
+<p><a href="{link}">{link}</a></p>
+<p>このリンクは3日間有効です。心当たりがない場合は、このメールは破棄してください。
+アカウントは作成されません。</p>
+<p>{b['name_ja']}<br>{b['telephone_display']}</p>"""
+        text = (
+            f"{pending.name} 様\n\n"
+            "ダッカモータースへのご登録ありがとうございます。\n"
+            "下のリンクを開くと、アカウントの作成が完了します。\n\n"
+            f"{link}\n\n"
+            "このリンクは3日間有効です。心当たりがない場合は破棄してください。"
+            "アカウントは作成されません。\n\n"
+            f"{b['name_ja']}\n{b['telephone_display']}\n"
+        )
+    else:
+        subject = "Confirm your email - Dakka Motors"
+        html = f"""<p>Hello {_esc(pending.name)},</p>
+<p>Thanks for signing up with {b['name']}. Click the link below to finish creating your
+account &mdash; until you do, no account exists.</p>
+<p><a href="{link}">{link}</a></p>
+<p>The link works for three days. If you did not request this, ignore this email and
+nothing will be created.</p>
+<p>{b['name']}<br>{b['telephone_display']}</p>"""
+        text = (
+            f"Hello {pending.name},\n\n"
+            f"Thanks for signing up with {b['name']}. Open the link below to finish\n"
+            "creating your account - until you do, no account exists.\n\n"
+            f"{link}\n\n"
+            "The link works for three days. If you did not request this, ignore this\n"
+            "email and nothing will be created.\n\n"
+            f"{b['name']}\n{b['telephone_display']}\n"
+        )
+
+    return queue_email(to=pending.email, subject=subject, html=html, text=text)
+
+
+def send_password_reset_email(user, link, language="en"):
+    b = seo.BUSINESS
+    name = user.first_name or user.username
+    if language == "ja":
+        subject = "パスワードの再設定 - ダッカモータース"
+        html = f"""<p>{_esc(name)} 様</p>
+<p>パスワード再設定のご依頼を承りました。下のリンクから新しいパスワードを設定してください。</p>
+<p><a href="{link}">{link}</a></p>
+<p>このリンクは24時間有効で、一度だけ使用できます。
+心当たりがない場合は破棄してください。パスワードは変更されません。</p>
+<p>{b['name_ja']}</p>"""
+        text = (
+            f"{name} 様\n\nパスワード再設定のご依頼を承りました。\n"
+            f"下のリンクから新しいパスワードを設定してください。\n\n{link}\n\n"
+            "このリンクは24時間有効で、一度だけ使用できます。\n"
+            "心当たりがない場合は破棄してください。パスワードは変更されません。\n\n"
+            f"{b['name_ja']}\n"
+        )
+    else:
+        subject = "Reset your password - Dakka Motors"
+        html = f"""<p>Hello {_esc(name)},</p>
+<p>Someone asked to reset the password for this account. Use the link below to choose a
+new one.</p>
+<p><a href="{link}">{link}</a></p>
+<p>It works once and expires in 24 hours. If this was not you, ignore this email &mdash;
+your password stays as it is.</p>
+<p>{b['name']}</p>"""
+        text = (
+            f"Hello {name},\n\n"
+            "Someone asked to reset the password for this account. Use the link below\n"
+            f"to choose a new one.\n\n{link}\n\n"
+            "It works once and expires in 24 hours. If this was not you, ignore this\n"
+            "email - your password stays as it is.\n\n"
+            f"{b['name']}\n"
+        )
+
+    return queue_email(to=user.email, subject=subject, html=html, text=text)

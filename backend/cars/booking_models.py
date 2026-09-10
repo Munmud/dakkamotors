@@ -211,3 +211,38 @@ class CustomerProfile(models.Model):
 
     def __str__(self):
         return f"{self.user.get_full_name() or self.user.username} ({self.phone})"
+
+
+class PendingRegistration(models.Model):
+    """A sign-up that has not proved its email address yet.
+
+    No `User` row exists until the link in the email is clicked, which is why nothing
+    downstream needs to ask whether an account is verified - an unverified person simply
+    has no account. This table is where they wait.
+
+    Two things are deliberately stored hashed. The password so plaintext never touches
+    the database, and the token so that a database leak cannot hand someone a working
+    activation link: the raw token exists only in the email.
+    """
+
+    email = models.EmailField(unique=True)
+    name = models.CharField(max_length=150)
+    phone = models.CharField(max_length=32)
+    password_hash = models.CharField(max_length=256)
+    token_hash = models.CharField(max_length=64, db_index=True)
+    # Where to send them once the account exists, so a half-finished booking survives
+    # the trip through their inbox. Validated on the way in - see auth_views.safe_next.
+    next_path = models.CharField(max_length=200, blank=True)
+    language = models.CharField(max_length=5, default="en")
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.email} (pending until {self.expires_at:%Y-%m-%d})"
+
+    @property
+    def has_expired(self):
+        return timezone.now() >= self.expires_at

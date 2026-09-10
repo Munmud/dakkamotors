@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import CallButton from "./components/CallButton";
 import Header from "./components/Header";
 import Account from "./pages/Account";
+import ResetPassword from "./pages/ResetPassword";
+import VerifyEmail from "./pages/VerifyEmail";
 import BookTestDrive from "./pages/BookTestDrive";
 import CarDetail from "./pages/CarDetail";
 import Home from "./pages/Home";
@@ -46,6 +48,8 @@ export default function App() {
           <Route path="/account" element={<Account />} />
           <Route path="/account/login" element={<Account mode="login" />} />
           <Route path="/account/register" element={<Account mode="register" />} />
+          <Route path="/account/verify" element={<VerifyEmail />} />
+          <Route path="/account/reset" element={<ResetPassword />} />
         </Routes>
       </main>
       <Footer />

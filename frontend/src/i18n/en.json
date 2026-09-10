@@ -76,7 +76,22 @@
     "needAccount": "No account yet? Create one",
     "signingIn": "Signing in…",
     "creating": "Creating your account…",
-    "failed": "Could not sign you in. Please try again."
+    "failed": "Could not sign you in. Please try again.",
+    "checkEmail": "Check your email",
+    "sentTo": "We have sent a link to {{email}}. Open it to finish creating your account — until you do, no account exists.",
+    "resend": "Send the link again",
+    "resent": "Sent. It can take a minute to arrive.",
+    "verifying": "Confirming your email…",
+    "verified": "Email confirmed. You are signed in.",
+    "verifyFailed": "That link has expired or has already been used.",
+    "forgot": "Forgot your password?",
+    "resetTitle": "Reset your password",
+    "resetIntro": "Enter your email and we will send you a link.",
+    "resetSent": "If we have an account for that address, we have sent a link.",
+    "newPassword": "New password",
+    "setPassword": "Set new password",
+    "resetDone": "Password changed. You are signed in.",
+    "backToSignIn": "Back to sign in"
   },
   "booking": {
     "book": "Book a test drive",

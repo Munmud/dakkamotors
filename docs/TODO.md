@@ -94,16 +94,16 @@ Future features are out of scope for v1 — not listed here on purpose.
 
 Both were consciously skipped to get booking working, and both matter.
 
-- [ ] **Booking notification email to staff.** Right now a booking appears only in the
-      admin. Nobody is told. A booking nobody opens the admin to see is a customer left
-      standing on the forecourt — this is the more urgent of the two.
-- [ ] **Customer email verification.** Addresses are unproven, so anyone can register
-      with a made-up one. Mitigated for now by a 3-booking limit per account and
-      throttling on registration, but not solved.
-- [ ] Confirmation email to the customer when they book, move or cancel.
+- [x] **Booking notification email to staff.** Done, via Brevo.
+- [x] **Customer email verification.** Done, and stricter than planned: no `User` row
+      is created at all until the emailed link is clicked, so there is no such thing as
+      an unverified account. Password reset by email is in too.
+- [x] Confirmation email to the customer when staff confirm, and when staff cancel.
+- [ ] An acknowledgement to the customer at the moment they request a slot, before staff
+      have confirmed it. They currently see it on screen but get nothing in writing.
 
-All three need AWS SES: verifying `dakkamotors.com` for sending and getting the account
-out of the SES sandbox, which requires an AWS review.
+Email runs through **Brevo**, not SES. `dakkamotors.com` is authenticated (DKIM, SPF,
+DMARC in Route53) and the free tier covers 300 messages a day.
 
 ---
 

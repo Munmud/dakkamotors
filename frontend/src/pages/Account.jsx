@@ -14,6 +14,7 @@ import {
   logout,
   register,
   rescheduleBooking,
+  resendVerification,
 } from "../lib/auth";
 import { phoneDisplay } from "../lib/format";
 
@@ -36,6 +37,7 @@ export default function Account({ mode = "bookings" }) {
   if (!customer) {
     return (
       <AuthForm
+        next={next}
         mode={mode === "register" ? "register" : "login"}
         onDone={async () => {
           await refresh();
@@ -57,12 +59,14 @@ export default function Account({ mode = "bookings" }) {
   );
 }
 
-function AuthForm({ mode, onDone }) {
-  const { t } = useTranslation();
+function AuthForm({ mode, onDone, next }) {
+  const { t, i18n } = useTranslation();
   const registering = mode === "register";
   const [values, setValues] = useState({ name: "", email: "", phone: "", password: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [sentTo, setSentTo] = useState(null);
+  const [resent, setResent] = useState(false);
 
   const set = (field) => (event) =>
     setValues((current) => ({ ...current, [field]: event.target.value }));
@@ -72,14 +76,41 @@ function AuthForm({ mode, onDone }) {
     setBusy(true);
     setError(null);
     try {
-      if (registering) await register(values);
-      else await login({ email: values.email, password: values.password });
-      await onDone();
+      if (registering) {
+        // No account exists yet; the link in the email is what creates it.
+        await register({ ...values, next, language: i18n.language });
+        setSentTo(values.email);
+      } else {
+        await login({ email: values.email, password: values.password });
+        await onDone();
+      }
     } catch (err) {
       setError(errorMessage(err, t("auth.failed")));
     } finally {
       setBusy(false);
     }
+  }
+
+  async function resend() {
+    setResent(false);
+    try {
+      await resendVerification(sentTo);
+    } finally {
+      setResent(true);
+    }
+  }
+
+  if (sentTo) {
+    return (
+      <section className="authcard">
+        <h1 className="section__title">{t("auth.checkEmail")}</h1>
+        <p className="state__body">{t("auth.sentTo", { email: sentTo })}</p>
+        <button type="button" className="btn btn--quiet" onClick={resend}>
+          {t("auth.resend")}
+        </button>
+        {resent && <p className="state__body">{t("auth.resent")}</p>}
+      </section>
+    );
   }
 
   return (
@@ -147,6 +178,12 @@ function AuthForm({ mode, onDone }) {
         <Link to={registering ? "/account/login" : "/account/register"}>
           {registering ? t("auth.haveAccount") : t("auth.needAccount")}
         </Link>
+        {!registering && (
+          <>
+            {" · "}
+            <Link to="/account/reset">{t("auth.forgot")}</Link>
+          </>
+        )}
       </p>
     </section>
   );
