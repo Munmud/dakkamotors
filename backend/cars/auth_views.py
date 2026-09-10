@@ -61,8 +61,14 @@ def _me(user):
     profile = getattr(user, "customer_profile", None)
     return {
         "name": user.get_full_name() or user.username,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
         "email": user.email,
         "phone": profile.phone if profile else "",
+        # Drives the Admin button in the masthead. It is the viewer's own flag, so
+        # telling them about it reveals nothing they could not already discover by
+        # opening /api/admin/.
+        "is_staff": user.is_staff,
     }
 
 
@@ -299,11 +305,75 @@ class LogoutView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+# What a customer may change about themselves. Anything outside this set is refused
+# rather than quietly dropped, so a caller is never left thinking a change took.
+EDITABLE_PROFILE_FIELDS = {"first_name", "last_name", "phone"}
+
+# Refusing `email` is a security control, not a UI nicety.
+#
+# `username` is set to the email address when the account is created, LoginView
+# authenticates on `username=email`, and PasswordResetView finds the account with
+# `email__iexact=...` then `.first()`. Letting email move without username would
+# decouple the two: a customer could take an address that already belongs to someone
+# else, and that `.first()` becomes a coin toss over whose account a reset link opens.
+# Changing an address safely means moving username with it, re-proving the new address
+# through the PendingRegistration flow, and resolving the collision - a whole feature,
+# not a writable field.
+LOCKED_PROFILE_FIELDS = {"email", "username", "password", "is_staff", "is_superuser",
+                         "is_active", "id", "pk"}
+
+
+class ProfileSerializer(serializers.Serializer):
+    first_name = serializers.CharField(max_length=150, allow_blank=True, required=False)
+    last_name = serializers.CharField(max_length=150, allow_blank=True, required=False)
+    phone = serializers.CharField(max_length=32, required=False)
+
+    def validate_phone(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError(
+                "We need a phone number so we can reach you about a test drive."
+            )
+        return value
+
+
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         return Response(_me(request.user))
+
+    def patch(self, request):
+        """Change your own name or phone number. Not your email - see above."""
+        locked = LOCKED_PROFILE_FIELDS & set(request.data)
+        if locked:
+            return Response(
+                {"detail": "Your email address is how you sign in, so it cannot be "
+                           "changed here. Call us and we will change it for you."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = ProfileSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        fields = serializer.validated_data
+
+        user = request.user
+        changed = [f for f in ("first_name", "last_name") if f in fields]
+        for field in changed:
+            setattr(user, field, fields[field].strip())
+        if changed:
+            user.save(update_fields=changed)
+
+        if "phone" in fields:
+            # update_or_create, not profile.save(): an account made any way other than
+            # through VerifyView has no profile row at all, and this is the one place a
+            # customer would meet that.
+            CustomerProfile.objects.update_or_create(
+                user=user, defaults={"phone": fields["phone"]}
+            )
+
+        user.refresh_from_db()
+        return Response(_me(user))
 
 
 # --------------------------------------------------------------------------------------

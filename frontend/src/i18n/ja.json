@@ -122,5 +122,14 @@
     "timesAvailable_one": "残り{{count}}枚",
     "timesAvailable_other": "残り{{count}}枚",
     "dateGone": "この日の最後の枠がちょうど埋まりました。別の日を選んでください。"
+  },
+  "account": {
+    "yourDetails": "お客様情報",
+    "firstName": "名",
+    "lastName": "姓",
+    "save": "変更を保存",
+    "saving": "保存中…",
+    "saved": "保存しました。",
+    "emailFixed": "ログインに使用するアドレスです。変更が必要な場合はお電話ください。"
   }
 }

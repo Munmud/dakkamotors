@@ -14,6 +14,7 @@ import {
   logout,
   register,
   rescheduleBooking,
+  updateProfile,
   resendVerification,
 } from "../lib/auth";
 import { phoneDisplay } from "../lib/format";
@@ -48,14 +49,90 @@ export default function Account({ mode = "bookings" }) {
   }
 
   return (
-    <MyBookings
-      customer={customer}
-      onSignOut={async () => {
-        await logout();
-        setCustomer(null);
-        navigate("/", { replace: true });
-      }}
-    />
+    <>
+      <MyBookings
+        customer={customer}
+        onSignOut={async () => {
+          await logout();
+          setCustomer(null);
+          navigate("/", { replace: true });
+        }}
+      />
+      <ProfileForm customer={customer} onSaved={refresh} />
+    </>
+  );
+}
+
+/**
+ * Your name and phone number.
+ *
+ * Email is shown but not editable. The disabled input is a courtesy; the control is the
+ * server, which refuses a request carrying an email outright - it is the account's
+ * sign-in name, and moving it without moving the username too would let two accounts
+ * claim one address and make password resets ambiguous.
+ */
+function ProfileForm({ customer, onSaved }) {
+  const { t } = useTranslation();
+  const [values, setValues] = useState({
+    first_name: customer.first_name || "",
+    last_name: customer.last_name || "",
+    phone: customer.phone || "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState(null);
+
+  const set = (field) => (event) => {
+    setSaved(false);
+    setValues((current) => ({ ...current, [field]: event.target.value }));
+  };
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await updateProfile(values);
+      await onSaved();
+      setSaved(true);
+    } catch (err) {
+      setError(errorMessage(err, t("error.body")));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="section authcard">
+      <h2 className="section__title">{t("account.yourDetails")}</h2>
+      <form className="authform" onSubmit={submit}>
+        <label className="authform__field">
+          <span>{t("account.firstName")}</span>
+          <input value={values.first_name} onChange={set("first_name")}
+                 autoComplete="given-name" />
+        </label>
+        <label className="authform__field">
+          <span>{t("account.lastName")}</span>
+          <input value={values.last_name} onChange={set("last_name")}
+                 autoComplete="family-name" />
+        </label>
+        <label className="authform__field">
+          <span>{t("auth.phone")}</span>
+          <input value={values.phone} onChange={set("phone")} required
+                 autoComplete="tel" inputMode="tel" />
+        </label>
+        <label className="authform__field">
+          <span>{t("auth.email")}</span>
+          <input value={customer.email} disabled readOnly autoComplete="email" />
+          <small className="authform__hint">{t("account.emailFixed")}</small>
+        </label>
+        {error && <p className="authform__error" role="alert">{error}</p>}
+        {saved && <p className="authform__saved" role="status">{t("account.saved")}</p>}
+        <button type="submit" className="btn" disabled={busy}>
+          {busy ? t("account.saving") : t("account.save")}
+        </button>
+      </form>
+    </section>
   );
 }
 

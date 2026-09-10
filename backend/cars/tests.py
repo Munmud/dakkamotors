@@ -2047,3 +2047,105 @@ class NotificationModelTests(TestCase):
         self.user.delete()
 
         self.assertEqual(Notification.objects.count(), 0)
+
+
+@override_settings(**MAIL_SETTINGS)
+class ProfileEditingTests(ClearsThrottleMixin, TestCase):
+    """A customer owns their name and phone number, and nothing else."""
+
+    def setUp(self):
+        super().setUp()
+        self.user, _ = make_customer("buyer@example.com", phone="080-1111-2222")
+        self.client.force_login(self.user)
+
+    def patch(self, payload):
+        return self.client.patch("/api/auth/me/", payload,
+                                 content_type="application/json")
+
+    def test_a_customer_can_fix_their_own_name_and_phone(self):
+        response = self.patch({"first_name": "Yuki", "last_name": "Tanaka",
+                               "phone": "080-3333-4444"})
+
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.get_full_name(), "Yuki Tanaka")
+        self.assertEqual(self.user.customer_profile.phone, "080-3333-4444")
+        self.assertEqual(response.json()["phone"], "080-3333-4444")
+
+    def test_changing_email_is_refused_outright(self):
+        was = self.user.first_name
+
+        response = self.patch({"first_name": "Yuki", "email": "someone@example.com"})
+
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "buyer@example.com")
+        self.assertEqual(self.user.username, "buyer@example.com")
+        # Refused as a whole: the name in the same body must not have been applied.
+        self.assertEqual(self.user.first_name, was)
+
+    def test_email_cannot_be_pointed_at_another_customers_account(self):
+        """The reason the field is locked.
+
+        PasswordResetView finds an account by `email__iexact=...` then `.first()`. Two
+        rows sharing an address turns that into a coin toss over whose account a reset
+        link opens.
+        """
+        victim, _ = make_customer("victim@example.com")
+
+        self.patch({"email": "victim@example.com"})
+
+        self.assertEqual(
+            get_user_model().objects.filter(email__iexact="victim@example.com").count(), 1
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "buyer@example.com")
+
+    def test_a_customer_cannot_promote_themselves(self):
+        for payload in ({"is_staff": True}, {"is_superuser": True},
+                        {"username": "admin"}, {"password": "hunter2"}):
+            with self.subTest(payload=payload):
+                response = self.patch(payload)
+
+                self.assertEqual(response.status_code, 400)
+                self.user.refresh_from_db()
+                self.assertFalse(self.user.is_staff)
+                self.assertFalse(self.user.is_superuser)
+                self.assertEqual(self.user.username, "buyer@example.com")
+
+    def test_a_blank_phone_is_refused(self):
+        response = self.patch({"phone": "   "})
+
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.customer_profile.phone, "080-1111-2222")
+
+    def test_an_account_with_no_profile_row_gets_one(self):
+        """Only VerifyView creates a profile; anything else would 500 here."""
+        orphan = get_user_model().objects.create_user(
+            username="orphan@example.com", email="orphan@example.com", password="pw-12345"
+        )
+        self.client.force_login(orphan)
+
+        response = self.patch({"phone": "080-5555-6666"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(orphan.customer_profile.phone, "080-5555-6666")
+
+    def test_anonymous_visitors_cannot_patch_anything(self):
+        self.client.logout()
+
+        self.assertEqual(self.patch({"first_name": "Nobody"}).status_code, 403)
+
+    def test_me_reports_staff_so_the_masthead_can_show_the_admin_button(self):
+        manager, _ = make_manager()
+        self.client.force_login(manager)
+
+        body = self.client.get("/api/auth/me/").json()
+
+        self.assertTrue(body["is_staff"])
+        self.assertFalse(self.client_me_is_staff())
+
+    def client_me_is_staff(self):
+        self.client.force_login(self.user)
+        return self.client.get("/api/auth/me/").json()["is_staff"]

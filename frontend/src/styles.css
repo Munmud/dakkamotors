@@ -855,3 +855,24 @@ a {
 .bookings__status--ok {
   color: #2e7d32;
 }
+
+/* Sits under a field it explains, rather than beside it. */
+.authform__hint {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.authform__saved {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+/* Disabled inputs must read as "not yours to change", not as broken. */
+.authform__field input:disabled {
+  background: var(--paper);
+  color: var(--muted);
+  cursor: not-allowed;
+}

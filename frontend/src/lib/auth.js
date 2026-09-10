@@ -31,6 +31,15 @@ async function post(path, body) {
   return data;
 }
 
+/** Same, for the one endpoint that edits rather than creates. */
+async function patch(path, body) {
+  const token = await csrfToken();
+  const { data } = await api.patch(path, body, {
+    headers: token ? { "X-CSRFToken": token } : {},
+  });
+  return data;
+}
+
 /** Returns 202 and NO session: no account exists until the emailed link is clicked. */
 export async function register({ name, email, phone, password, next, language }) {
   return post("/auth/register/", { name, email, phone, password, next, language });
@@ -51,6 +60,16 @@ export async function requestPasswordReset(email, language) {
 
 export async function confirmPasswordReset({ uid, token, password }) {
   return post("/auth/password-reset/confirm/", { uid, token, password });
+}
+
+/**
+ * Change your own name or phone number.
+ *
+ * Email is not here on purpose: it is the account's sign-in name, and the server refuses
+ * the whole request if one is sent. See LOCKED_PROFILE_FIELDS in auth_views.py.
+ */
+export async function updateProfile({ first_name, last_name, phone }) {
+  return patch("/auth/me/", { first_name, last_name, phone });
 }
 
 export async function login({ email, password }) {

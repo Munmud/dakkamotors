@@ -122,5 +122,14 @@
     "timesAvailable_one": "{{count}} time",
     "timesAvailable_other": "{{count}} times",
     "dateGone": "The last place on that date has just gone. Please pick another."
+  },
+  "account": {
+    "yourDetails": "Your details",
+    "firstName": "First name",
+    "lastName": "Last name",
+    "save": "Save changes",
+    "saving": "Saving…",
+    "saved": "Saved.",
+    "emailFixed": "This is how you sign in. Call us if you need it changed."
   }
 }
