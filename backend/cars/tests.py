@@ -16,6 +16,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.utils import timezone
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from PIL import Image
@@ -25,6 +26,8 @@ from . import booking as booking_rules
 from . import email_theme
 from . import mail
 from . import seo
+from .notification_models import Notification, NotificationKind
+from .qa_models import CarQuestion
 from .booking_models import (
     BookingStatus,
     CustomerProfile,
@@ -403,8 +406,24 @@ class InventoryGroupTests(TestCase):
                 "cars.delete_testdriveslot", "cars.view_testdriveslot",
                 "cars.change_testdrivebooking", "cars.view_testdrivebooking",
                 "cars.view_customerprofile",
+                # Questions about a car. Delete is granted because a question is the
+                # one field on this site a stranger can type into.
+                "cars.add_carquestion", "cars.change_carquestion",
+                "cars.delete_carquestion", "cars.view_carquestion",
             },
         )
+
+    def test_group_cannot_read_anyone_s_notifications(self):
+        """A notification feed is one customer's private history.
+
+        Nothing grants it and the model is not registered in the admin, so the entry
+        cannot appear at all - but assert it, because a future `view_` grant added out
+        of habit would silently open somebody's inbox to every member of staff.
+        """
+        granted = {p.codename for p in self.group.permissions.all()}
+        for codename in ("add_notification", "change_notification",
+                         "delete_notification", "view_notification"):
+            self.assertNotIn(codename, granted)
 
     def test_group_cannot_delete_bookings_or_edit_customer_details(self):
         """A cancelled booking is history worth keeping, and customers own their own
@@ -1924,3 +1943,107 @@ class EmailTemplateTests(TestCase):
 
         self.assertNotIn("<script>", body["html"])
         self.assertIn("&lt;script&gt;", body["html"])
+
+
+class CarQuestionModelTests(TestCase):
+    """The schema-level guarantees. These hold whatever the admin or a view does."""
+
+    def setUp(self):
+        self.car = make_car("QA-1", brand="Daihatsu", model_name="Tanto")
+
+    def test_publishing_without_an_answer_is_refused_by_the_database(self):
+        """The guard that survives someone adding list_editable to the admin later.
+
+        A ModelForm's clean() does not run on the admin changelist, so this constraint
+        is the only thing standing between a bulk tick-box and a published blank.
+        """
+        question = CarQuestion.objects.create(car=self.car, question="Is it rust free?")
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                CarQuestion.objects.filter(pk=question.pk).update(is_published=True)
+
+    def test_publishing_with_an_answer_is_allowed(self):
+        question = CarQuestion.objects.create(
+            car=self.car, question="Is it rust free?", answer="Yes, underside is clean."
+        )
+
+        CarQuestion.objects.filter(pk=question.pk).update(is_published=True)
+
+        question.refresh_from_db()
+        self.assertTrue(question.is_published)
+
+    def test_closing_an_account_keeps_the_published_pair(self):
+        """A published pair is indexed page content; it must outlive the asker."""
+        user, _ = make_customer("asker@example.com")
+        question = CarQuestion.objects.create(
+            car=self.car, customer=user, question="Any service history?",
+            answer="Full history.", is_published=True,
+        )
+
+        user.delete()
+
+        question.refresh_from_db()
+        self.assertIsNone(question.customer)
+        self.assertTrue(question.is_published)
+
+    def test_state_reads_as_the_work_still_to_do(self):
+        question = CarQuestion.objects.create(car=self.car, question="Colour?")
+        self.assertEqual(question.state, "Needs an answer")
+
+        question.answer = "Pearl white."
+        question.answered_at = timezone.now()
+        self.assertEqual(question.state, "Answered, not public")
+
+        question.is_published = True
+        self.assertEqual(question.state, "Published")
+
+
+class NotificationModelTests(TestCase):
+    def setUp(self):
+        self.user, _ = make_customer("bell@example.com")
+
+    def test_a_dedupe_key_can_only_be_used_once_per_customer(self):
+        Notification.objects.create(
+            customer=self.user, kind=NotificationKind.BOOKING_CONFIRMED,
+            dedupe_key="booking:1:confirmed",
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Notification.objects.create(
+                    customer=self.user, kind=NotificationKind.BOOKING_CONFIRMED,
+                    dedupe_key="booking:1:confirmed",
+                )
+
+    def test_rows_without_a_dedupe_key_are_not_constrained(self):
+        """The unique constraint is conditional; blank keys must stay free."""
+        for _ in range(3):
+            Notification.objects.create(
+                customer=self.user, kind=NotificationKind.QUESTION_ANSWERED
+            )
+
+        self.assertEqual(Notification.objects.count(), 3)
+
+    def test_the_same_key_may_be_used_for_a_different_customer(self):
+        other, _ = make_customer("other@example.com")
+        Notification.objects.create(
+            customer=self.user, kind=NotificationKind.BOOKING_CONFIRMED,
+            dedupe_key="booking:1:confirmed",
+        )
+
+        Notification.objects.create(
+            customer=other, kind=NotificationKind.BOOKING_CONFIRMED,
+            dedupe_key="booking:1:confirmed",
+        )
+
+        self.assertEqual(Notification.objects.count(), 2)
+
+    def test_deleting_a_customer_takes_their_notifications(self):
+        Notification.objects.create(
+            customer=self.user, kind=NotificationKind.QUESTION_ANSWERED
+        )
+
+        self.user.delete()
+
+        self.assertEqual(Notification.objects.count(), 0)

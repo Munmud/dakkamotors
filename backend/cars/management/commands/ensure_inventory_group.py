@@ -48,6 +48,15 @@ PERMISSIONS = [
     # Customer contact details are readable so staff can ring about an appointment;
     # customers manage their own accounts, so there is nothing to add or delete here.
     ("cars", "view_customerprofile"),
+    # Questions buyers ask about a car. Delete is granted here, unlike bookings,
+    # because a question is the one thing on this site a stranger can type into a box -
+    # spam has to be removable outright rather than merely left unpublished.
+    ("cars", "add_carquestion"),
+    ("cars", "change_carquestion"),
+    ("cars", "delete_carquestion"),
+    ("cars", "view_carquestion"),
+    # Notification is deliberately absent, and is not registered in the admin either.
+    # It is one customer's private feed; staff have no business reading it.
 ]
 
 # Granting any of these would let a member edit users or hand themselves more rights,

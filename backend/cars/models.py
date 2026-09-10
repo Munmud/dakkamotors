@@ -269,3 +269,8 @@ from .booking_models import (  # noqa: E402,F401  (import position is forced by 
     TestDriveSlot,
     Weekday,
 )
+from .notification_models import (  # noqa: E402,F401
+    Notification,
+    NotificationKind,
+)
+from .qa_models import CarQuestion, QuestionLanguage  # noqa: E402,F401
