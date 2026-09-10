@@ -83,6 +83,12 @@ Resources:
               - Effect: Allow
                 Action: [s3:GetObject, s3:DeleteObject, s3:PutObject]
                 Resource: !Sub arn:aws:s3:::${OutboxBucketName}/*
+              # Without ListBucket, S3 reports a *missing* object as AccessDenied
+              # rather than NoSuchKey - so a message that was already handled looks
+              # like a broken IAM policy in the logs.
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub arn:aws:s3:::${OutboxBucketName}
               - Effect: Allow
                 Action: ssm:GetParameter
                 Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ApiKeyParameter}
@@ -138,6 +144,11 @@ Resources:
                       "api-key": api_key(),
                       "content-type": "application/json",
                       "accept": "application/json",
+                      # Not optional. Brevo sits behind Cloudflare, and some of its
+                      # endpoints reject urllib's default User-Agent outright with
+                      # error 1010 "browser signature banned" - a 403 that looks
+                      # nothing like an auth problem.
+                      "user-agent": "dakkamotors/1.0 (+https://dakkamotors.com)",
                   },
               )
               with urllib.request.urlopen(req, timeout=20) as response:
@@ -147,9 +158,13 @@ Resources:
               for record in event.get("Records", []):
                   bucket = record["s3"]["bucket"]["name"]
                   key = urllib.parse.unquote_plus(record["s3"]["object"]["key"])
-                  message = json.loads(
-                      s3.get_object(Bucket=bucket, Key=key)["Body"].read()
-                  )
+                  try:
+                      body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+                  except s3.exceptions.NoSuchKey:
+                      # Already handled, or removed before this ran. Not an error.
+                      print("GONE", key)
+                      continue
+                  message = json.loads(body)
                   try:
                       send(message)
                   except urllib.error.HTTPError as exc:
