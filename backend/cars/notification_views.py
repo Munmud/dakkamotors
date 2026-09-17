@@ -18,7 +18,10 @@ from . import notifications
 
 
 class NotificationSerializer(serializers.Serializer):
-    id = serializers.IntegerField(read_only=True)
+    # A string since the move to DynamoDB: ids are now sortable millisecond-plus-random
+    # identifiers rather than a sequence. The client only uses this as a list key and
+    # passes it back untouched, so the change is invisible to it.
+    id = serializers.CharField(source="notification_id", read_only=True)
     kind = serializers.CharField(read_only=True)
     context = serializers.JSONField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)

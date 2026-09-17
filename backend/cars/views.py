@@ -5,7 +5,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Car, CarStatus
-from .qa import published_questions_prefetch
 from .serializers import CarDetailSerializer, CarListSerializer
 from .uploads import UploadRejected, build_presigned_upload
 
@@ -24,7 +23,11 @@ class CarViewSet(viewsets.ReadOnlyModelViewSet):
             return queryset.filter(status=CarStatus.AVAILABLE)
         # Detail only. A list of cars each carrying its Q&A would be a lot of text
         # nobody asked for, and CarListSerializer does not expose it anyway.
-        return queryset.prefetch_related(published_questions_prefetch())
+        #
+        # Questions live in DynamoDB now, so there is nothing left to prefetch here --
+        # the serializer asks the store directly. Once cars move too, the car and its
+        # thread come back from a single Query and this stops being two reads.
+        return queryset
 
     # Readable URLs: /api/cars/2008-daihatsu-tanto-x/. Numeric ids still resolve, so
     # links shared before the change - and the admin's "view on site" - keep working.

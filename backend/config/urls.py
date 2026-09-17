@@ -37,6 +37,10 @@ urlpatterns = [
     # and belongs under the same prefix, but is a DRF view rather than an admin page.
     path("api/admin/uploads/sign/", SignUploadView.as_view(), name="sign-upload"),
     path("api/admin/", admin.site.urls),
+    # Server-rendered staff pages, replacing the Django admin one entity at a time as
+    # each moves to DynamoDB. Under /api/ for the same reason the admin is: that is the
+    # one prefix CloudFront routes to the backend with cookies forwarded and caching off.
+    path("api/staff/", include("cars.staff.urls")),
     path("api/", include("cars.urls")),
     # Crawler-facing files. Previously 403s, because the private S3 bucket answered
     # AccessDenied for objects that were never uploaded.

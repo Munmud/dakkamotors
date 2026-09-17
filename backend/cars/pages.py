@@ -243,10 +243,7 @@ def home(request):
 def car_detail(request, slug):
     language = _language_from(request)
     try:
-        car = (
-            Car.objects.prefetch_related("images", qa.published_questions_prefetch())
-            .get(slug=slug)
-        )
+        car = Car.objects.prefetch_related("images").get(slug=slug)
     except Car.DoesNotExist:
         raise Http404("No such car")
 

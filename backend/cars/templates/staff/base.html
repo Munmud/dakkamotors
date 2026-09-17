@@ -1,0 +1,102 @@
+{% comment %}
+Shell for the staff pages.
+
+Self-contained rather than extending `admin/base_site.html`. Inheriting from the admin
+would look right for free today and break the moment `django.contrib.admin` leaves
+INSTALLED_APPS -- which it must, because its system checks require `auth`,
+`contenttypes` and `sessions`, all of which are on their way out. Taking the small
+stylesheet now means the last step of the migration is deleting an app, not rebuilding
+every page under time pressure.
+{% endcomment %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{ title }} · Dakka Motors staff</title>
+  <style>
+    :root {
+      --ink: #1f2429; --muted: #6b7680; --line: #dfe3e6;
+      --bg: #f6f7f8; --panel: #ffffff; --accent: #0b6b57; --warn: #8a5a00;
+      --bad: #a32c2c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    header.masthead {
+      background: var(--ink); color: #fff; padding: .7rem 1.2rem;
+      display: flex; align-items: baseline; gap: 1.2rem;
+    }
+    header.masthead a { color: #fff; text-decoration: none; }
+    header.masthead .brand { font-weight: 600; }
+    header.masthead nav a { opacity: .85; margin-right: 1rem; }
+    header.masthead nav a:hover { opacity: 1; text-decoration: underline; }
+    main { max-width: 68rem; margin: 1.5rem auto; padding: 0 1.2rem; }
+    h1 { font-size: 1.4rem; margin: 0 0 1rem; }
+    .panel {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 6px; padding: 1rem 1.2rem; margin-bottom: 1.2rem;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: .55rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    tbody tr:hover { background: #fafbfb; }
+    a { color: var(--accent); }
+    .filters { display: flex; flex-wrap: wrap; gap: .8rem; align-items: flex-end; }
+    .filters label { display: block; font-size: .78rem; color: var(--muted); margin-bottom: .2rem; }
+    input[type=text], select, textarea {
+      font: inherit; padding: .4rem .5rem; border: 1px solid var(--line);
+      border-radius: 4px; background: #fff; color: inherit; width: 100%;
+    }
+    textarea { width: 100%; resize: vertical; }
+    button {
+      font: inherit; padding: .45rem .9rem; border-radius: 4px; cursor: pointer;
+      border: 1px solid var(--accent); background: var(--accent); color: #fff;
+    }
+    button.secondary { background: #fff; color: var(--ink); border-color: var(--line); }
+    button.danger { background: #fff; color: var(--bad); border-color: var(--bad); }
+    .help { color: var(--muted); font-size: .82rem; margin: .3rem 0 0; }
+    .pill {
+      display: inline-block; padding: .1rem .5rem; border-radius: 999px;
+      font-size: .75rem; border: 1px solid var(--line); color: var(--muted);
+    }
+    .pill.waiting { color: var(--warn); border-color: #e8d5a8; background: #fdf8ec; }
+    .pill.public { color: var(--accent); border-color: #bfe0d6; background: #f0f8f5; }
+    ul.messages { list-style: none; padding: 0; margin: 0 0 1rem; }
+    ul.messages li {
+      padding: .6rem .9rem; border-radius: 4px; margin-bottom: .5rem;
+      border: 1px solid var(--line); background: #fff;
+    }
+    ul.messages li.success { border-color: #bfe0d6; background: #f0f8f5; }
+    ul.messages li.warning { border-color: #e8d5a8; background: #fdf8ec; }
+    ul.messages li.error { border-color: #e6bcbc; background: #fdf1f1; }
+    .actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: .8rem; }
+    .empty { color: var(--muted); padding: 1.5rem 0; text-align: center; }
+  </style>
+</head>
+<body>
+  <header class="masthead">
+    <a class="brand" href="{% url 'staff:question-list' %}">Dakka Motors staff</a>
+    <nav>
+      <a href="{% url 'staff:question-list' %}">Questions</a>
+      {# Inventory and bookings are still on the Django admin until they move too. #}
+      <a href="/api/admin/">Admin</a>
+    </nav>
+  </header>
+
+  <main>
+    {% if messages %}
+      <ul class="messages">
+        {% for message in messages %}
+          <li class="{{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -12,7 +12,6 @@ from .tasks import process_pending
 from .management.commands.ensure_inventory_group import (
     GROUP_NAME as INVENTORY_GROUP_NAME,
 )
-from . import qa
 from .booking import cancel_by_staff, confirm_booking, ensure_slots
 from .booking_models import (
     ACTIVE_STATUSES,
@@ -23,7 +22,6 @@ from .booking_models import (
     TestDriveSlot,
 )
 from .models import Car, CarImage, StaffAccount
-from .qa_models import CarQuestion
 
 
 class CarImageInline(admin.TabularInline):
@@ -507,118 +505,16 @@ class CustomerProfileAdmin(admin.ModelAdmin):
         return False
 
 
-class CarQuestionAdminForm(forms.ModelForm):
-    """Friendly refusal on the change form.
-
-    Courtesy, not the guard. A ModelForm's clean() does not run on the changelist -
-    get_changelist_form() never passes ModelAdmin.form - so the thing that actually holds
-    is the CheckConstraint on the model. This exists so a staff member gets a sentence
-    instead of an IntegrityError page.
-    """
-
-    class Meta:
-        model = CarQuestion
-        fields = "__all__"
-
-    def clean(self):
-        cleaned = super().clean()
-        if cleaned.get("is_published") and not (cleaned.get("answer") or "").strip():
-            raise forms.ValidationError(
-                {"answer": "Write an answer before publishing. A published question "
-                           "with no answer is worse than no question at all."}
-            )
-        return cleaned
-
-
-@admin.register(CarQuestion)
-class CarQuestionAdmin(admin.ModelAdmin):
-    """The queue of things buyers want to know.
-
-    Answering emails the customer immediately. Publishing is a separate decision, so a
-    private reply stays private until someone decides the answer is worth showing.
-
-    No list_editable, for the reason spelled out on TestDriveBookingAdmin: the changelist
-    formset skips this form entirely, so a tick-box there would go around the publish
-    guard. The two actions do the job and say what they will do.
-    """
-
-    form = CarQuestionAdminForm
-    list_display = ("car", "excerpt", "state_label", "language", "created_at")
-    list_filter = ("is_published", "language", "car__brand")
-    search_fields = ("question", "answer", "car__brand", "car__model_name",
-                     "customer__email")
-    ordering = ("-created_at",)
-    actions = ["publish_selected", "unpublish_selected"]
-
-    fieldsets = (
-        (None, {"fields": ("car", "customer", "language", "created_at")}),
-        ("The question", {
-            "fields": ("question",),
-            "description": "Editable. People type their phone number and their name into "
-                           "free text, and this goes on a public page - tidy it before "
-                           "you publish.",
-        }),
-        ("Your answer", {
-            "fields": ("answer", "answered_by", "answered_at"),
-            "description": "Saving an answer emails the customer straight away. Editing "
-                           "one you have already sent does not email them again.",
-        }),
-        ("Public page", {
-            "fields": ("is_published",),
-            "description": "Puts the question and your answer on the car's page and in "
-                           "search results. The customer's name is never shown. The page "
-                           "is cached, so allow up to five minutes for it to appear.",
-        }),
-    )
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related("car", "customer", "answered_by")
-
-    def get_readonly_fields(self, request, obj=None):
-        base = ("customer", "created_at", "answered_at", "answered_by")
-        return base + ("car",) if obj else base
-
-    @admin.display(description="Question")
-    def excerpt(self, obj):
-        text = obj.question.strip().replace("\n", " ")
-        return text[:70] + ("…" if len(text) > 70 else "")
-
-    @admin.display(description="State", ordering="answered_at")
-    def state_label(self, obj):
-        return obj.state
-
-    def save_model(self, request, obj, form, change):
-        """Answers go through the domain function, which decides about the email."""
-        if change and "answer" in form.changed_data:
-            super().save_model(request, obj, form, change)
-            qa.record_answer(obj, answer=obj.answer, staff=request.user)
-            return
-        super().save_model(request, obj, form, change)
-
-    @admin.action(description="Publish selected on the car's page")
-    def publish_selected(self, request, queryset):
-        published, skipped = 0, []
-        for question in queryset:
-            try:
-                qa.publish(question)
-                published += 1
-            except qa.QuestionError:
-                skipped.append(str(question.pk))
-        if published:
-            self.message_user(
-                request,
-                f"Published {published}. The car page is cached, so allow up to five "
-                f"minutes for it to show.",
-            )
-        if skipped:
-            self.message_user(
-                request,
-                f"Left {len(skipped)} unpublished - they have no answer yet.",
-                level=messages.ERROR,
-            )
-
-    @admin.action(description="Remove selected from the car's page")
-    def unpublish_selected(self, request, queryset):
-        for question in queryset:
-            qa.unpublish(question)
-        self.message_user(request, f"Removed {queryset.count()} from the public page.")
+# The Q&A admin used to live here. Questions moved to DynamoDB, and `ModelAdmin` is built
+# on `QuerySet` and `ModelForm`, so there is no adapter -- the queue, the answer form and
+# the publish/unpublish actions are now server-rendered staff pages under
+# `cars/staff/`, reachable at /api/staff/questions/.
+#
+# The decisions that page inherits, so they are not lost with the class that held them:
+#   * No bulk tick-box for publishing. The old changelist skipped ModelAdmin.form
+#     entirely, so a tick there went round the publish guard; explicit buttons say what
+#     they will do.
+#   * Answering emails the customer immediately; publishing is a separate decision, so a
+#     private reply stays private until someone decides the answer is worth showing.
+#   * The question text stays editable before publishing: people type their phone number
+#     and their name into free text, and it ends up on a public page.

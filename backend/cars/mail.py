@@ -20,6 +20,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from . import email_theme as theme
+from . import identity
 from . import seo
 
 logger = logging.getLogger(__name__)
@@ -389,26 +390,30 @@ def send_password_reset_email(user, link, language="en"):
 # --------------------------------------------------------------------------------------
 
 
-def notify_staff_of_question(question):
-    """Someone has asked something about a car and is waiting on an answer."""
+def notify_staff_of_question(question, customer=None):
+    """Someone has asked something about a car and is waiting on an answer.
+
+    The customer is passed in rather than read off the question: questions now live in
+    DynamoDB and carry only a subject identifier, while the person's name and address
+    come from whatever owns identity - Django auth today, Cognito shortly.
+    """
     recipients = _config("STAFF_ALERT_EMAIL")
     if not recipients:
         return False
 
-    customer = question.customer
-    name = (customer.get_full_name() or customer.username) if customer else "a visitor"
-    email = customer.email if customer else ""
-    admin_url = f"{seo.SITE_URL}/api/admin/cars/carquestion/{question.pk}/change/"
+    name = identity.full_name_of(customer) or "a visitor"
+    email = identity.email_of(customer)
+    admin_url = f"{seo.SITE_URL}/api/staff/questions/{question.question_id}/"
 
     html = theme.render(
         heading="A question about a car",
-        preheader=f"{question.car} — {question.question[:80]}",
+        preheader=f"{question.car_label} — {question.question[:80]}",
         body="".join([
             theme.lead(f"<strong>{_esc(name)}</strong> has asked about the "
-                       f"{_esc(str(question.car))}."),
+                       f"{_esc(question.car_label)}."),
             theme.callout(_esc(question.question).replace("\n", "<br>")),
             theme.details([
-                ("Car", _esc(str(question.car))),
+                ("Car", _esc(question.car_label)),
                 ("Asked in", "Japanese" if question.language == "ja" else "English"),
                 ("Customer", _esc(name)),
                 ("Email", f'<a href="mailto:{_esc(email)}" style="color:{theme.INK};">'
@@ -424,7 +429,7 @@ def notify_staff_of_question(question):
     )
 
     text = (
-        f"{name} has asked about the {question.car}.\n\n"
+        f"{name} has asked about the {question.car_label}.\n\n"
         f"{question.question}\n\n"
         f"Asked in: {'Japanese' if question.language == 'ja' else 'English'}\n"
         f"Customer: {name}\n"
@@ -435,29 +440,29 @@ def notify_staff_of_question(question):
 
     return queue_email(
         to=[address.strip() for address in recipients.split(",")],
-        subject=f"Question about the {question.car}",
+        subject=f"Question about the {question.car_label}",
         html=html,
         text=text,
         reply_to=email or None,
     )
 
 
-def notify_customer_of_answer(question):
+def notify_customer_of_answer(question, customer=None):
     """Their question has been answered. Sent once, on the first answer only."""
-    customer = question.customer
-    if not customer or not customer.email:
+    if not customer or not identity.email_of(customer):
         return False
 
     b = seo.BUSINESS
-    car_url = f"{seo.SITE_URL}/cars/{question.car.slug}"
-    name = customer.first_name or customer.username
+    car_url = f"{seo.SITE_URL}/cars/{question.car_slug}"
+    name = (getattr(customer, "first_name", "")
+            or identity.full_name_of(customer))
 
     if question.language == "ja":
-        subject = f"ご質問への回答 - {question.car}"
+        subject = f"ご質問への回答 - {question.car_label}"
         html = theme.render(
             language="ja",
             heading="ご質問への回答",
-            preheader=f"{question.car}についてのご質問にお答えしました。",
+            preheader=f"{question.car_label}についてのご質問にお答えしました。",
             body="".join([
                 theme.lead(f"{_esc(name)} 様 — お問い合わせありがとうございました。"),
                 theme.paragraph("いただいたご質問:"),
@@ -478,10 +483,10 @@ def notify_customer_of_answer(question):
             f"お電話: {b['telephone_display']}\n\n{b['name_ja']}\n"
         )
     else:
-        subject = f"Your question about the {question.car}"
+        subject = f"Your question about the {question.car_label}"
         html = theme.render(
             heading="We have answered your question",
-            preheader=f"About the {question.car}.",
+            preheader=f"About the {question.car_label}.",
             body="".join([
                 theme.lead(f"Hello {_esc(name)} — thanks for asking."),
                 theme.paragraph("You asked:"),
@@ -495,7 +500,7 @@ def notify_customer_of_answer(question):
             ]),
         )
         text = (
-            f"Hello {name},\n\nThanks for asking about the {question.car}.\n\n"
+            f"Hello {name},\n\nThanks for asking about the {question.car_label}.\n\n"
             f"You asked:\n{question.question}\n\n"
             f"Our answer:\n{question.answer}\n\n"
             f"See the car: {car_url}\n"
