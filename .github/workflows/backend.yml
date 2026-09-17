@@ -134,4 +134,12 @@ jobs:
             echo "  ${path} -> ${code}"
             [ "$code" = "200" ] || failed=1
           done
+
+          # The staff pages must turn a stranger away rather than 500. One check that
+          # proves the pool id, the client id and the callback URL all line up - which
+          # is exactly the class of thing that breaks silently.
+          code=$(curl -s -o /dev/null -w "%{http_code}" "${ORIGIN}/api/staff/cars/")
+          echo "  /api/staff/cars/ -> ${code}"
+          [ "$code" = "302" ] || failed=1
+
           exit $failed

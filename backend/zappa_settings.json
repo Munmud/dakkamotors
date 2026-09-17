@@ -15,6 +15,15 @@
         "memory_size": 1024,
         "log_level": "INFO",
         "apigateway_description": "Dakka Motors API",
+        "_comment_vpc": [
+            "Still in the VPC, deliberately. DynamoDB is reachable through the free",
+            "gateway endpoint, but Aurora is still up and the old code still reads it -",
+            "which is what makes `zappa rollback` a two-minute rollback rather than a",
+            "restore. Leaving is a post-cutover step: empty these lists (do not delete",
+            "the key - Zappa only sends VpcConfig when it is present), then detach",
+            "AWSLambdaVPCAccessExecutionRole once the ENIs release, which takes 20-40",
+            "minutes. See docs/INFRA.md."
+        ],
         "vpc_config": {
             "SubnetIds": [
                 "subnet-0d0828c388d998a72",
@@ -23,6 +32,20 @@
             "SecurityGroupIds": [
                 "sg-04c0624b553366b7a"
             ]
+        },
+        "_comment_env": [
+            "Pool and client ids are not secrets, so they live here rather than in the",
+            "remote env file. Only COGNITO_STAFF_CLIENT_SECRET and DJANGO_SECRET_KEY",
+            "are, and those still come through remote_env from SSM by hand. Fill these",
+            "in from the dakkamotors-data stack outputs before the first deploy."
+        ],
+        "environment_variables": {
+            "DDB_TABLE": "dakkamotors",
+            "COGNITO_POOL_ID": "",
+            "COGNITO_CUSTOMER_CLIENT_ID": "",
+            "COGNITO_STAFF_CLIENT_ID": "",
+            "COGNITO_DOMAIN": "",
+            "COGNITO_JWKS_PATH": "config/cognito_jwks.json"
         },
         "remote_env": "s3://dakkamotors-backend-media/config/env.json",
         "keep_warm": false,
