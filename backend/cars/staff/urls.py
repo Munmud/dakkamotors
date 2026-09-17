@@ -11,6 +11,7 @@ from django.urls import path
 from . import views_bookings
 from . import views_cars
 from . import views_questions
+from . import views_schedules
 
 app_name = "staff"
 
@@ -27,4 +28,8 @@ urlpatterns = [
     path("cars/", views_cars.car_list, name="car-list"),
     path("cars/add/", views_cars.car_add, name="car-add"),
     path("cars/<str:car_id>/", views_cars.car_edit, name="car-edit"),
+    path("availability/", views_schedules.schedule_list, name="schedule-list"),
+    path("availability/add/", views_schedules.schedule_add, name="schedule-add"),
+    path("availability/<str:schedule_id>/", views_schedules.schedule_edit,
+         name="schedule-edit"),
 ]

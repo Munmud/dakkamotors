@@ -63,4 +63,6 @@ _PERMISSION_FOR = {
     "car.add": "cars.add_car",
     "car.change": "cars.change_car",
     "car.delete": "cars.delete_car",
+    "schedule.view": "cars.view_testdriveschedule",
+    "schedule.change": "cars.change_testdriveschedule",
 }

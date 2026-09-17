@@ -9,8 +9,7 @@ from django.utils.html import format_html
 from .management.commands.ensure_inventory_group import (
     GROUP_NAME as INVENTORY_GROUP_NAME,
 )
-from .booking import ensure_slots
-from .booking_models import CustomerProfile, TestDriveSchedule
+from .booking_models import CustomerProfile
 from .models import StaffAccount
 
 
@@ -169,48 +168,6 @@ class StaffAccountAdmin(DjangoUserAdmin):
             obj.groups.remove(group)
 
 
-@admin.register(TestDriveSchedule)
-class TestDriveScheduleAdmin(admin.ModelAdmin):
-    """The recurring rules. Slots are generated from these on demand."""
-
-    list_display = ("__str__", "capacity", "is_active", "starts_on", "ends_on", "note")
-    list_filter = ("is_active", "weekday")
-    list_editable = ("is_active",)
-    fieldsets = (
-        (
-            "When",
-            {
-                "fields": ("weekday", "start_time", "end_time"),
-                "description": "Times are Japan local time. A rule repeats every week.",
-            },
-        ),
-        (
-            "How many",
-            {
-                "fields": ("capacity",),
-                "description": "How many customers can take this appointment at once - "
-                "set 2 if two cars or two staff are free.",
-            },
-        ),
-        (
-            "Limits",
-            {
-                "fields": ("is_active", "starts_on", "ends_on", "note"),
-                "description": "Untick Active to stop generating new slots. Slots "
-                "already created keep their bookings; close them individually under "
-                "Test drive slots.",
-            },
-        ),
-    )
-
-    @admin.action(description="Generate slots for the next 4 weeks")
-    def generate(self, request, queryset):
-        created = ensure_slots()
-        self.message_user(request, f"Created {created} new slot(s).")
-
-    actions = ["generate"]
-
-
 @admin.register(CustomerProfile)
 class CustomerProfileAdmin(admin.ModelAdmin):
     """Read-only. Customers manage their own details; staff only need to look."""
@@ -268,3 +225,11 @@ class CustomerProfileAdmin(admin.ModelAdmin):
 #   * `process_pending()` on save is dropped. It existed because the database was
 #     already awake for that request and a scheduled sweep would have kept Aurora
 #     alive; neither is true any more.
+
+
+# TestDriveScheduleAdmin used to live here. The weekly rules moved to DynamoDB and are
+# now a staff page at /api/staff/availability/.
+#
+# Its "generate slots" action is deliberately not carried over: slots are materialised
+# whenever somebody asks for availability, so the button did nothing the next page view
+# would not already do.

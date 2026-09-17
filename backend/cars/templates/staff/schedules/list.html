@@ -1,0 +1,81 @@
+{% extends "staff/base.html" %}
+
+{% comment %}
+The weekly rules. Slots are generated from these whenever somebody asks for
+availability, which is why there is no "generate" button: it would do nothing the next
+page view does not already do.
+{% endcomment %}
+
+{% block content %}
+  <h1>Availability</h1>
+
+  <div class="panel">
+    {% if schedules %}
+      <table>
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>At once</th>
+            <th>Active</th>
+            <th>From</th>
+            <th>Until</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for rule in schedules %}
+            <tr>
+              <td>
+                <a href="{% url 'staff:schedule-edit' rule.schedule_id %}">
+                  {{ rule.get_weekday_display }}
+                  {{ rule.start_time|time:"H:i" }}–{{ rule.end_time|time:"H:i" }}
+                </a>
+              </td>
+              <td>{{ rule.capacity }}</td>
+              <td>
+                {% if rule.is_active %}
+                  <span class="pill public">Active</span>
+                {% else %}
+                  <span class="pill">Paused</span>
+                {% endif %}
+              </td>
+              <td>{{ rule.starts_on|date:"j M Y"|default:"—" }}</td>
+              <td>{{ rule.ends_on|date:"j M Y"|default:"—" }}</td>
+              <td>{{ rule.note|default:"—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">
+        No rules yet, so no test drive times are on offer. Add one below.
+      </p>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2 style="font-size:1rem;margin-top:0;">Add a rule</h2>
+    <form method="post" action="{% url 'staff:schedule-add' %}">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <ul class="messages">
+          {% for error in form.non_field_errors %}<li class="error">{{ error }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      {% for field in form %}
+        <div style="margin-bottom:.9rem;">
+          <label for="{{ field.id_for_label }}"
+                 style="display:block;font-size:.78rem;color:var(--muted);margin-bottom:.2rem;">
+            {{ field.label }}
+          </label>
+          {{ field }}
+          {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
+          {% for error in field.errors %}
+            <p class="help" style="color:var(--bad);">{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endfor %}
+      <div class="actions"><button type="submit">Add rule</button></div>
+    </form>
+  </div>
+{% endblock %}

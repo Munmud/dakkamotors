@@ -1,0 +1,48 @@
+{% extends "staff/base.html" %}
+
+{% block content %}
+  <h1>{{ schedule }}</h1>
+
+  <form method="post">
+    {% csrf_token %}
+    <div class="panel">
+      {% if form.non_field_errors %}
+        <ul class="messages">
+          {% for error in form.non_field_errors %}<li class="error">{{ error }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      {% for field in form %}
+        <div style="margin-bottom:.9rem;">
+          <label for="{{ field.id_for_label }}"
+                 style="display:block;font-size:.78rem;color:var(--muted);margin-bottom:.2rem;">
+            {{ field.label }}
+          </label>
+          {{ field }}
+          {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
+          {% for error in field.errors %}
+            <p class="help" style="color:var(--bad);">{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endfor %}
+      <div class="actions"><button type="submit">Save</button></div>
+    </div>
+  </form>
+
+  <div class="panel">
+    <h2 style="font-size:1rem;margin-top:0;">Delete</h2>
+    <p class="help">
+      Slots already generated from this rule are kept, so nobody loses an appointment
+      they already have. Future ones stop claiming the rule and can be closed
+      individually under Slots.
+    </p>
+    <form method="post" onsubmit="return confirm('Delete this rule?');">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="delete">
+      <div class="actions">
+        <button class="danger" type="submit">Delete this rule</button>
+      </div>
+    </form>
+  </div>
+
+  <p><a href="{% url 'staff:schedule-list' %}">&larr; Back to availability</a></p>
+{% endblock %}

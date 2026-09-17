@@ -21,9 +21,9 @@ from . import mail
 from .store import notifications as notification_store
 
 from .choices import ACTIVE_STATUSES, BookingStatus, NotificationKind
-from .booking_models import TestDriveSchedule
 from .store import bookings as booking_store
 from .store import customers as customer_store
+from .store import schedules as schedule_store
 from .store import slots as slot_store
 from .store.errors import (
     AlreadyBooked,
@@ -69,7 +69,7 @@ def ensure_slots(horizon_days=HORIZON_DAYS, now=None):
     today = timezone.localdate(now)
     created = 0
 
-    schedules = list(TestDriveSchedule.objects.filter(is_active=True))
+    schedules = schedule_store.active()
     if not schedules:
         return 0
 
@@ -90,7 +90,7 @@ def ensure_slots(horizon_days=HORIZON_DAYS, now=None):
             if ends_at <= now:
                 continue
 
-            schedule_id = str(schedule.pk)
+            schedule_id = schedule.schedule_id
             from .store import keys
             if keys.slot_id(schedule_id, starts_at) in existing:
                 continue

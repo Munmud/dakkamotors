@@ -7,7 +7,7 @@ model moves here or into the store, and where it moved is stated on each form.
 
 from django import forms
 
-from ..choices import BookingStatus, QuestionLanguage
+from ..choices import BookingStatus, QuestionLanguage, Weekday
 
 
 class AnswerForm(forms.Form):
@@ -106,3 +106,49 @@ class SlotFilterForm(forms.Form):
         widget=forms.DateInput(attrs={"type": "date"}),
     )
     only_open = forms.BooleanField(required=False, label="Open only")
+
+
+class ScheduleForm(forms.Form):
+    """One recurring weekly rule.
+
+    Descriptions carried over from `TestDriveScheduleAdmin`'s fieldsets: they explain
+    consequences staff cannot see from the field names, which is exactly what help text
+    is for.
+    """
+
+    weekday = forms.ChoiceField(choices=Weekday.choices, label="Weekday")
+    start_time = forms.TimeField(
+        label="From", widget=forms.TimeInput(attrs={"type": "time"}),
+        help_text="Times are Japan local time. A rule repeats every week.",
+    )
+    end_time = forms.TimeField(
+        label="To", widget=forms.TimeInput(attrs={"type": "time"}),
+    )
+    capacity = forms.IntegerField(
+        min_value=1, initial=1, label="How many at once",
+        help_text="How many customers can take this appointment at once - set 2 if two "
+                  "cars or two staff are free.",
+    )
+    is_active = forms.BooleanField(
+        required=False, initial=True, label="Active",
+        help_text="Untick to stop generating new slots. Slots already created keep "
+                  "their bookings; close them individually under Slots.",
+    )
+    starts_on = forms.DateField(
+        required=False, label="Starts on",
+        widget=forms.DateInput(attrs={"type": "date"}),
+        help_text="Optional. Leave blank to start immediately.",
+    )
+    ends_on = forms.DateField(
+        required=False, label="Ends on",
+        widget=forms.DateInput(attrs={"type": "date"}),
+        help_text="Optional. Leave blank to run indefinitely.",
+    )
+    note = forms.CharField(max_length=200, required=False, label="Note")
+
+    def clean(self):
+        cleaned = super().clean()
+        starts, ends = cleaned.get("starts_on"), cleaned.get("ends_on")
+        if starts and ends and ends < starts:
+            self.add_error("ends_on", "The end date cannot be before the start date.")
+        return cleaned

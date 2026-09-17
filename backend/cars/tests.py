@@ -53,6 +53,7 @@ from .tasks import build_derivatives_task
 from .store import keys as store_keys
 from .store import notifications as notification_store
 from .store import questions as question_store
+from .store import schedules as schedule_store
 from .store import slots as slot_store
 from .tests_store import truncate_table
 from .uploads import UploadRejected, _validate
@@ -1093,7 +1094,7 @@ def make_schedule(weekday=None, start="18:30", end="19:00", capacity=2, **kwargs
         weekday = (timezone.localdate() + datetime.timedelta(days=1)).weekday()
     hh, mm = start.split(":")
     eh, em = end.split(":")
-    return TestDriveSchedule.objects.create(
+    return schedule_store.create(
         weekday=weekday,
         start_time=datetime.time(int(hh), int(mm)),
         end_time=datetime.time(int(eh), int(em)),
@@ -1171,7 +1172,7 @@ class SlotGenerationTests(DynamoReset, TestCase):
 
         booking_rules.ensure_slots(horizon_days=14)
 
-        slots = [s for s in slots_in_store() if s.schedule_id == str(schedule.pk)]
+        slots = [s for s in slots_in_store() if s.schedule_id == schedule.schedule_id]
         self.assertEqual(len(slots), 2)  # one per week over a fortnight
         self.assertTrue(all(s.capacity == 2 for s in slots))
 
@@ -1215,8 +1216,10 @@ class SlotGenerationTests(DynamoReset, TestCase):
         schedule = make_schedule(capacity=2)
         booking_rules.ensure_slots(horizon_days=14)
 
-        schedule.capacity = 1
-        schedule.save()
+        schedule_store.update(schedule, weekday=schedule.weekday,
+                              start_time=schedule.start_time,
+                              end_time=schedule.end_time,
+                              capacity=1, is_active=True)
 
         self.assertTrue(all(s.capacity == 2 for s in slots_in_store()))
 
