@@ -240,10 +240,12 @@ def update(car, *, now, **fields):
 def bump_updated_at(car_id, now):
     """Move the sitemap's lastmod without touching anything else.
 
-    `qa.publish` does this so a newly published question shows the car as changed.
+    Conditional on the car existing, for the reason spelled out in
+    `store/questions.publish`: an unconditional UpdateItem is an upsert, and the stub
+    it would create is invisible to this package's polymorphic reads.
     """
     car = get(car_id)
-    car.update(actions=[Car.updated_at.set(now)])
+    car.update(actions=[Car.updated_at.set(now)], condition=Car.pk.exists())
     return car
 
 

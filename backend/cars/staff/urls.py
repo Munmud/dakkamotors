@@ -9,6 +9,7 @@ Django log line to find.
 from django.urls import path
 
 from . import views_bookings
+from . import views_cars
 from . import views_questions
 
 app_name = "staff"
@@ -23,4 +24,7 @@ urlpatterns = [
     path("slots/", views_bookings.slot_list, name="slot-list"),
     path("slots/<str:slot_id>/toggle/", views_bookings.slot_toggle,
          name="slot-toggle"),
+    path("cars/", views_cars.car_list, name="car-list"),
+    path("cars/add/", views_cars.car_add, name="car-add"),
+    path("cars/<str:car_id>/", views_cars.car_edit, name="car-edit"),
 ]

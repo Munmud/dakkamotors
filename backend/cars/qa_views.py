@@ -17,7 +17,7 @@ from rest_framework.views import APIView
 
 from . import identity
 from . import qa
-from .models import Car
+from .store import cars as car_store
 from .store import questions as question_store
 
 
@@ -90,7 +90,7 @@ class QuestionListCreateView(APIView):
         )
 
     def post(self, request):
-        car = Car.objects.filter(slug=request.data.get("car") or "").first()
+        car = car_store.by_slug(request.data.get("car") or "")
         if car is None:
             return Response(
                 {"detail": "We could not find that car."},

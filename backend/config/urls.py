@@ -16,7 +16,7 @@ from django.shortcuts import redirect
 from django.urls import include, path
 
 from cars import discovery, pages
-from cars.models import Car
+from cars.store import cars as car_store
 from cars.views import SignUploadView
 
 
@@ -26,8 +26,14 @@ def legacy_car_redirect(request, pk):
     301 rather than 302: it passes the ranking of anything already indexed at the old
     address on to the new one, and tells crawlers to stop asking for the numeric form.
     """
-    car = Car.objects.filter(pk=pk).only("slug").first()
+    car = car_store.find(str(pk))
     if car is None:
+        # Ids were integers before the move to DynamoDB, so a link shared back then may
+        # point at one that no longer resolves directly. The pointer item is written by
+        # the migration importer for exactly this.
+        slug = car_store.slug_for_legacy_id(pk)
+        if slug:
+            return redirect(f"/cars/{slug}", permanent=True)
         return redirect("/", permanent=False)
     return redirect(car.get_absolute_url(), permanent=True)
 

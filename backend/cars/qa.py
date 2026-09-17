@@ -28,7 +28,7 @@ from . import identity
 from . import mail
 from . import notifications
 from .choices import NotificationKind
-from .models import Car
+from .store import cars as car_store
 from .store import questions as store
 from .store.errors import ConditionFailed
 
@@ -139,10 +139,9 @@ def publish(question, *, now=None):
         )
 
     try:
-        # bump_car=False while cars are still in Postgres - there is no DynamoDB car
-        # item to touch yet. The ORM update below stands in, and the two become one
-        # transaction again when cars move.
-        question = store.publish(question, now=now, bump_car=False)
+        # The question and the car's lastmod go in one transaction: a pair on the page
+        # with a stale lastmod is a pair crawlers have no reason to come back for.
+        question = store.publish(question, now=now)
     except ConditionFailed as exc:
         # The storage-layer guard disagreed with the check above, which means the answer
         # was emptied between the two. Same sentence either way.
@@ -151,7 +150,6 @@ def publish(question, *, now=None):
             "worse than no question at all."
         ) from exc
 
-    _touch_car(question, now)
     return question
 
 
@@ -165,10 +163,13 @@ def unpublish(question, *, now=None):
 def _touch_car(question, now):
     """Move the car's sitemap lastmod.
 
-    `.update()` rather than `car.save()`: auto_now would be bypassed either way, so the
-    value is set explicitly and no other field is touched.
+    New content on a page that still reports last year's date is new content a crawler
+    has no reason to come back for.
     """
-    Car.objects.filter(pk=question.car_id).update(updated_at=now)
+    try:
+        car_store.bump_updated_at(question.car_id, now)
+    except Exception:  # noqa: BLE001 - a missing car must not fail the publish
+        pass
 
 
 def published_for(car):

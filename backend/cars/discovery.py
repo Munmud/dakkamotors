@@ -12,7 +12,8 @@ the site renders, so it can never list a car that has been sold and removed.
 from django.http import HttpResponse
 
 from . import seo
-from .models import Car, CarStatus
+from .choices import CarStatus
+from .store import cars as car_store
 
 
 def robots_txt(request):
@@ -34,11 +35,9 @@ def robots_txt(request):
 
 
 def sitemap_xml(request):
-    cars = (
-        Car.objects.exclude(status=CarStatus.SOLD)
-        .order_by("-updated_at")
-        .only("slug", "updated_at")
-    )
+    # Two Queries over the status partitions, not a Scan: a sitemap must never
+    # advertise a car that has been sold, and `for_sitemap` is exactly that filter.
+    cars = car_store.for_sitemap()
 
     out = []
     out.append('<?xml version="1.0" encoding="UTF-8"?>')
@@ -78,11 +77,7 @@ def llms_txt(request):
     Facts here are stated plainly and match the structured data exactly.
     """
     b = seo.BUSINESS
-    cars = list(
-        Car.objects.filter(status=CarStatus.AVAILABLE).only(
-            "slug", "brand", "model_name", "grade", "manufacture_year", "price_jpy"
-        )[:50]
-    )
+    cars = car_store.list_by_status(CarStatus.AVAILABLE, limit=50)
 
     lines = [
         f"# {b['name']} ({b['name_ja']})",

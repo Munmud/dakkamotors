@@ -48,6 +48,28 @@ def _local_dynamo_available():
 AVAILABLE = _local_dynamo_available()
 
 
+def truncate_table():
+    """Empty the table between tests, at the raw client.
+
+    Deliberately not `BaseItem.scan()`. A polymorphic scan can only return items
+    carrying the discriminator attribute, so anything written without one -- a stub left
+    by an unconditional UpdateItem, say -- is invisible to it and would survive the
+    truncation, then collide with a later test in a way that looks impossible. Dropping
+    to the client means whatever is in the table goes.
+    """
+    client = connection().client
+    table = BaseItem.Meta.table_name
+    while True:
+        page = client.scan(TableName=table, ConsistentRead=True,
+                           ProjectionExpression="pk,sk")
+        items = page.get("Items", [])
+        if not items:
+            return
+        for item in items:
+            client.delete_item(TableName=table,
+                               Key={"pk": item["pk"], "sk": item["sk"]})
+
+
 @unittest.skipUnless(
     AVAILABLE,
     "DynamoDB Local not reachable; set DYNAMODB_ENDPOINT_URL to run store tests",
@@ -67,9 +89,7 @@ class DynamoTestCase(SimpleTestCase):
 
     def setUp(self):
         super().setUp()
-        with BaseItem.batch_write() as batch:
-            for item in BaseItem.scan():
-                batch.delete(item)
+        truncate_table()
 
 
 class TransactionWireOrderTests(DynamoTestCase):

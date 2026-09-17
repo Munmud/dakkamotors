@@ -167,10 +167,9 @@ def publish(question, *, now, bump_car=True):
     The condition is the nearest thing left to the old CheckConstraint. It guards this
     write; it cannot guard the table. See the module docstring.
 
-    `bump_car=False` while cars still live in Postgres: there is no DynamoDB car item to
-    update yet, so the caller bumps the ORM row instead. Flip it back -- and delete the
-    parameter -- when cars move, at which point the question and the car's lastmod go in
-    one transaction again.
+    Both writes are one transaction again now that cars live here too, so a published
+    question and the lastmod that tells crawlers about it cannot disagree. `bump_car`
+    survives only for fixtures that write a question against no car at all.
     """
     tx = Txn()
     tx.update(
@@ -187,6 +186,12 @@ def publish(question, *, now, bump_car=True):
             "car",
             Car(pk=keys.car_pk(question.car_id), sk=keys.META),
             actions=[Car.updated_at.set(now)],
+            # MUST be conditional. An UpdateItem is an upsert: without this it invents
+            # a car item carrying nothing but a pk, an sk and a timestamp. Such a stub
+            # has no discriminator, so it is invisible to every polymorphic query in
+            # this package -- a phantom that cannot be read back or cleaned up, and
+            # that silently blocks the real car from ever being created.
+            condition=Car.pk.exists(),
         )
     order = tx.labels_in_wire_order()
     try:

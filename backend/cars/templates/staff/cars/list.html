@@ -1,0 +1,88 @@
+{% extends "staff/base.html" %}
+
+{% comment %}
+The inventory changelist. Same columns the admin showed, same filters, same search --
+the search in particular is how a mechanic finds a car by a partial chassis number, so
+it matters that it still matches on that.
+{% endcomment %}
+
+{% block content %}
+  <h1>Cars</h1>
+
+  <form class="panel filters" method="get">
+    <div style="flex: 2 1 18rem;">
+      <label for="{{ form.q.id_for_label }}">{{ form.q.label }}</label>
+      {{ form.q }}
+    </div>
+    <div style="flex: 1 1 9rem;">
+      <label for="{{ form.status.id_for_label }}">{{ form.status.label }}</label>
+      {{ form.status }}
+    </div>
+    <div style="flex: 1 1 9rem;">
+      <label for="{{ form.fuel_type.id_for_label }}">{{ form.fuel_type.label }}</label>
+      {{ form.fuel_type }}
+    </div>
+    <div style="flex: 1 1 9rem;">
+      <label for="{{ form.brand.id_for_label }}">{{ form.brand.label }}</label>
+      {{ form.brand }}
+    </div>
+    <div><button type="submit">Filter</button></div>
+  </form>
+
+  <p class="actions" style="margin-top:-.4rem;">
+    <a href="{% url 'staff:car-add' %}"><button type="button">Add a car</button></a>
+  </p>
+
+  <div class="panel">
+    {% if cars %}
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th>Year</th>
+            <th>Brand</th>
+            <th>Model</th>
+            <th>Grade</th>
+            <th>Price</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for car in cars %}
+            <tr>
+              <td style="width:5rem;">
+                {% if car.primary_image %}
+                  <img src="{{ car.primary_image.url }}" alt=""
+                       style="height:44px;border-radius:4px;">
+                {% else %}—{% endif %}
+              </td>
+              <td>{{ car.manufacture_year }}</td>
+              <td>
+                <a href="{% url 'staff:car-edit' car.car_id %}">{{ car.brand }}</a>
+              </td>
+              <td>
+                <a href="{% url 'staff:car-edit' car.car_id %}">{{ car.model_name }}</a>
+              </td>
+              <td>{{ car.grade|default:"—" }}</td>
+              <td>
+                {% if car.price_jpy %}¥{{ car.price_jpy|floatformat:0 }}
+                {% else %}Call for price{% endif %}
+              </td>
+              <td>
+                {% if car.status == "available" %}
+                  <span class="pill public">{{ car.get_status_display }}</span>
+                {% elif car.status == "sold" %}
+                  <span class="pill">{{ car.get_status_display }}</span>
+                {% else %}
+                  <span class="pill waiting">{{ car.get_status_display }}</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">Nothing matches those filters.</p>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import booking as rules
-from .models import Car
+from .store import cars as car_store
 
 
 class SlotSerializer(serializers.Serializer):
@@ -69,7 +69,7 @@ class BookingListCreateView(APIView):
         car = None
         car_slug = request.data.get("car")
         if car_slug:
-            car = Car.objects.filter(slug=car_slug).first()
+            car = car_store.by_slug(car_slug)
             if car is None:
                 return Response(
                     {"detail": "That car is no longer listed."},

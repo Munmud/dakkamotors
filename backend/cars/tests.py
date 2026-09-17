@@ -41,13 +41,20 @@ from .booking_models import (
     TestDriveSlot,
 )
 from .models import Car, CarImage, CarStatus, StaffAccount
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
+
 from .store import bookings as booking_store
+from .store import cars as car_store
 from .store import customers as customer_store
+from .store import images as image_store
+from .store.models import Car as StoreCar
+from .tasks import build_derivatives_task
 from .store import keys as store_keys
 from .store import notifications as notification_store
 from .store import questions as question_store
 from .store import slots as slot_store
-from .store.base import BaseItem
+from .tests_store import truncate_table
 from .uploads import UploadRejected, _validate
 
 
@@ -62,9 +69,7 @@ class DynamoReset:
 
     def setUp(self):
         super().setUp()
-        with BaseItem.batch_write() as batch:
-            for item in BaseItem.scan():
-                batch.delete(item)
+        truncate_table()
 
 
 def make_question(car, *, customer=None, question="Is it rust free?", answer="",
@@ -76,7 +81,7 @@ def make_question(car, *, customer=None, question="Is it rust free?", answer="",
     -- both are set by the writes that mean them, which is the point of the design.
     """
     record = question_store.create(
-        car_id=str(car.pk),
+        car_id=car.car_id,
         car_brand=car.brand,
         car_model_name=car.model_name,
         car_slug=car.slug,
@@ -113,7 +118,11 @@ TINY_GIF = (
 )
 
 
+_car_sequence = itertools.count(1)
+
+
 def make_car(chassis, **overrides):
+    """A car in the store, as the staff page would create it."""
     fields = {
         "brand": "Daihatsu",
         "model_name": "Tanto",
@@ -125,16 +134,27 @@ def make_car(chassis, **overrides):
         "color": "Pearl White",
     }
     fields.update(overrides)
-    return Car.objects.create(**fields)
+    car = StoreCar(car_id=str(next(_car_sequence)), **fields)
+    return car_store.create(car, now=timezone.now())
 
 
 def attach_image(car, name, *, is_primary=False, order=0):
-    return CarImage.objects.create(
-        car=car,
-        image=SimpleUploadedFile(name, TINY_GIF, content_type="image/gif"),
-        is_primary=is_primary,
-        order=order,
+    return _attach(car, name, TINY_GIF, is_primary=is_primary, order=order)
+
+
+def _attach(car, name, payload, **fields):
+    """Put the bytes in storage, record the photo, and build its resized copies.
+
+    The ORM did the last step through CarImage.save(); the store deliberately does not,
+    because a storage layer that queues work is a storage layer with opinions. The
+    staff page calls the task explicitly for the same reason, so this mirrors it.
+    """
+    stored = default_storage.save(f"cars/{name}", ContentFile(payload))
+    image = image_store.create(
+        car_id=car.car_id, image_name=stored, now=timezone.now(), **fields
     )
+    build_derivatives_task(f"{car.car_id}:{image.image_id}")
+    return image_store.get(car.car_id, image.image_id)
 
 
 class ClearsThrottleMixin:
@@ -150,7 +170,7 @@ class ClearsThrottleMixin:
         cache.clear()
 
 
-class CarListApiTests(TestCase):
+class CarListApiTests(DynamoReset, TestCase):
     def test_list_returns_only_available_cars(self):
         make_car("AVAIL-1", status=CarStatus.AVAILABLE)
         make_car("RESERVED-1", status=CarStatus.RESERVED)
@@ -178,7 +198,7 @@ class CarListApiTests(TestCase):
         result = self.client.get(reverse("car-list")).json()["results"][0]
 
         self.assertIsNotNone(result["primary_image"])
-        self.assertEqual(result["primary_image"]["id"], primary.id)
+        self.assertEqual(result["primary_image"]["id"], primary.image_id)
 
     def test_list_primary_image_is_null_when_car_has_no_images(self):
         make_car("NO-IMAGE")
@@ -188,12 +208,12 @@ class CarListApiTests(TestCase):
         self.assertIsNone(result["primary_image"])
 
 
-class CarDetailApiTests(TestCase):
+class CarDetailApiTests(DynamoReset, TestCase):
     def test_detail_is_reachable_for_a_reserved_car(self):
         """A shared link must keep working after the car is reserved or sold."""
         car = make_car("RESERVED-2", status=CarStatus.RESERVED)
 
-        response = self.client.get(reverse("car-detail", args=[car.pk]))
+        response = self.client.get(reverse("car-detail", args=[car.slug]))
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "reserved")
@@ -203,14 +223,14 @@ class CarDetailApiTests(TestCase):
         second = attach_image(car, "second.gif", order=2)
         first = attach_image(car, "first.gif", order=1)
 
-        images = self.client.get(reverse("car-detail", args=[car.pk])).json()["images"]
+        images = self.client.get(reverse("car-detail", args=[car.slug])).json()["images"]
 
-        self.assertEqual([i["id"] for i in images], [first.id, second.id])
+        self.assertEqual([i["id"] for i in images], [first.image_id, second.image_id])
 
     def test_detail_exposes_both_descriptions(self):
         car = make_car("DESCRIPTIONS", description_en="English", description_ja="日本語")
 
-        payload = self.client.get(reverse("car-detail", args=[car.pk])).json()
+        payload = self.client.get(reverse("car-detail", args=[car.slug])).json()
 
         self.assertEqual(payload["description_en"], "English")
         self.assertEqual(payload["description_ja"], "日本語")
@@ -225,15 +245,15 @@ def jpeg(width, height, exif=None):
 
 
 def attach_photo(car, width, height, exif=None, **kwargs):
-    return CarImage.objects.create(car=car, image=jpeg(width, height, exif), **kwargs)
+    return _attach(car, "photo.jpg", jpeg(width, height, exif).read(), **kwargs)
 
 
-class DerivativeTests(TestCase):
+class DerivativeTests(DynamoReset, TestCase):
     def test_widths_larger_than_the_original_are_not_generated(self):
         """Upscaling costs bytes and adds no detail, and would make srcset mislead."""
         image = attach_photo(make_car("SMALL"), 900, 675)
 
-        image.refresh_from_db()
+        image.refresh()
 
         self.assertTrue(image.derivatives_ready)
         self.assertEqual(image.available_widths, [320, 800])
@@ -242,7 +262,7 @@ class DerivativeTests(TestCase):
     def test_all_widths_generated_for_a_large_original(self):
         image = attach_photo(make_car("LARGE"), 2400, 1800)
 
-        image.refresh_from_db()
+        image.refresh()
 
         self.assertEqual(image.available_widths, [320, 800, 1600])
 
@@ -250,7 +270,7 @@ class DerivativeTests(TestCase):
         """Otherwise a tiny upload would have nothing to serve at all."""
         image = attach_photo(make_car("TINY"), 120, 90)
 
-        image.refresh_from_db()
+        image.refresh()
 
         self.assertTrue(image.derivatives_ready)
         self.assertEqual(image.available_widths, [120])
@@ -262,12 +282,12 @@ class DerivativeTests(TestCase):
         first = attach_photo(car, 1000, 750)
         second = attach_photo(car, 1000, 750)
 
-        first.refresh_from_db()
-        second.refresh_from_db()
+        first.refresh()
+        second.refresh()
 
         self.assertNotEqual(first.derivative_name(800), second.derivative_name(800))
         # And both files really exist rather than one having clobbered the other.
-        storage = first.image.storage
+        storage = default_storage
         self.assertTrue(storage.exists(first.derivative_name(800)))
         self.assertTrue(storage.exists(second.derivative_name(800)))
 
@@ -277,8 +297,8 @@ class DerivativeTests(TestCase):
         exif[274] = 6  # rotate 90°
         image = attach_photo(make_car("ROTATED"), 1000, 500, exif=exif.tobytes())
 
-        image.refresh_from_db()
-        storage = image.image.storage
+        image.refresh()
+        storage = default_storage
         with storage.open(image.derivative_name(min(image.available_widths))) as fh:
             generated = Image.open(fh)
             generated.load()
@@ -288,36 +308,39 @@ class DerivativeTests(TestCase):
 
     def test_derivatives_are_webp(self):
         image = attach_photo(make_car("FORMAT"), 1000, 750)
-        image.refresh_from_db()
+        image.refresh()
 
-        with image.image.storage.open(image.derivative_name(800)) as fh:
+        with default_storage.open(image.derivative_name(800)) as fh:
             self.assertEqual(Image.open(fh).format, "WEBP")
 
     def test_replacing_the_photo_invalidates_the_old_copies(self):
         car = make_car("REPLACED")
         image = attach_photo(car, 1000, 750)
-        image.refresh_from_db()
+        image.refresh()
         self.assertTrue(image.derivatives_ready)
 
         image.image = jpeg(1200, 900)
         image.save()
 
         # Rebuilt for the new photo rather than left describing the old one.
-        image.refresh_from_db()
+        image.refresh()
         self.assertTrue(image.derivatives_ready)
 
 
-class FileCleanupTests(TestCase):
+class FileCleanupTests(DynamoReset, TestCase):
     def test_deleting_a_photo_removes_its_files(self):
         """Otherwise every sold-and-removed listing leaks megabytes into the bucket."""
         image = attach_photo(make_car("CLEANUP"), 1000, 750)
-        image.refresh_from_db()
-        storage = image.image.storage
-        original, derivative = image.image.name, image.derivative_name(800)
+        image.refresh()
+        storage = default_storage
+        original, derivative = image.image_name, image.derivative_name(800)
         self.assertTrue(storage.exists(original))
         self.assertTrue(storage.exists(derivative))
 
-        image.delete()
+        # Explicit now. Django left files behind by default and models.py hung a
+        # post_delete receiver off CarImage to clean them up; there are no signals
+        # here, so removing the bytes is an argument the caller passes.
+        image_store.delete(image.car_id, image.image_id)
 
         self.assertFalse(storage.exists(original))
         self.assertFalse(storage.exists(derivative))
@@ -325,25 +348,32 @@ class FileCleanupTests(TestCase):
     def test_deleting_a_car_removes_its_photos_files(self):
         car = make_car("CASCADE")
         image = attach_photo(car, 1000, 750)
-        image.refresh_from_db()
-        storage = image.image.storage
-        original = image.image.name
+        image.refresh()
+        storage = default_storage
+        original = image.image_name
 
-        car.delete()
+        # Explicit, like the staff delete view: there is no cascade and no post_delete
+        # receiver, so removing the bytes is something a caller asks for.
+        for photo in image_store.for_car(car.car_id):
+            image_store.delete(car.car_id, photo.image_id)
+        car_store.delete(car)
 
         self.assertFalse(storage.exists(original))
 
 
-class DerivativeApiTests(TestCase):
+class DerivativeApiTests(DynamoReset, TestCase):
     def test_sources_absent_until_processing_finishes(self):
         """A <source> pointing at an object that does not exist yet renders broken."""
         car = make_car("PENDING")
         image = attach_photo(car, 1000, 750)
-        CarImage.objects.filter(pk=image.pk).update(
-            derivatives_ready=False, derivative_widths=""
-        )
+        # Put it back into the "not processed yet" state the async gap really produces.
+        image.update(actions=[
+            type(image).derivatives_ready.set(False),
+            type(image).derivative_widths.remove(),
+        ])
+        image_store.refresh_primary(car.car_id)
 
-        payload = self.client.get(reverse("car-detail", args=[car.pk])).json()
+        payload = self.client.get(reverse("car-detail", args=[car.slug])).json()
 
         self.assertIsNone(payload["images"][0]["sources"])
         # The original is still served, so the page is never image-less.
@@ -353,7 +383,7 @@ class DerivativeApiTests(TestCase):
         car = make_car("READY")
         attach_photo(car, 2400, 1800)
 
-        sources = self.client.get(reverse("car-detail", args=[car.pk])).json()["images"][0][
+        sources = self.client.get(reverse("car-detail", args=[car.slug])).json()["images"][0][
             "sources"
         ]
 
@@ -369,19 +399,24 @@ class DerivativeApiTests(TestCase):
         self.assertIn("800", result["primary_image"]["sources"])
 
 
-class RebuildDerivativesCommandTests(TestCase):
+class RebuildDerivativesCommandTests(DynamoReset, TestCase):
     def test_repairs_a_half_processed_photo(self):
         from django.core.management import call_command
 
         car = make_car("REPAIR")
         image = attach_photo(car, 1000, 750)
-        CarImage.objects.filter(pk=image.pk).update(
-            derivatives_ready=False, derivative_widths=""
-        )
+        # Half-processed: the original landed but the copies never did. The sparse
+        # index entry is what the command looks for, so it has to go back too.
+        image.update(actions=[
+            type(image).derivatives_ready.set(False),
+            type(image).derivative_widths.remove(),
+            type(image).gsi1pk.set(store_keys.IMAGE_PENDING_GSI1PK),
+            type(image).gsi1sk.set(image.image_id),
+        ])
 
         call_command("rebuild_derivatives", stdout=io.StringIO())
 
-        image.refresh_from_db()
+        image.refresh()
         self.assertTrue(image.derivatives_ready)
         self.assertEqual(image.available_widths, [320, 800])
 
@@ -541,8 +576,12 @@ class InventoryManagerAccessTests(TestCase):
         self.assertFalse(self.user.is_superuser)
 
     def test_manager_can_manage_cars(self):
-        """The role has to actually work, not just be safely locked down."""
-        response = self.client.get("/api/admin/cars/car/")
+        """The role has to actually work, not just be safely locked down.
+
+        Inventory left the admin with the move to DynamoDB, so the page that has to
+        open is the staff one. The permission behind it is unchanged.
+        """
+        response = self.client.get("/api/staff/cars/")
         self.assertEqual(response.status_code, 200)
 
     def test_manager_cannot_reach_user_administration(self):
@@ -558,8 +597,8 @@ class InventoryManagerAccessTests(TestCase):
         body = self.client.get("/api/admin/").content.decode()
         self.assertNotIn("/api/admin/auth/user/", body)
         self.assertNotIn("/api/admin/auth/group/", body)
-        # ...but the job they are here to do is on the page.
-        self.assertIn("/api/admin/cars/car/", body)
+        # ...but the job they are here to do is reachable.
+        self.assertEqual(self.client.get("/api/staff/cars/").status_code, 200)
 
     def test_manager_can_sign_uploads(self):
         """Photo upload is gated on is_staff, so the role must clear it."""
@@ -866,7 +905,7 @@ class SuperuserUnaffectedTests(TestCase):
         self.assertEqual(self.client.get("/api/admin/auth/user/").status_code, 200)
 
 
-class SlugTests(TestCase):
+class SlugTests(DynamoReset, TestCase):
     def test_slug_is_built_from_the_words_a_buyer_would_search(self):
         car = make_car("SLUG-1", brand="Daihatsu", model_name="Tanto", grade="X",
                        manufacture_year=2008)
@@ -890,11 +929,11 @@ class SlugTests(TestCase):
         car.model_name = "Aqua Hybrid"
         car.save()
 
-        car.refresh_from_db()
+        car.refresh()
         self.assertEqual(car.slug, original)
 
 
-class DiscoveryFileTests(TestCase):
+class DiscoveryFileTests(DynamoReset, TestCase):
     def test_robots_txt_is_served_and_points_at_the_sitemap(self):
         """It used to 403: the private bucket answered AccessDenied for a file that was
         never uploaded, and Lighthouse scored that "not applicable" rather than failing."""
@@ -928,7 +967,7 @@ class DiscoveryFileTests(TestCase):
 
 
 @mock.patch("cars.pages.asset_tags", return_value="")
-class RenderedPageTests(TestCase):
+class RenderedPageTests(DynamoReset, TestCase):
     def test_home_has_a_local_title_and_dealer_schema(self, _tags):
         body = self.client.get("/").content.decode()
 
@@ -1014,13 +1053,13 @@ class RenderedPageTests(TestCase):
         """301 passes on whatever ranking the numeric URL already earned."""
         car = make_car("PAGE-8", brand="Toyota", model_name="Aqua", manufacture_year=2017)
 
-        response = self.client.get(f"/cars/{car.pk}")
+        response = self.client.get(f"/cars/{car.car_id}")
 
         self.assertEqual(response.status_code, 301)
         self.assertEqual(response["Location"], car.get_absolute_url())
 
 
-class SlugApiTests(TestCase):
+class SlugApiTests(DynamoReset, TestCase):
     def test_api_resolves_a_car_by_slug(self):
         car = make_car("API-SLUG", brand="Daihatsu", model_name="Tanto",
                        manufacture_year=2008)
@@ -1034,10 +1073,10 @@ class SlugApiTests(TestCase):
         """Links shared before slugs existed must keep working."""
         car = make_car("API-ID")
 
-        response = self.client.get(f"/api/cars/{car.pk}/")
+        response = self.client.get(f"/api/cars/{car.car_id}/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["id"], car.pk)
+        self.assertEqual(response.json()["id"], car.car_id)
 
 
 def make_customer(email="buyer@example.com", password="customer-pw-1234", phone="080-1111-2222"):
@@ -1487,7 +1526,7 @@ class CustomerAccountTests(ClearsThrottleMixin, TestCase):
         self.assertIn(manager.username, body)
 
 
-class AccountPageTests(TestCase):
+class AccountPageTests(DynamoReset, TestCase):
     def test_account_routes_render_but_are_not_indexable(self):
         for path in ("/account", "/account/login", "/account/register"):
             with self.subTest(path=path):
@@ -1978,13 +2017,16 @@ class StaffPasswordsStayStrictTests(TestCase):
         validate_password("123456", password_validators=CUSTOMER_PASSWORD_VALIDATORS)
 
 
-class PrimaryImageFallbackTests(TestCase):
+class PrimaryImageFallbackTests(DynamoReset, TestCase):
     def test_falls_back_to_lowest_order_when_nothing_is_flagged(self):
         car = make_car("FALLBACK")
         attach_image(car, "third.gif", order=3)
         lowest = attach_image(car, "first.gif", order=1)
 
-        self.assertEqual(car.primary_image, lowest)
+        # Re-read: the listing-card reference lives on the car item and is refreshed
+        # when a photo is added, so a copy fetched beforehand is stale by design.
+        self.assertEqual(car_store.get(car.car_id).primary_image.image_id,
+                         lowest.image_id)
 
     def test_returns_none_when_there_are_no_images(self):
         self.assertIsNone(make_car("EMPTY").primary_image)
@@ -2303,7 +2345,7 @@ class AskingTests(DynamoReset, ClearsThrottleMixin, TestCase):
         stored = questions_in_store()
         self.assertEqual(len(stored), 1)
         question = stored[0]
-        self.assertEqual(question.car_id, str(self.car.pk))
+        self.assertEqual(question.car_id, self.car.car_id)
         self.assertEqual(question.customer_sub, str(self.user.pk))
         self.assertFalse(question.is_published)
         self.assertIsNone(question.answered_at)
@@ -2448,12 +2490,12 @@ class PublishingTests(DynamoReset, TestCase):
     def test_publishing_moves_the_cars_updated_at_so_the_sitemap_notices(self):
         question = make_question(self.car, customer=self.user, question="Colour?",
                                  answer="Pearl white.", answered=True)
-        self.car.refresh_from_db()
+        self.car.refresh()
         before = self.car.updated_at
 
         qa.publish(question)
 
-        self.car.refresh_from_db()
+        self.car.refresh()
         self.assertGreater(self.car.updated_at, before)
 
 

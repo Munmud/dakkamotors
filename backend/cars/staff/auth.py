@@ -59,4 +59,8 @@ _PERMISSION_FOR = {
     "booking.change": "cars.change_testdrivebooking",
     "slot.view": "cars.view_testdriveslot",
     "slot.change": "cars.change_testdriveslot",
+    "car.view": "cars.view_car",
+    "car.add": "cars.add_car",
+    "car.change": "cars.change_car",
+    "car.delete": "cars.delete_car",
 }

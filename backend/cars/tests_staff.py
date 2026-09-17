@@ -13,6 +13,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from .store import cars as car_store
 from .store import questions as question_store
 from .tests import (
     DynamoReset, MAIL_SETTINGS, make_car, make_customer, make_manager, make_question,
@@ -234,7 +235,7 @@ class StaffPublishingTests(DynamoReset, TestCase):
         self.assertTrue(question.is_published)
         self.assertContains(response, "allow up to five minutes")
         self.assertEqual(
-            [q.question_id for q in question_store.published_for(str(self.car.pk))],
+            [q.question_id for q in question_store.published_for(self.car.car_id)],
             [question.question_id],
         )
 
@@ -246,18 +247,16 @@ class StaffPublishingTests(DynamoReset, TestCase):
 
         question.refresh()
         self.assertFalse(question.is_published)
-        self.assertEqual(question_store.published_for(str(self.car.pk)), [])
+        self.assertEqual(question_store.published_for(self.car.car_id), [])
 
     def test_publishing_moves_the_cars_updated_at_so_the_sitemap_notices(self):
         question = make_question(self.car, customer=self.customer, question="Colour?",
                                  answer="Pearl white.", answered=True)
-        self.car.refresh_from_db()
-        before = self.car.updated_at
+        before = car_store.get(self.car.car_id).updated_at
 
         self.client.post(self.detail_url(question), {"action": "publish"}, follow=True)
 
-        self.car.refresh_from_db()
-        self.assertGreater(self.car.updated_at, before)
+        self.assertGreater(car_store.get(self.car.car_id).updated_at, before)
 
     def test_the_publish_button_is_disabled_until_there_is_an_answer(self):
         """Courtesy, not the guard - but staff should not be offered a button that

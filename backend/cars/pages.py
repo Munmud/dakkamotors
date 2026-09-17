@@ -24,7 +24,9 @@ from django.http import Http404, HttpResponse
 
 from . import qa
 from . import seo
-from .models import Car, CarStatus
+from .choices import CarStatus
+from .store import cars as car_store
+from .store.errors import NotFound
 from .serializers import CarDetailSerializer, CarListSerializer
 
 logger = logging.getLogger(__name__)
@@ -169,10 +171,9 @@ def _price_text(car, language):
 
 def home(request):
     language = _language_from(request)
-    cars = list(
-        Car.objects.filter(status=CarStatus.AVAILABLE)
-        .prefetch_related("images")[:24]
-    )
+    # One Query. The listing card's photo comes from the denormalised reference on the
+    # car itself, which is what `prefetch_related("images")` used to buy.
+    cars = car_store.list_by_status(CarStatus.AVAILABLE, limit=24)
 
     if language == "ja":
         title = f"{seo.BUSINESS['region_ja']}{seo.BUSINESS['locality_ja']}の中古車販売｜ダッカモータース"
@@ -243,8 +244,11 @@ def home(request):
 def car_detail(request, slug):
     language = _language_from(request)
     try:
-        car = Car.objects.prefetch_related("images").get(slug=slug)
-    except Car.DoesNotExist:
+        # One Query returns the car, its photos and its published questions together --
+        # the reason this design is single-table, and the page most worth it: it is
+        # server-rendered for crawlers and link previews on a possibly-cold Lambda.
+        car = car_store.detail_by_slug(slug)
+    except NotFound:
         raise Http404("No such car")
 
     canonical = f"{seo.SITE_URL}{car.get_absolute_url()}"
@@ -269,11 +273,12 @@ def car_detail(request, slug):
             f"{seo.BUSINESS['region']}. Call {seo.BUSINESS['telephone_display']}."
         )
 
-    images = list(car.images.all())
+    # Already loaded: the detail Query returned the photos with the car.
+    images = car.images
     image_urls = []
     for image in images:
         urls = image.derivative_urls
-        image_urls.append(urls[max(urls)] if urls else image.image.url)
+        image_urls.append(urls[max(urls)] if urls else image.url)
 
     # A sold car should stay reachable for anyone holding the link, but it should not
     # keep competing in search results against cars that can still be bought.
@@ -378,7 +383,7 @@ def account_page(request, rest=None):
 
 
 def book_test_drive_page(request, slug):
-    car = Car.objects.filter(slug=slug).first()
+    car = car_store.by_slug(slug)
     name = car.seo_title_plain if car else "a car"
     return app_shell(
         request,

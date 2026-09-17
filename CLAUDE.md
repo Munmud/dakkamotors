@@ -50,7 +50,8 @@ at once, so read this before touching the data layer.
 
 `backend/cars/store/` is the DynamoDB layer: PynamoDB 6.1, one table, single-table
 design with a discriminator. Already moved: **notifications**, **questions**,
-**bookings**, **slots**, **customers**. Still on the ORM: cars, images, schedules, auth.
+**bookings**, **slots**, **customers**, **cars**, **images**. Still on the ORM:
+schedules (the weekly test-drive rules) and auth.
 
 Ids are strings now wherever an entity has moved, so URL patterns take `<str:pk>`, not
 `<int:pk>`. A slot's id is derived from (schedule, start time) -- that is what makes
@@ -75,6 +76,13 @@ Rules while both exist:
 * **`store/questions.py` is the only permitted writer of `is_published`.** That
   exclusivity is what replaces the `CheckConstraint` DynamoDB cannot express, and a test
   enforces it mechanically.
+* **Never write an unconditional `UpdateItem` against an item that may not exist.** It is
+  an upsert, and the stub it creates carries no discriminator -- which makes it invisible
+  to every polymorphic read in this package, impossible to clean up through the ORM
+  layer, and enough to block the real item from ever being created. Guard with
+  `.pk.exists()`. This cost real debugging time once already.
+* **Test truncation drops to the raw client** (`tests_store.truncate_table`) for the same
+  reason: a `BaseItem.scan()` cannot see an item without a discriminator.
 
 Design decisions and the full plan live in `~/.claude/plans/` and in each store module's
 docstring. `docs/INFRA.md` still describes the Aurora architecture and is updated as
