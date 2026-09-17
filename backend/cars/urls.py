@@ -38,13 +38,16 @@ urlpatterns = router.urls + [
         booking_views.BookingListCreateView.as_view(),
         name="booking-list",
     ),
+    # <str:pk>, not <int:pk>: a booking id is a sortable string now, not a sequence.
+    # Leaving it as int would 404 before the view ran, which reads as "no such URL"
+    # rather than as the "booking not found" the customer should be told.
     path(
-        "test-drive/bookings/<int:pk>/cancel/",
+        "test-drive/bookings/<str:pk>/cancel/",
         booking_views.BookingCancelView.as_view(),
         name="booking-cancel",
     ),
     path(
-        "test-drive/bookings/<int:pk>/reschedule/",
+        "test-drive/bookings/<str:pk>/reschedule/",
         booking_views.BookingRescheduleView.as_view(),
         name="booking-reschedule",
     ),

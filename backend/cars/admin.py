@@ -12,15 +12,8 @@ from .tasks import process_pending
 from .management.commands.ensure_inventory_group import (
     GROUP_NAME as INVENTORY_GROUP_NAME,
 )
-from .booking import cancel_by_staff, confirm_booking, ensure_slots
-from .booking_models import (
-    ACTIVE_STATUSES,
-    BookingStatus,
-    CustomerProfile,
-    TestDriveBooking,
-    TestDriveSchedule,
-    TestDriveSlot,
-)
+from .booking import ensure_slots
+from .booking_models import CustomerProfile, TestDriveSchedule
 from .models import Car, CarImage, StaffAccount
 
 
@@ -356,143 +349,6 @@ class TestDriveScheduleAdmin(admin.ModelAdmin):
     actions = ["generate"]
 
 
-@admin.register(TestDriveSlot)
-class TestDriveSlotAdmin(admin.ModelAdmin):
-    """Actual dates. This is where "that Friday is closed" gets done."""
-
-    list_display = ("starts_at", "ends_at", "capacity", "seats_taken", "is_open")
-    list_filter = ("is_open", "starts_at")
-    list_editable = ("is_open",)
-    date_hierarchy = "starts_at"
-    ordering = ("starts_at",)
-    readonly_fields = ("schedule",)
-
-    @admin.display(description="Booked")
-    def seats_taken(self, obj):
-        return f"{obj.booked_count} / {obj.capacity}"
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).prefetch_related("bookings")
-
-    @admin.action(description="Close selected (customers keep existing bookings)")
-    def close_slots(self, request, queryset):
-        updated = queryset.update(is_open=False)
-        self.message_user(
-            request,
-            f"Closed {updated} slot(s). Anyone already booked still has their "
-            "appointment - cancel those individually if the day is off.",
-        )
-
-    @admin.action(description="Re-open selected")
-    def open_slots(self, request, queryset):
-        self.message_user(request, f"Re-opened {queryset.update(is_open=True)} slot(s).")
-
-    actions = ["close_slots", "open_slots"]
-
-
-@admin.register(TestDriveBooking)
-class TestDriveBookingAdmin(admin.ModelAdmin):
-    """Soonest first.
-
-    Until notification emails exist, this page is the only way anyone finds out a
-    customer is coming - so it leads with when, who, and how to reach them.
-    """
-
-    list_display = (
-        "slot", "customer_name", "customer_phone", "customer_email",
-        "car_label", "status",
-    )
-    list_filter = ("status", "slot__starts_at")
-    ordering = ("status", "slot__starts_at")
-    search_fields = (
-        "customer__first_name", "customer__last_name", "customer__email",
-        "customer__customer_profile__phone", "car_label",
-    )
-    # No list_editable. Ticking a status in the changelist writes through a formset
-    # built by get_changelist_form(), which never uses ModelAdmin.form - and a bulk save
-    # that fires several irreversible confirmation emails from one click is the wrong
-    # affordance anyway. The actions below do the same job and say what they will do.
-    date_hierarchy = "slot__starts_at"
-    readonly_fields = (
-        "slot", "customer", "car", "car_label", "created_at", "updated_at",
-        "confirmed_at", "cancelled_at",
-    )
-
-    def save_model(self, request, obj, form, change):
-        """Route a status change through the domain function that emails the customer.
-
-        Saving the model directly would move the status and tell nobody - which is
-        exactly what the old list_editable did. save_model is called by both the change
-        form and the changelist formset, so putting it here closes the hole whichever
-        way someone reaches it.
-        """
-        moved_to = form.cleaned_data.get("status") if change else None
-        if moved_to and moved_to != form.initial.get("status"):
-            # Hand the domain function the row as it still stands, not `obj` - the form
-            # has already written the new status onto the instance, and confirm_booking
-            # returns early when it is handed a booking that is confirmed already. That
-            # early return is right; passing it a half-applied object is not.
-            stored = TestDriveBooking.objects.get(pk=obj.pk)
-            if moved_to == BookingStatus.CONFIRMED:
-                confirm_booking(stored)
-                return
-            if moved_to == BookingStatus.CANCELLED:
-                cancel_by_staff(stored)
-                return
-        super().save_model(request, obj, form, change)
-
-    def get_queryset(self, request):
-        return (
-            super()
-            .get_queryset(request)
-            .select_related("slot", "customer", "customer__customer_profile", "car")
-        )
-
-    @admin.display(description="Customer")
-    def customer_name(self, obj):
-        return obj.customer.get_full_name() or obj.customer.username
-
-    @admin.display(description="Phone")
-    def customer_phone(self, obj):
-        profile = getattr(obj.customer, "customer_profile", None)
-        return profile.phone if profile else "—"
-
-    @admin.display(description="Email")
-    def customer_email(self, obj):
-        return obj.customer.email
-
-    @admin.action(description="Confirm selected (emails the customer)")
-    def confirm_bookings(self, request, queryset):
-        """The only thing that tells a customer their appointment is on."""
-        confirmed = 0
-        for booking in queryset.exclude(status=BookingStatus.CONFIRMED):
-            if booking.status in ACTIVE_STATUSES:
-                confirm_booking(booking)
-                confirmed += 1
-        if confirmed:
-            self.message_user(
-                request, f"Confirmed {confirmed} booking(s). The customer has been emailed."
-            )
-        else:
-            self.message_user(
-                request,
-                "Nothing to confirm - those are already confirmed or no longer active.",
-                level=messages.WARNING,
-            )
-
-    @admin.action(description="Cancel selected (tells the customer)")
-    def cancel_bookings(self, request, queryset):
-        cancelled = 0
-        for booking in queryset.filter(status__in=ACTIVE_STATUSES):
-            cancel_by_staff(booking)
-            cancelled += 1
-        self.message_user(
-            request, f"Cancelled {cancelled} booking(s) and let the customer know."
-        )
-
-    actions = ["confirm_bookings", "cancel_bookings"]
-
-
 @admin.register(CustomerProfile)
 class CustomerProfileAdmin(admin.ModelAdmin):
     """Read-only. Customers manage their own details; staff only need to look."""
@@ -518,3 +374,19 @@ class CustomerProfileAdmin(admin.ModelAdmin):
 #     private reply stays private until someone decides the answer is worth showing.
 #   * The question text stays editable before publishing: people type their phone number
 #     and their name into free text, and it ends up on a public page.
+
+
+# TestDriveSlotAdmin and TestDriveBookingAdmin used to live here. Slots and bookings
+# moved to DynamoDB, and ModelAdmin is built on QuerySet, so both are now server-rendered
+# staff pages under `cars/staff/` at /api/staff/slots/ and /api/staff/bookings/.
+#
+# What those pages inherit, so the reasoning is not lost with the classes:
+#   * Confirm and cancel route through booking.confirm_booking / cancel_by_staff, never
+#     through a direct status write. The old save_model had to re-fetch the stored row
+#     to stop a half-applied status reaching the domain function; explicit buttons
+#     remove the possibility instead of working around it.
+#   * No list_editable and no tick-boxes. A bulk save firing several irreversible
+#     confirmation emails from one click is the wrong affordance.
+#   * Closing a slot stops new bookings and never cancels the ones already taken.
+#   * date_hierarchy became an explicit from/to pair, which is what staff used the
+#     drill-down for and what maps onto a range query.

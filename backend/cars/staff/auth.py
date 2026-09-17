@@ -55,4 +55,8 @@ _PERMISSION_FOR = {
     "question.view": "cars.view_carquestion",
     "question.change": "cars.change_carquestion",
     "question.delete": "cars.delete_carquestion",
+    "booking.view": "cars.view_testdrivebooking",
+    "booking.change": "cars.change_testdrivebooking",
+    "slot.view": "cars.view_testdriveslot",
+    "slot.change": "cars.change_testdriveslot",
 }

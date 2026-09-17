@@ -49,8 +49,13 @@ backend (Zappa) and the frontend (S3 + CloudFront invalidation) via OIDC. No sta
 at once, so read this before touching the data layer.
 
 `backend/cars/store/` is the DynamoDB layer: PynamoDB 6.1, one table, single-table
-design with a discriminator. Already moved: **notifications**, **questions**. Still on
-the ORM: cars, images, bookings, slots, schedules, customers, auth.
+design with a discriminator. Already moved: **notifications**, **questions**,
+**bookings**, **slots**, **customers**. Still on the ORM: cars, images, schedules, auth.
+
+Ids are strings now wherever an entity has moved, so URL patterns take `<str:pk>`, not
+`<int:pk>`. A slot's id is derived from (schedule, start time) -- that is what makes
+materialising slots idempotent, and why two fixtures wanting distinct slots at the same
+instant need distinct rules.
 
 Rules while both exist:
 

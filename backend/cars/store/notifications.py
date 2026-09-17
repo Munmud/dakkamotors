@@ -76,6 +76,43 @@ def notify(*, customer_sub, kind, context, dedupe_key="", now):
     return row, True
 
 
+def build(*, customer_sub, kind, context, dedupe_key="", now):
+    """Prepare a bell entry and its guard without writing them.
+
+    Lets a caller put the notification into *their* transaction, so the entry and the
+    event that caused it are one atomic write. That is what makes "a confirmation that
+    did not happen leaves no notification" a property of the storage layer rather than
+    of an enclosing session -- the guarantee the Django version had, and the reason
+    `notify()` used to insist on being called inside the transaction.
+
+    Returns (notification, guard-or-None).
+    """
+    notification_id = keys.new_id()
+    sk = keys.notification_sk(now, notification_id)
+    ttl = int((now + dt.timedelta(days=KEEP_DAYS)).timestamp())
+
+    row = Notification(
+        pk=keys.customer_pk(customer_sub),
+        sk=sk,
+        notification_id=notification_id,
+        customer_sub=customer_sub,
+        kind=kind,
+        context=context or {},
+        dedupe_key=dedupe_key or "",
+        created_at=now,
+        ttl=ttl,
+    )
+    if not dedupe_key:
+        return row, None
+    guard = DedupeGuard(
+        pk=keys.customer_pk(customer_sub),
+        sk=keys.dedupe_sk(dedupe_key),
+        notification_sk=sk,
+        ttl=ttl,
+    )
+    return row, guard
+
+
 def _existing(customer_sub, dedupe_key):
     """The notification a dedupe guard already points at.
 

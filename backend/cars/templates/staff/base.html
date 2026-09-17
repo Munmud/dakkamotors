@@ -81,8 +81,10 @@ every page under time pressure.
   <header class="masthead">
     <a class="brand" href="{% url 'staff:question-list' %}">Dakka Motors staff</a>
     <nav>
+      <a href="{% url 'staff:booking-list' %}">Test drives</a>
+      <a href="{% url 'staff:slot-list' %}">Slots</a>
       <a href="{% url 'staff:question-list' %}">Questions</a>
-      {# Inventory and bookings are still on the Django admin until they move too. #}
+      {# Inventory and the weekly rules are still on the Django admin until they move. #}
       <a href="/api/admin/">Admin</a>
     </nav>
   </header>

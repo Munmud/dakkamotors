@@ -342,6 +342,9 @@ class Booking(BaseItem, discriminator="booking"):
     # Deleting a sold car wipes its photos from S3. The booking has to outlive it, and
     # staff still need to know what the appointment was about.
     car_label = UnicodeAttribute(null=True)
+    # For the "about this car" link on the customer's own bookings list. Snapshotted for
+    # the same reason as the label: the link may dangle, but the text must still read.
+    car_slug = UnicodeAttribute(null=True)
 
     # Snapshot, for the staff queue. Refreshed across a customer's (at most three)
     # active bookings when they edit their profile.

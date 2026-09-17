@@ -7,7 +7,7 @@ model moves here or into the store, and where it moved is stated on each form.
 
 from django import forms
 
-from ..choices import QuestionLanguage
+from ..choices import BookingStatus, QuestionLanguage
 
 
 class AnswerForm(forms.Form):
@@ -70,3 +70,39 @@ class QuestionFilterForm(forms.Form):
         choices=[("", "Any language")] + list(QuestionLanguage.choices),
     )
     brand = forms.CharField(required=False, label="Brand")
+
+
+class BookingFilterForm(forms.Form):
+    """The booking queue's filters.
+
+    `status` used to be `list_filter`; `q` used to be `search_fields`. Phone search is
+    deliberately gone: it reached through `customer__customer_profile__phone`, two joins
+    for something staff do by name or email anyway.
+    """
+
+    q = forms.CharField(
+        required=False, label="Search",
+        widget=forms.TextInput(attrs={"placeholder": "name, email, car"}),
+    )
+    status = forms.ChoiceField(
+        required=False, label="Status",
+        choices=[("", "Pending and confirmed")] + list(BookingStatus.choices),
+    )
+
+
+class SlotFilterForm(forms.Form):
+    """A from/to pair, replacing the admin's `date_hierarchy`.
+
+    Two dates are what staff actually used the drill-down for, and they map straight
+    onto a range query over the slot index rather than onto a year/month/day walk.
+    """
+
+    start = forms.DateField(
+        required=False, label="From",
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    end = forms.DateField(
+        required=False, label="To",
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    only_open = forms.BooleanField(required=False, label="Open only")

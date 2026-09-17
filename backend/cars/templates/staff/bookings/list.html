@@ -1,0 +1,81 @@
+{% extends "staff/base.html" %}
+
+{% comment %}
+Soonest first. Until the notification emails existed, this page was the only way anyone
+found out a customer was coming - so it still leads with when, who, and how to reach
+them.
+
+No tick-boxes and no inline status widget. A bulk save that fires several irreversible
+confirmation emails from one click is the wrong affordance, which is why the admin had
+list_editable removed too; here the widget simply does not exist.
+{% endcomment %}
+
+{% block content %}
+  <h1>
+    Test drives
+    {% if pending %}<span class="pill waiting">{{ pending }} awaiting confirmation</span>{% endif %}
+  </h1>
+
+  <form class="panel filters" method="get">
+    <div style="flex: 2 1 16rem;">
+      <label for="{{ form.q.id_for_label }}">{{ form.q.label }}</label>
+      {{ form.q }}
+    </div>
+    <div style="flex: 1 1 12rem;">
+      <label for="{{ form.status.id_for_label }}">{{ form.status.label }}</label>
+      {{ form.status }}
+    </div>
+    <div><button type="submit">Filter</button></div>
+  </form>
+
+  <div class="panel">
+    {% if bookings %}
+      <table>
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Customer</th>
+            <th>Phone</th>
+            <th>Email</th>
+            <th>Car</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for booking in bookings %}
+            <tr>
+              <td>
+                <a href="{% url 'staff:booking-detail' booking.booking_id %}">
+                  {{ booking.slot_starts_at|date:"D j M Y, H:i" }}
+                </a>
+              </td>
+              <td>{{ booking.customer_name|default:"—" }}</td>
+              <td>
+                {% if booking.customer_phone %}
+                  <a href="tel:{{ booking.customer_phone }}">{{ booking.customer_phone }}</a>
+                {% else %}—{% endif %}
+              </td>
+              <td>
+                {% if booking.customer_email %}
+                  <a href="mailto:{{ booking.customer_email }}">{{ booking.customer_email }}</a>
+                {% else %}—{% endif %}
+              </td>
+              <td>{{ booking.car_label|default:"—" }}</td>
+              <td>
+                {% if booking.status == "pending" %}
+                  <span class="pill waiting">{{ booking.get_status_display }}</span>
+                {% elif booking.status == "confirmed" %}
+                  <span class="pill public">{{ booking.get_status_display }}</span>
+                {% else %}
+                  <span class="pill">{{ booking.get_status_display }}</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">Nothing matches those filters.</p>
+    {% endif %}
+  </div>
+{% endblock %}

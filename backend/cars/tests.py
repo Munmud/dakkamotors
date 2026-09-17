@@ -1,5 +1,6 @@
 import datetime
 import hashlib
+import itertools
 import io
 import json
 import os
@@ -40,8 +41,12 @@ from .booking_models import (
     TestDriveSlot,
 )
 from .models import Car, CarImage, CarStatus, StaffAccount
+from .store import bookings as booking_store
+from .store import customers as customer_store
+from .store import keys as store_keys
 from .store import notifications as notification_store
 from .store import questions as question_store
+from .store import slots as slot_store
 from .store.base import BaseItem
 from .uploads import UploadRejected, _validate
 
@@ -1058,56 +1063,105 @@ def make_schedule(weekday=None, start="18:30", end="19:00", capacity=2, **kwargs
     )
 
 
-def future_slot(capacity=2, days=3, hour=15, is_open=True):
-    """A concrete slot comfortably beyond the lead time."""
+_slot_sequence = itertools.count(1)
+
+
+def future_slot(capacity=2, days=3, hour=15, is_open=True, schedule_id=None):
+    """A concrete slot comfortably beyond the lead time.
+
+    A slot's id is derived from (schedule, start time), which is what makes generating
+    them idempotent -- so two fixtures wanting distinct slots at the same instant need
+    distinct rules. The counter supplies one unless the caller cares.
+    """
     starts = timezone.localtime(timezone.now()) + datetime.timedelta(days=days)
     starts = starts.replace(hour=hour, minute=0, second=0, microsecond=0)
-    return TestDriveSlot.objects.create(
+    sid = schedule_id or f"fixture-{next(_slot_sequence)}"
+    slot_store.ensure(
+        schedule_id=sid,
         starts_at=starts,
         ends_at=starts + datetime.timedelta(minutes=30),
         capacity=capacity,
-        is_open=is_open,
     )
+    slot = slot_store.get(store_keys.slot_id(sid, starts))
+    if not is_open:
+        slot = slot_store.set_open(slot.slot_id, False)
+    return slot
 
 
-class SlotGenerationTests(TestCase):
+class _CustomerRef:
+    """What the store snapshots onto a booking. Mirrors booking._CustomerRef."""
+
+    def __init__(self, user):
+        self.sub = str(user.pk)
+        self.email = user.email or ""
+        profile = getattr(user, "customer_profile", None)
+        self.phone = getattr(profile, "phone", "") if profile else ""
+        self._name = user.get_full_name() or user.username
+
+    def get_full_name(self):
+        return self._name
+
+
+def slots_in_store(days=90):
+    """Every materialised slot in a generous window."""
+    now = timezone.now()
+    return slot_store.between(now - datetime.timedelta(days=days),
+                              now + datetime.timedelta(days=days))
+
+
+def make_booking(customer, slot, car=None, car_label=None, now=None):
+    """A booking written straight to the store, bypassing the domain rules.
+
+    Replaces `TestDriveBooking.objects.create(...)`. Uses a generous limit because these
+    are fixtures setting up a scenario, not exercising the cap.
+    """
+    now = now or timezone.now()
+    customer_store.ensure(sub=str(customer.pk), email=customer.email or "", now=now)
+    booking = booking_store.create(
+        customer=_CustomerRef(customer), slot=slot, car=car, now=now, max_active=99,
+    )
+    if car_label is not None and not booking.car_label:
+        booking.update(actions=[type(booking).car_label.set(car_label)])
+        booking.refresh()
+    return booking
+
+
+class SlotGenerationTests(DynamoReset, TestCase):
     def test_generation_creates_one_slot_per_matching_day(self):
         schedule = make_schedule(capacity=2)
 
         booking_rules.ensure_slots(horizon_days=14)
 
-        slots = TestDriveSlot.objects.filter(schedule=schedule)
-        self.assertEqual(slots.count(), 2)  # one per week over a fortnight
+        slots = [s for s in slots_in_store() if s.schedule_id == str(schedule.pk)]
+        self.assertEqual(len(slots), 2)  # one per week over a fortnight
         self.assertTrue(all(s.capacity == 2 for s in slots))
 
     def test_generation_is_idempotent(self):
         make_schedule()
         booking_rules.ensure_slots(horizon_days=14)
-        before = TestDriveSlot.objects.count()
+        before = len(slots_in_store())
 
         booking_rules.ensure_slots(horizon_days=14)
 
-        self.assertEqual(TestDriveSlot.objects.count(), before)
+        self.assertEqual(len(slots_in_store()), before)
 
     def test_regenerating_does_not_reopen_a_slot_staff_closed(self):
         """The whole point of materialising slots: staff overrides must survive."""
         make_schedule()
         booking_rules.ensure_slots(horizon_days=14)
-        slot = TestDriveSlot.objects.first()
-        slot.is_open = False
-        slot.save()
+        slot = slots_in_store()[0]
+        slot_store.set_open(slot.slot_id, False)
 
         booking_rules.ensure_slots(horizon_days=14)
 
-        slot.refresh_from_db()
-        self.assertFalse(slot.is_open)
+        self.assertFalse(slot_store.get(slot.slot_id).is_open)
 
     def test_inactive_rules_generate_nothing(self):
         make_schedule(is_active=False)
 
         booking_rules.ensure_slots(horizon_days=14)
 
-        self.assertEqual(TestDriveSlot.objects.count(), 0)
+        self.assertEqual(slots_in_store(), [])
 
     def test_rule_validity_window_is_respected(self):
         yesterday = timezone.localdate() - datetime.timedelta(days=1)
@@ -1115,7 +1169,7 @@ class SlotGenerationTests(TestCase):
 
         booking_rules.ensure_slots(horizon_days=14)
 
-        self.assertEqual(TestDriveSlot.objects.count(), 0)
+        self.assertEqual(slots_in_store(), [])
 
     def test_slot_capacity_is_a_snapshot_not_a_live_lookup(self):
         """Editing a rule must not shrink an evening people already booked."""
@@ -1125,113 +1179,116 @@ class SlotGenerationTests(TestCase):
         schedule.capacity = 1
         schedule.save()
 
-        self.assertTrue(all(s.capacity == 2 for s in TestDriveSlot.objects.all()))
+        self.assertTrue(all(s.capacity == 2 for s in slots_in_store()))
 
 
-class BookingRuleTests(TestCase):
+class BookingRuleTests(DynamoReset, TestCase):
     def setUp(self):
+        super().setUp()
         self.user, _ = make_customer()
         self.car = make_car("BOOK-1", brand="Daihatsu", model_name="Tanto")
 
     def test_booking_takes_a_seat(self):
         slot = future_slot(capacity=2)
 
-        booking_rules.create_booking(user=self.user, slot_id=slot.pk, car=self.car)
+        booking_rules.create_booking(user=self.user, slot_id=slot.slot_id, car=self.car)
 
-        slot.refresh_from_db()
+        slot.refresh()
         self.assertEqual(slot.seats_left, 1)
 
     def test_car_label_is_snapshotted(self):
         """Deleting a sold car wipes its photos; the booking must still make sense."""
         slot = future_slot()
         booking = booking_rules.create_booking(
-            user=self.user, slot_id=slot.pk, car=self.car
+            user=self.user, slot_id=slot.slot_id, car=self.car
         )
 
         self.car.delete()
 
-        booking.refresh_from_db()
-        self.assertIsNone(booking.car)
+        booking.refresh()
+        # The booking keeps the id and the label, not a reference. Nothing cascades, so
+        # the appointment survives the car being sold and removed - which is the whole
+        # reason car_label exists.
         self.assertIn("Daihatsu Tanto", booking.car_label)
 
     def test_a_slot_in_the_past_cannot_be_booked(self):
         past = future_slot(days=-2)
 
         with self.assertRaises(booking_rules.BookingError):
-            booking_rules.create_booking(user=self.user, slot_id=past.pk)
+            booking_rules.create_booking(user=self.user, slot_id=past.slot_id)
 
     def test_a_slot_inside_the_lead_time_cannot_be_booked(self):
         starts = timezone.now() + datetime.timedelta(minutes=10)
-        soon = TestDriveSlot.objects.create(
-            starts_at=starts, ends_at=starts + datetime.timedelta(minutes=30), capacity=1
-        )
+        slot_store.ensure(schedule_id="lead-time", starts_at=starts,
+                          ends_at=starts + datetime.timedelta(minutes=30), capacity=1)
+        soon = slot_store.get(store_keys.slot_id("lead-time", starts))
 
         with self.assertRaises(booking_rules.BookingError):
-            booking_rules.create_booking(user=self.user, slot_id=soon.pk)
+            booking_rules.create_booking(user=self.user, slot_id=soon.slot_id)
 
     def test_a_closed_slot_cannot_be_booked(self):
         closed = future_slot(is_open=False)
 
         with self.assertRaises(booking_rules.BookingError):
-            booking_rules.create_booking(user=self.user, slot_id=closed.pk)
+            booking_rules.create_booking(user=self.user, slot_id=closed.slot_id)
 
     def test_a_slot_beyond_the_horizon_cannot_be_booked(self):
         far = future_slot(days=booking_rules.HORIZON_DAYS + 5)
 
         with self.assertRaises(booking_rules.BookingError):
-            booking_rules.create_booking(user=self.user, slot_id=far.pk)
+            booking_rules.create_booking(user=self.user, slot_id=far.slot_id)
 
     def test_capacity_is_enforced(self):
         slot = future_slot(capacity=1)
         other, _ = make_customer("other@example.com")
-        booking_rules.create_booking(user=other, slot_id=slot.pk)
+        booking_rules.create_booking(user=other, slot_id=slot.slot_id)
 
         with self.assertRaises(booking_rules.BookingError):
-            booking_rules.create_booking(user=self.user, slot_id=slot.pk)
+            booking_rules.create_booking(user=self.user, slot_id=slot.slot_id)
 
     def test_the_same_customer_cannot_take_two_seats_in_one_slot(self):
         slot = future_slot(capacity=3)
-        booking_rules.create_booking(user=self.user, slot_id=slot.pk)
+        booking_rules.create_booking(user=self.user, slot_id=slot.slot_id)
 
         with self.assertRaises(booking_rules.BookingError):
-            booking_rules.create_booking(user=self.user, slot_id=slot.pk)
+            booking_rules.create_booking(user=self.user, slot_id=slot.slot_id)
 
     def test_active_booking_limit(self):
         for day in range(booking_rules.MAX_ACTIVE_BOOKINGS):
             slot = future_slot(days=day + 2)
-            booking_rules.create_booking(user=self.user, slot_id=slot.pk)
+            booking_rules.create_booking(user=self.user, slot_id=slot.slot_id)
 
         one_more = future_slot(days=20)
         with self.assertRaises(booking_rules.BookingError):
-            booking_rules.create_booking(user=self.user, slot_id=one_more.pk)
+            booking_rules.create_booking(user=self.user, slot_id=one_more.slot_id)
 
     def test_cancelling_frees_the_seat(self):
         slot = future_slot(capacity=1)
-        booking = booking_rules.create_booking(user=self.user, slot_id=slot.pk)
+        booking = booking_rules.create_booking(user=self.user, slot_id=slot.slot_id)
 
-        booking_rules.cancel_booking(user=self.user, booking_id=booking.pk)
+        booking_rules.cancel_booking(user=self.user, booking_id=booking.booking_id)
 
-        slot.refresh_from_db()
+        slot.refresh()
         self.assertEqual(slot.seats_left, 1)
 
     def test_cancelling_frees_the_limit_too(self):
         slot = future_slot()
-        booking = booking_rules.create_booking(user=self.user, slot_id=slot.pk)
-        booking_rules.cancel_booking(user=self.user, booking_id=booking.pk)
+        booking = booking_rules.create_booking(user=self.user, slot_id=slot.slot_id)
+        booking_rules.cancel_booking(user=self.user, booking_id=booking.booking_id)
 
-        self.assertEqual(booking_rules.active_bookings_for(self.user).count(), 0)
+        self.assertEqual(len(booking_rules.active_bookings_for(self.user)), 0)
 
     def test_rescheduling_moves_the_seat(self):
         first = future_slot(days=3, capacity=1)
         second = future_slot(days=5, capacity=1)
-        booking = booking_rules.create_booking(user=self.user, slot_id=first.pk)
+        booking = booking_rules.create_booking(user=self.user, slot_id=first.slot_id)
 
         booking_rules.reschedule_booking(
-            user=self.user, booking_id=booking.pk, slot_id=second.pk
+            user=self.user, booking_id=booking.booking_id, slot_id=second.slot_id
         )
 
-        first.refresh_from_db()
-        second.refresh_from_db()
+        first.refresh()
+        second.refresh()
         self.assertEqual(first.seats_left, 1)
         self.assertEqual(second.seats_left, 0)
 
@@ -1239,40 +1296,41 @@ class BookingRuleTests(TestCase):
         first = future_slot(days=3, capacity=1)
         full = future_slot(days=5, capacity=1)
         other, _ = make_customer("other@example.com")
-        booking_rules.create_booking(user=other, slot_id=full.pk)
-        booking = booking_rules.create_booking(user=self.user, slot_id=first.pk)
+        booking_rules.create_booking(user=other, slot_id=full.slot_id)
+        booking = booking_rules.create_booking(user=self.user, slot_id=first.slot_id)
 
         with self.assertRaises(booking_rules.BookingError):
             booking_rules.reschedule_booking(
-                user=self.user, booking_id=booking.pk, slot_id=full.pk
+                user=self.user, booking_id=booking.booking_id, slot_id=full.slot_id
             )
 
     def test_cannot_reschedule_into_the_past(self):
         booking = booking_rules.create_booking(
-            user=self.user, slot_id=future_slot(days=3).pk
+            user=self.user, slot_id=future_slot(days=3).slot_id
         )
         past = future_slot(days=-1)
 
         with self.assertRaises(booking_rules.BookingError):
             booking_rules.reschedule_booking(
-                user=self.user, booking_id=booking.pk, slot_id=past.pk
+                user=self.user, booking_id=booking.booking_id, slot_id=past.slot_id
             )
 
     def test_one_customer_cannot_touch_anothers_booking(self):
         """A booking id in a URL must not be enough to reach a stranger's appointment."""
         owner, _ = make_customer("owner@example.com")
         stranger, _ = make_customer("stranger@example.com")
-        booking = booking_rules.create_booking(user=owner, slot_id=future_slot().pk)
+        booking = booking_rules.create_booking(user=owner, slot_id=future_slot().slot_id)
 
         with self.assertRaises(booking_rules.BookingError):
-            booking_rules.cancel_booking(user=stranger, booking_id=booking.pk)
+            booking_rules.cancel_booking(user=stranger, booking_id=booking.booking_id)
 
-        booking.refresh_from_db()
+        booking.refresh()
         self.assertTrue(booking.is_active)
 
 
-class BookingApiTests(TestCase):
+class BookingApiTests(DynamoReset, TestCase):
     def setUp(self):
+        super().setUp()
         self.user, self.password = make_customer()
         self.car = make_car("API-BOOK", brand="Honda", model_name="N-Box")
 
@@ -1299,7 +1357,7 @@ class BookingApiTests(TestCase):
 
     def test_a_full_slot_is_not_offered(self):
         slot = future_slot(capacity=1)
-        booking_rules.create_booking(user=self.user, slot_id=slot.pk)
+        booking_rules.create_booking(user=self.user, slot_id=slot.slot_id)
 
         results = self.client.get("/api/test-drive/slots/").json()["results"]
 
@@ -1310,7 +1368,7 @@ class BookingApiTests(TestCase):
 
         response = self.client.post(
             "/api/test-drive/bookings/",
-            {"slot": slot.pk, "car": self.car.slug},
+            {"slot": slot.slot_id, "car": self.car.slug},
             content_type="application/json",
         )
 
@@ -1322,7 +1380,7 @@ class BookingApiTests(TestCase):
 
         response = self.client.post(
             "/api/test-drive/bookings/",
-            {"slot": slot.pk, "car": self.car.slug},
+            {"slot": slot.slot_id, "car": self.car.slug},
             content_type="application/json",
         )
 
@@ -1336,7 +1394,7 @@ class BookingApiTests(TestCase):
 
         response = self.client.post(
             "/api/test-drive/bookings/",
-            {"slot": past.pk},
+            {"slot": past.slot_id},
             content_type="application/json",
         )
 
@@ -1344,9 +1402,9 @@ class BookingApiTests(TestCase):
 
     def test_customers_only_see_their_own_bookings(self):
         other, _ = make_customer("other@example.com")
-        booking_rules.create_booking(user=other, slot_id=future_slot(days=3).pk)
+        booking_rules.create_booking(user=other, slot_id=future_slot(days=3).slot_id)
         self.login()
-        booking_rules.create_booking(user=self.user, slot_id=future_slot(days=5).pk)
+        booking_rules.create_booking(user=self.user, slot_id=future_slot(days=5).slot_id)
 
         results = self.client.get("/api/test-drive/bookings/").json()["results"]
 
@@ -1354,13 +1412,13 @@ class BookingApiTests(TestCase):
 
     def test_cancelling_someone_elses_booking_is_refused(self):
         other, _ = make_customer("other@example.com")
-        booking = booking_rules.create_booking(user=other, slot_id=future_slot().pk)
+        booking = booking_rules.create_booking(user=other, slot_id=future_slot().slot_id)
         self.login()
 
-        response = self.client.post(f"/api/test-drive/bookings/{booking.pk}/cancel/")
+        response = self.client.post(f"/api/test-drive/bookings/{booking.booking_id}/cancel/")
 
         self.assertEqual(response.status_code, 400)
-        booking.refresh_from_db()
+        booking.refresh()
         self.assertTrue(booking.is_active)
 
 
@@ -1502,14 +1560,15 @@ class UnconfiguredEmailTests(TestCase):
         client.assert_not_called()
 
 
-class BookingApprovalTests(TestCase):
+class BookingApprovalTests(DynamoReset, TestCase):
     def setUp(self):
+        super().setUp()
         self.user, _ = make_customer()
         self.car = make_car("APPROVE-1", brand="Daihatsu", model_name="Tanto")
 
     def test_a_new_booking_is_awaiting_confirmation(self):
         booking = booking_rules.create_booking(
-            user=self.user, slot_id=future_slot().pk, car=self.car
+            user=self.user, slot_id=future_slot().slot_id, car=self.car
         )
 
         self.assertEqual(booking.status, BookingStatus.PENDING)
@@ -1519,28 +1578,28 @@ class BookingApprovalTests(TestCase):
         """Otherwise two customers could both be pending for one place, and one would
         have to be turned away after the fact."""
         slot = future_slot(capacity=1)
-        booking_rules.create_booking(user=self.user, slot_id=slot.pk)
+        booking_rules.create_booking(user=self.user, slot_id=slot.slot_id)
         other, _ = make_customer("other@example.com")
 
         with self.assertRaises(booking_rules.BookingError):
-            booking_rules.create_booking(user=other, slot_id=slot.pk)
+            booking_rules.create_booking(user=other, slot_id=slot.slot_id)
 
-        slot.refresh_from_db()
+        slot.refresh()
         self.assertEqual(slot.seats_left, 0)
 
     def test_pending_bookings_count_towards_the_limit(self):
         for day in range(booking_rules.MAX_ACTIVE_BOOKINGS):
-            booking_rules.create_booking(user=self.user, slot_id=future_slot(days=day + 2).pk)
+            booking_rules.create_booking(user=self.user, slot_id=future_slot(days=day + 2).slot_id)
 
         with self.assertRaises(booking_rules.BookingError):
-            booking_rules.create_booking(user=self.user, slot_id=future_slot(days=20).pk)
+            booking_rules.create_booking(user=self.user, slot_id=future_slot(days=20).slot_id)
 
     def test_confirming_records_the_time_and_status(self):
-        booking = booking_rules.create_booking(user=self.user, slot_id=future_slot().pk)
+        booking = booking_rules.create_booking(user=self.user, slot_id=future_slot().slot_id)
 
         booking_rules.confirm_booking(booking)
 
-        booking.refresh_from_db()
+        booking.refresh()
         self.assertEqual(booking.status, BookingStatus.CONFIRMED)
         self.assertIsNotNone(booking.confirmed_at)
 
@@ -1550,8 +1609,9 @@ class BookingApprovalTests(TestCase):
     MAIL_FROM="noreply@dakkamotors.com",
     STAFF_ALERT_EMAIL="staff@example.com",
 )
-class BookingEmailTests(TestCase):
+class BookingEmailTests(DynamoReset, TestCase):
     def setUp(self):
+        super().setUp()
         self.user, _ = make_customer(email="buyer@example.com")
         self.car = make_car("MAIL-1", brand="Honda", model_name="N-Box")
 
@@ -1570,7 +1630,7 @@ class BookingEmailTests(TestCase):
     def test_booking_alerts_staff_and_says_it_is_not_confirmed(self):
         messages = self.queued_messages(
             lambda: booking_rules.create_booking(
-                user=self.user, slot_id=future_slot().pk, car=self.car
+                user=self.user, slot_id=future_slot().slot_id, car=self.car
             )
         )
 
@@ -1586,14 +1646,14 @@ class BookingEmailTests(TestCase):
         """They are told on screen that it is awaiting confirmation; the email only
         goes out once staff accept."""
         messages = self.queued_messages(
-            lambda: booking_rules.create_booking(user=self.user, slot_id=future_slot().pk)
+            lambda: booking_rules.create_booking(user=self.user, slot_id=future_slot().slot_id)
         )
 
         self.assertNotIn("buyer@example.com", [to for m in messages for to in m["to"]])
 
     def test_confirming_emails_the_customer_with_time_address_and_phone(self):
         booking = booking_rules.create_booking(
-            user=self.user, slot_id=future_slot().pk, car=self.car
+            user=self.user, slot_id=future_slot().slot_id, car=self.car
         )
 
         messages = self.queued_messages(lambda: booking_rules.confirm_booking(booking))
@@ -1607,7 +1667,7 @@ class BookingEmailTests(TestCase):
         self.assertIn("080-9282-3601", confirmation["text"])
 
     def test_confirming_twice_does_not_email_twice(self):
-        booking = booking_rules.create_booking(user=self.user, slot_id=future_slot().pk)
+        booking = booking_rules.create_booking(user=self.user, slot_id=future_slot().slot_id)
         booking_rules.confirm_booking(booking)
 
         messages = self.queued_messages(lambda: booking_rules.confirm_booking(booking))
@@ -1615,7 +1675,7 @@ class BookingEmailTests(TestCase):
         self.assertEqual(messages, [])
 
     def test_staff_cancelling_tells_the_customer(self):
-        booking = booking_rules.create_booking(user=self.user, slot_id=future_slot().pk)
+        booking = booking_rules.create_booking(user=self.user, slot_id=future_slot().slot_id)
 
         messages = self.queued_messages(lambda: booking_rules.cancel_by_staff(booking))
 
@@ -1625,10 +1685,10 @@ class BookingEmailTests(TestCase):
 
     def test_a_customer_cancelling_their_own_booking_sends_nothing(self):
         """They already know - an email would just be noise."""
-        booking = booking_rules.create_booking(user=self.user, slot_id=future_slot().pk)
+        booking = booking_rules.create_booking(user=self.user, slot_id=future_slot().slot_id)
 
         messages = self.queued_messages(
-            lambda: booking_rules.cancel_booking(user=self.user, booking_id=booking.pk)
+            lambda: booking_rules.cancel_booking(user=self.user, booking_id=booking.booking_id)
         )
 
         self.assertEqual(messages, [])
@@ -1930,7 +1990,7 @@ class PrimaryImageFallbackTests(TestCase):
         self.assertIsNone(make_car("EMPTY").primary_image)
 
 
-class EmailTemplateTests(TestCase):
+class EmailTemplateTests(DynamoReset, TestCase):
     """The shell every message is rendered into.
 
     The point of these is that the logo survives the two things that usually break it:
@@ -1996,7 +2056,7 @@ class EmailTemplateTests(TestCase):
         user.first_name = "<script>alert(1)</script>"
         user.save()
         slot = future_slot()
-        booking = TestDriveBooking.objects.create(customer=user, slot=slot, car_label="Tanto")
+        booking = make_booking(user, slot, car_label="Tanto")
 
         with override_settings(**MAIL_SETTINGS):
             with mock.patch("cars.mail.boto3.client") as client:
@@ -2208,79 +2268,18 @@ class ProfileEditingTests(ClearsThrottleMixin, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class AdminStatusChangeTests(DynamoReset, TestCase):
-    """Changing a booking's status in the admin must tell the customer.
-
-    It did not. `list_editable = ("status",)` wrote through a changelist formset, and the
-    change form wrote through the default `save_model` - both moved the status without
-    going near `confirm_booking`, so the row said confirmed and the customer was never
-    told. `save_model` is on both paths, which is where the fix lives.
-    """
-
-    def setUp(self):
-        super().setUp()
-        self.manager, _ = make_manager()
-        self.manager.is_superuser = True
-        self.manager.save()
-        self.client.force_login(self.manager)
-        self.customer, _ = make_customer("buyer@example.com")
-        self.booking = TestDriveBooking.objects.create(
-            customer=self.customer, slot=future_slot(), car_label="Tanto"
-        )
-
-    def change_status(self, status_value):
-        with mock.patch("cars.mail.boto3.client") as client:
-            with self.captureOnCommitCallbacks(execute=True):
-                self.client.post(
-                    f"/api/admin/cars/testdrivebooking/{self.booking.pk}/change/",
-                    {"status": status_value, "_save": "Save"},
-                )
-            calls = client.return_value.put_object.call_args_list
-        return [json.loads(c.kwargs["Body"].decode("utf-8")) for c in calls]
-
-    def test_confirming_from_the_change_form_emails_the_customer(self):
-        sent = self.change_status(BookingStatus.CONFIRMED)
-
-        self.booking.refresh_from_db()
-        self.assertEqual(self.booking.status, BookingStatus.CONFIRMED)
-        self.assertIsNotNone(self.booking.confirmed_at)
-        self.assertEqual(len(sent), 1)
-        self.assertEqual(sent[0]["to"], ["buyer@example.com"])
-        self.assertIn("confirmed", sent[0]["subject"].lower())
-
-    def test_confirming_from_the_change_form_reaches_the_bell(self):
-        self.change_status(BookingStatus.CONFIRMED)
-
-        self.assertEqual(
-            len(bell(self.customer, NotificationKind.BOOKING_CONFIRMED)), 1)
-
-    def test_cancelling_from_the_change_form_emails_the_customer(self):
-        sent = self.change_status(BookingStatus.CANCELLED)
-
-        self.booking.refresh_from_db()
-        self.assertEqual(self.booking.status, BookingStatus.CANCELLED)
-        self.assertEqual(len(sent), 1)
-        self.assertIn("cancelled", sent[0]["subject"].lower())
-
-    def test_saving_without_changing_the_status_sends_nothing(self):
-        sent = self.change_status(BookingStatus.PENDING)
-
-        self.assertEqual(sent, [])
-        self.assertEqual(len(bell(self.customer)), 0)
-
-    def test_the_changelist_no_longer_offers_status_as_a_tick_box(self):
-        """A bulk save is the wrong affordance for an irreversible email.
-
-        The actions do the same job and name their consequence. If someone reinstates
-        list_editable, save_model still routes it - but this says the decision was
-        deliberate.
-        """
-        from .admin import TestDriveBookingAdmin
-
-        self.assertEqual(TestDriveBookingAdmin.list_editable, ())
+# AdminStatusChangeTests lived here. It proved that changing a booking's status in the
+# admin reached `confirm_booking` and therefore emailed the customer -- a real bug once,
+# where `list_editable` and the default `save_model` both moved the status without
+# telling anybody.
+#
+# Bookings moved to DynamoDB, so there is no ModelAdmin left to test. The property it
+# protected is now stronger by construction: the staff pages have no status widget at
+# all, only buttons that call `booking.confirm_booking` / `cancel_by_staff` by name. The
+# assertions moved to tests_staff.StaffBookingActionTests, which exercises the real
+# page rather than the admin's formset.
 
 
-@override_settings(**MAIL_SETTINGS)
 class AskingTests(DynamoReset, ClearsThrottleMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -2710,9 +2709,7 @@ class BookingNotificationTests(DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.user, _ = make_customer("buyer@example.com")
-        self.booking = TestDriveBooking.objects.create(
-            customer=self.user, slot=future_slot(), car_label="Tanto"
-        )
+        self.booking = make_booking(self.user, future_slot(), car_label="Tanto")
 
     def run_and_capture(self, fn):
         with mock.patch("cars.mail.boto3.client") as client:
@@ -2737,7 +2734,7 @@ class BookingNotificationTests(DynamoReset, TestCase):
         """They just did it. Telling them is noise."""
         sent = self.run_and_capture(
             lambda: booking_rules.cancel_booking(
-                user=self.user, booking_id=self.booking.pk
+                user=self.user, booking_id=self.booking.booking_id
             )
         )
 
@@ -2752,22 +2749,31 @@ class BookingNotificationTests(DynamoReset, TestCase):
         self.assertEqual(context["car_label"], "Tanto")
         self.assertIn("starts_at", context)
 
-    @unittest.skip(
-        "Temporarily unenforceable, and it must not pass vacuously in the meantime. "
-        "The booking still lives in Postgres while notifications already live in "
-        "DynamoDB, so a rolled-back Django transaction no longer removes the bell "
-        "entry -- notify() writes immediately. The guarantee returns, stronger, when "
-        "booking.confirm_booking moves onto the store: the booking status change and "
-        "the notification then go in ONE TransactWriteItems, which is all-or-nothing "
-        "at the storage layer rather than merely session-scoped."
-    )
-    def test_a_rolled_back_confirmation_leaves_no_notification(self):
-        """Proves notify() sits inside the transaction rather than beside it."""
-        try:
-            with transaction.atomic():
-                booking_rules.confirm_booking(self.booking)
-                raise RuntimeError("something later failed")
-        except RuntimeError:
-            pass
+    def test_a_cancelled_confirmation_transaction_leaves_no_notification(self):
+        """The bell entry and the status change are one write.
 
+        Under Postgres this was guaranteed by calling notify() inside the transaction
+        that confirmed the booking. It is now a single TransactWriteItems, which is a
+        storage-layer guarantee rather than a session-scoped one -- so forcing any part
+        of it to fail must leave every part untouched.
+
+        The failure is induced by occupying the dedupe key the confirmation will try to
+        claim, which is the one condition in that transaction a test can trip from
+        outside.
+        """
+        from .store import keys as _keys
+        from .store.models import DedupeGuard
+
+        DedupeGuard(
+            pk=_keys.customer_pk(str(self.user.pk)),
+            sk=_keys.dedupe_sk(f"booking:{self.booking.booking_id}:confirmed"),
+            notification_sk="already-there",
+        ).save()
+
+        with self.assertRaises(Exception):
+            booking_rules.confirm_booking(self.booking)
+
+        self.booking.refresh()
+        self.assertEqual(self.booking.status, BookingStatus.PENDING,
+                         "the status must roll back with the bell entry")
         self.assertEqual(len(bell(self.user)), 0)

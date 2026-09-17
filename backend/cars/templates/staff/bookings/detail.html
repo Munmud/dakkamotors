@@ -1,0 +1,117 @@
+{% extends "staff/base.html" %}
+
+{% comment %}
+One appointment, and who else is in the same slot.
+
+Every button here goes through booking.py rather than writing the status, so confirming
+cannot happen without the email and the bell entry. Each says what it will do, because
+two of the four are irreversible from the customer's point of view.
+{% endcomment %}
+
+{% block content %}
+  <h1>{{ booking.slot_starts_at|date:"l j F Y, H:i" }}</h1>
+
+  <div class="panel">
+    <table>
+      <tr>
+        <th style="width: 10rem;">Status</th>
+        <td>{{ booking.get_status_display }}</td>
+      </tr>
+      <tr><th>When</th>
+        <td>{{ booking.slot_starts_at|date:"D j M Y, H:i" }}–{{ booking.slot_ends_at|date:"H:i" }}</td></tr>
+      <tr><th>Customer</th><td>{{ booking.customer_name|default:"—" }}</td></tr>
+      <tr><th>Phone</th>
+        <td>
+          {% if booking.customer_phone %}
+            <a href="tel:{{ booking.customer_phone }}">{{ booking.customer_phone }}</a>
+          {% else %}—{% endif %}
+        </td></tr>
+      <tr><th>Email</th>
+        <td>
+          {% if booking.customer_email %}
+            <a href="mailto:{{ booking.customer_email }}">{{ booking.customer_email }}</a>
+          {% else %}—{% endif %}
+        </td></tr>
+      <tr><th>Car</th>
+        <td>
+          {% if booking.car_slug %}
+            <a href="/cars/{{ booking.car_slug }}" target="_blank" rel="noopener">
+              {{ booking.car_label }}</a>
+          {% else %}{{ booking.car_label|default:"—" }}{% endif %}
+        </td></tr>
+      <tr><th>Requested</th><td>{{ booking.created_at|date:"j M Y, H:i" }}</td></tr>
+      {% if booking.confirmed_at %}
+        <tr><th>Confirmed</th><td>{{ booking.confirmed_at|date:"j M Y, H:i" }}</td></tr>
+      {% endif %}
+      {% if booking.cancelled_at %}
+        <tr><th>Cancelled</th><td>{{ booking.cancelled_at|date:"j M Y, H:i" }}</td></tr>
+      {% endif %}
+    </table>
+  </div>
+
+  {% if booking.is_active %}
+    <div class="panel">
+      <h2 style="font-size:1rem;margin-top:0;">What happens next</h2>
+      {% if booking.status == "pending" %}
+        <p class="help">
+          The place is held for them, but they have <strong>not</strong> been told it is
+          confirmed. Confirming emails them the address, the licence reminder and a
+          cancel link.
+        </p>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="confirm">
+          <div class="actions">
+            <button type="submit">Confirm (emails the customer)</button>
+          </div>
+        </form>
+      {% endif %}
+
+      <form method="post" style="margin-top:.8rem;">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="cancel">
+        <div class="actions">
+          <button class="danger" type="submit">Cancel (tells the customer)</button>
+        </div>
+      </form>
+
+      <hr style="border:0;border-top:1px solid var(--line);margin:1rem 0;">
+      <p class="help">After the appointment. Neither emails anybody.</p>
+      <div class="actions">
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="complete">
+          <button class="secondary" type="submit">They came</button>
+        </form>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="no_show">
+          <button class="secondary" type="submit">They did not come</button>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="panel">
+    <h2 style="font-size:1rem;margin-top:0;">Everyone booked into this slot</h2>
+    {% if roster %}
+      <table>
+        <thead><tr><th>Customer</th><th>Phone</th><th>Email</th><th>Car</th></tr></thead>
+        <tbody>
+          {% for seat in roster %}
+            <tr>
+              <td>{{ seat.customer_name|default:"—" }}</td>
+              <td>{{ seat.customer_phone|default:"—" }}</td>
+              <td>{{ seat.customer_email|default:"—" }}</td>
+              <td>{{ seat.car_label|default:"—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">Nobody is holding a place in this slot.</p>
+    {% endif %}
+  </div>
+
+  <p><a href="{% url 'staff:booking-list' %}">&larr; Back to the queue</a></p>
+{% endblock %}

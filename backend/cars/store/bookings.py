@@ -56,6 +56,17 @@ def _snapshot(customer):
     }
 
 
+def _car_id(car):
+    """The car's store identifier, from either representation.
+
+    Mirrors `cars.identity.car_id_of`, kept local so the store package does not import
+    from the app it serves.
+    """
+    if car is None:
+        return None
+    return getattr(car, "car_id", None) or str(getattr(car, "pk", "")) or None
+
+
 def create(*, customer, slot, car, now, max_active):
     """Take a seat, or raise something the domain layer can turn into a sentence."""
     booking_id = keys.new_id()
@@ -71,8 +82,9 @@ def create(*, customer, slot, car, now, max_active):
         slot_id=slot.slot_id,
         slot_starts_at=slot.starts_at,
         slot_ends_at=slot.ends_at,
-        car_id=getattr(car, "car_id", None),
+        car_id=_car_id(car),
         car_label=car_label,
+        car_slug=getattr(car, "slug", None),
         status=BookingStatus.PENDING,
         created_at=now,
         updated_at=now,
@@ -190,7 +202,7 @@ def staff_queue(statuses=ACTIVE_STATUSES):
     return out
 
 
-def set_status(booking, status, now):
+def set_status(booking, status, now, extra=None):
     """Move a booking to a terminal or confirmed state, releasing the seat if needed.
 
     The status condition is the idempotency gate for the whole operation. Confirming
@@ -212,13 +224,24 @@ def set_status(booking, status, now):
     if stamp is not None:
         actions.append(stamp.set(now))
 
+    # Confirming requires PENDING rather than merely "active". Two reasons: it makes
+    # "confirming twice" a refusal at the storage layer rather than an early return an
+    # in-memory copy could be stale about, and it stops a second confirmation colliding
+    # with the notification guard below and failing in a way that reads like a bug.
+    allowed = ([BookingStatus.PENDING] if status == BookingStatus.CONFIRMED
+               else list(ACTIVE_STATUSES))
+
     tx = Txn()
     tx.update(
         BOOKING,
         Booking(pk=booking.pk, sk=booking.sk),
         actions=actions,
-        condition=Booking.status.is_in(*ACTIVE_STATUSES),
+        condition=Booking.status.is_in(*allowed),
     )
+    # Anything the caller wants to land with the status change -- in practice the bell
+    # entry, so a confirmation that does not happen leaves no notification behind.
+    for label, item, condition in (extra or []):
+        tx.save(label, item, condition=condition)
     if leaving_active:
         tx.update(
             SLOT,
