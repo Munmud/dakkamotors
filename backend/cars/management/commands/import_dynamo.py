@@ -21,6 +21,7 @@ import pathlib
 from django.core.management.base import BaseCommand, CommandError
 
 from cars.choices import ACTIVE_STATUSES
+from cars.store import auth as auth_store
 from cars.store import cars as car_store
 from cars.store import customers as customer_store
 from cars.store import images as image_store
@@ -121,12 +122,27 @@ class Command(BaseCommand):
                 # belong in the customer list.
                 continue
             sub = sub_for(user["pk"])
+            email = (user["email"] or "").lower()
             Customer(
                 pk=keys.customer_pk(sub), sk=keys.PROFILE, customer_sub=sub,
-                email=(user["email"] or "").lower(), active_bookings=0,
+                email=email, active_bookings=0,
                 created_at=_dt(user["date_joined"]),
-                gsi1pk=keys.CUSTOMER_GSI1PK, gsi1sk=(user["email"] or "").lower(),
+                gsi1pk=keys.CUSTOMER_GSI1PK, gsi1sk=email,
             ).save()
+
+            # The carried-over password, read once by the Cognito UserMigration trigger
+            # on this customer's first sign-in and deleted there. Without it every
+            # existing customer would get an unprompted "your password no longer works"
+            # email on the day of the cutover.
+            if email and user.get("password") and user["is_active"]:
+                profile = phones.get(str(user["pk"]), {})
+                name = " ".join(filter(None, [user.get("first_name"),
+                                              user.get("last_name")])).strip()
+                auth_store.remember_legacy_password(
+                    email=email, password_hash=user["password"],
+                    name=name, phone=profile.get("phone", ""),
+                    now=dt.datetime.now(dt.timezone.utc),
+                )
             n += 1
         return n
 

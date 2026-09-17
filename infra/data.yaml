@@ -158,6 +158,137 @@ Resources:
               - cognito-idp:ListGroups
             Resource: !GetAtt UserPool.Arn
 
+  # --------------------------------------------------- password carry-over ---
+  #
+  # Django stores `pbkdf2_sha256$<iters>$<salt>$<hash>`. Cognito will not accept a hash
+  # on AdminCreateUser, so without this every existing customer would get an unprompted
+  # "your password no longer works" email on the day of the cutover - which for a small
+  # dealership is a measurable loss of accounts.
+  #
+  # Instead: on a first sign-in for a user Cognito does not know, it calls this with the
+  # plaintext. The function verifies it against the hash carried over from Postgres and
+  # returns the attributes; Cognito then creates the user with that password and the
+  # customer notices nothing. The LEGACYPW# items carry a 90-day TTL and are deleted on
+  # first use.
+  #
+  # Deliberately no Django and no dependencies: Django's hash format is verifiable with
+  # stdlib hashlib in about fifteen lines, and a trigger that has to import an ORM to
+  # check a password is a trigger that will break.
+  UserMigrationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: read-carried-over-passwords
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:DeleteItem]
+                Resource: !GetAtt Table.Arn
+
+  UserMigrationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: dakkamotors-user-migration
+      Runtime: python3.13
+      Handler: index.handler
+      Timeout: 10
+      Role: !GetAtt UserMigrationRole.Arn
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref Table
+      Code:
+        ZipFile: |
+          """Cognito UserMigration trigger: verify a Django password, once."""
+          import base64
+          import hashlib
+          import hmac
+          import os
+
+          import boto3
+
+          TABLE = os.environ["TABLE_NAME"]
+          ddb = boto3.client("dynamodb")
+
+
+          def verify(password, encoded):
+              """Check a password against Django's pbkdf2_sha256 format.
+
+              `pbkdf2_sha256$<iterations>$<salt>$<base64 hash>`. Anything else - a
+              different algorithm, an unusable hash - is refused rather than guessed at.
+              """
+              try:
+                  algorithm, iterations, salt, expected = encoded.split("$", 3)
+              except ValueError:
+                  return False
+              if algorithm != "pbkdf2_sha256":
+                  return False
+              derived = hashlib.pbkdf2_hmac(
+                  "sha256", password.encode("utf-8"), salt.encode("utf-8"),
+                  int(iterations))
+              return hmac.compare_digest(
+                  base64.b64encode(derived).decode("ascii"), expected)
+
+
+          def handler(event, context):
+              if event.get("triggerSource") != "UserMigration_Authentication":
+                  # Forgot-password migration is not used: account recovery is
+                  # admin_only on this pool, so our own reset flow is the only one.
+                  raise Exception("Unsupported trigger")
+
+              email = (event.get("userName") or "").strip().lower()
+              password = event["request"].get("password") or ""
+
+              item = ddb.get_item(
+                  TableName=TABLE,
+                  Key={"pk": {"S": "LEGACYPW#" + email}, "sk": {"S": "META"}},
+                  ConsistentRead=True,
+              ).get("Item")
+              if not item or not verify(password, item["password_hash"]["S"]):
+                  # One message for "no such carried-over account" and "wrong password",
+                  # so the sign-in form cannot be used to discover who was migrated.
+                  raise Exception("Bad credentials")
+
+              name = item.get("name", {}).get("S", "")
+              first, _, last = name.partition(" ")
+              attributes = {"email": email, "email_verified": "true"}
+              if first:
+                  attributes["given_name"] = first[:150]
+              if last:
+                  attributes["family_name"] = last[:150]
+              phone = item.get("phone", {}).get("S", "")
+              if phone:
+                  attributes["custom:phone"] = phone[:32]
+
+              event["response"]["userAttributes"] = attributes
+              event["response"]["finalUserStatus"] = "CONFIRMED"
+              # They just proved the password, so making them confirm it again would be
+              # the one thing this trigger exists to avoid.
+              event["response"]["messageAction"] = "SUPPRESS"
+
+              # Migrated. The TTL would get there eventually; this makes it exact.
+              ddb.delete_item(
+                  TableName=TABLE,
+                  Key={"pk": {"S": "LEGACYPW#" + email}, "sk": {"S": "META"}},
+              )
+              return event
+
+  UserMigrationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt UserMigrationFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
+
   # ------------------------------------------------------------------- Cognito ---
   #
   # The pool is configured to send **nothing**. No AutoVerifiedAttributes, admin-only
@@ -186,6 +317,8 @@ Resources:
             Priority: 1
       AutoVerifiedAttributes: []
       DeletionProtection: ACTIVE
+      LambdaConfig:
+        UserMigration: !GetAtt UserMigrationFunction.Arn
       MfaConfiguration: "OPTIONAL"
 
       Policies:

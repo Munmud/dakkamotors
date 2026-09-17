@@ -26,6 +26,7 @@ from .booking_models import (
 from .models import Car as OrmCar, CarImage as OrmCarImage
 from .notification_models import Notification as OrmNotification
 from .qa_models import CarQuestion as OrmCarQuestion
+from .store import auth as auth_store
 from .store import bookings as booking_store
 from .store import cars as car_store
 from .store import customers as customer_store
@@ -206,6 +207,32 @@ class MigrationRoundTripTests(DynamoReset, TestCase):
         seats = slot_store.roster(
             keys.slot_id(str(self.schedule.pk), self.slot.starts_at))
         self.assertEqual(len(seats), 1)
+
+    def test_the_password_is_carried_over_for_the_migration_trigger(self):
+        """What turns the cutover from a disruptive event into a silent one.
+
+        Cognito will not accept a hash on AdminCreateUser, so the alternative is
+        emailing every customer to say their password stopped working.
+        """
+        self.migrate()
+
+        record = auth_store.legacy_password("buyer@example.com")
+
+        self.assertIsNotNone(record)
+        # Carried verbatim. Asserting the pbkdf2 prefix would be wrong here: the suite
+        # swaps in a fast hasher for speed, so what matters is that whatever Django
+        # wrote arrives unaltered - `tests_user_migration` checks the real format
+        # against the trigger that has to read it.
+        self.customer.refresh_from_db()
+        self.assertEqual(record.password_hash, self.customer.password)
+        self.assertEqual(record.name, "Aiko Tanaka")
+        self.assertEqual(record.phone, "080-1111-2222")
+
+    def test_staff_passwords_are_not_carried_over(self):
+        """Staff arrive through the hosted UI, where the owner sets them up."""
+        self.migrate()
+
+        self.assertIsNone(auth_store.legacy_password("staffer"))
 
     def test_the_customer_can_still_be_told_apart_from_the_staff_account(self):
         """Staff are people, not customers: no counter item, not in the list."""

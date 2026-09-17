@@ -71,6 +71,12 @@ sign-up's name and phone, reset tokens, carried-over password hashes). **The poo
 no email at all** -- verification and reset messages still go through Brevo, bilingual
 and branded. Do not wire it to SES; that is where the previous attempt stalled.
 
+Passwords cannot be migrated -- Cognito will not accept a hash on `AdminCreateUser` --
+so a `UserMigration` Lambda trigger (inline in `infra/data.yaml`) verifies the
+carried-over Django hash on a customer's first sign-in. `tests_user_migration.py`
+extracts that inline source from the template and tests it against hashes Django
+actually produces, so the thing that will run is the thing that was checked.
+
 Ids are strings now wherever an entity has moved, so URL patterns take `<str:pk>`, not
 `<int:pk>`. A slot's id is derived from (schedule, start time) -- that is what makes
 materialising slots idempotent, and why two fixtures wanting distinct slots at the same
