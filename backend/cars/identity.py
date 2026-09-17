@@ -92,9 +92,16 @@ def user_for_sub(sub):
     """
     if not sub:
         return None
+
+    # A Cognito sub is a UUID; a Django primary key is an integer. Which one a stored
+    # identifier is says which world it came from, so the shape is the lookup.
+    try:
+        pk = int(sub)
+    except (TypeError, ValueError):
+        from . import cognito
+
+        return cognito.user_for(sub)
+
     from django.contrib.auth import get_user_model
 
-    try:
-        return get_user_model().objects.filter(pk=int(sub)).first()
-    except (TypeError, ValueError):
-        return None
+    return get_user_model().objects.filter(pk=pk).first()

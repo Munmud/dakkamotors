@@ -355,19 +355,19 @@ def users_in_group(group):
             return out
 
 
-def user_for_sub(sub):
-    """Rebuild a CognitoUser from a subject identifier.
+def user_for(username):
+    """Rebuild a CognitoUser from either a subject identifier or an email address.
 
-    Works because with `UsernameAttributes: [email]` a pool's internal username *is* the
-    sub, so every admin API accepts one wherever it asks for a Username. That is worth
-    knowing: it is the reason nothing here has to keep a sub -> email index.
+    Both work, and that is not an accident: with `UsernameAttributes: [email]` a pool's
+    internal username *is* the sub, and the admin APIs resolve an address to it. It is
+    the reason nothing here has to keep a sub -> email index.
     """
-    attrs = attributes_of(sub)
+    attrs = attributes_of(username)
     if attrs is None:
         return None
     return CognitoUser(
-        sub=attrs.get("sub", sub), email=attrs.get("email", ""),
+        sub=attrs.get("sub", username), email=attrs.get("email", ""),
         first_name=attrs.get("given_name", ""),
         last_name=attrs.get("family_name", ""),
-        phone=attrs.get(PHONE_ATTR, ""), groups=groups_of(sub),
+        phone=attrs.get(PHONE_ATTR, ""), groups=groups_of(username),
     )

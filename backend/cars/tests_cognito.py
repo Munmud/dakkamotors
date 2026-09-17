@@ -48,11 +48,13 @@ def _jwks_path():
     return str(target)
 
 
-@unittest.skipUnless(MOTO, "moto is not installed; pip install -r requirements-dev.txt")
-class CognitoTestCase(SimpleTestCase):
-    """Starts a local Cognito, builds the pool this app expects, points settings at it."""
+class CognitoBackend:
+    """Starts a local Cognito, builds the pool this app expects, points settings at it.
 
-    databases = []
+    A mixin rather than a base class so it can sit in front of either `SimpleTestCase`
+    (for the client wrapper) or `TestCase` (for the HTTP flows, which still need the ORM
+    for staff accounts while auth is mid-migration).
+    """
 
     @classmethod
     def setUpClass(cls):
@@ -138,6 +140,19 @@ class CognitoTestCase(SimpleTestCase):
         self.addCleanup(cognito.reset_client)
         self.addCleanup(authentication.reset_keys)
 
+        # Build the clients now, while nothing is patched.
+        #
+        # `mock.patch("cars.mail.boto3.client")` -- which most of the mail tests use --
+        # replaces the attribute on the *shared* boto3 module, not on some private copy
+        # belonging to `cars.mail`. Any client constructed while that patch is active is
+        # a MagicMock, whichever service it was meant to talk to. Priming the cached
+        # ones here means Cognito and DynamoDB already hold real clients by the time a
+        # test patches the mail one.
+        cognito.client()
+        from .store.txn import connection
+
+        connection()
+
     # -- helpers --------------------------------------------------------------------
 
     def make_customer(self, email="buyer@example.com", password="customer-pw-1234",
@@ -146,6 +161,11 @@ class CognitoTestCase(SimpleTestCase):
         if confirm:
             cognito.confirm(email)
         return email, password
+
+
+@unittest.skipUnless(MOTO, "moto is not installed; pip install -r requirements-dev.txt")
+class CognitoTestCase(CognitoBackend, SimpleTestCase):
+    databases = []
 
 
 class SignUpTests(CognitoTestCase):
@@ -328,13 +348,13 @@ class ProfileTests(CognitoTestCase):
         tokens = cognito.authenticate(email=email, password=password)
         sub = authentication.verify(tokens["AccessToken"])["sub"]
 
-        user = cognito.user_for_sub(sub)
+        user = cognito.user_for(sub)
 
         self.assertEqual(user.email, email)
         self.assertEqual(user.get_full_name(), "Aiko Tanaka")
 
     def test_an_unknown_subject_identifier_is_nobody(self):
-        self.assertIsNone(cognito.user_for_sub("00000000-0000-0000-0000-000000000000"))
+        self.assertIsNone(cognito.user_for("00000000-0000-0000-0000-000000000000"))
 
 
 class AuthStateTests(DynamoTestCase):
