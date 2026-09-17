@@ -15,14 +15,11 @@ from django.db import models
 from django.utils import timezone
 
 
-class Weekday(models.IntegerChoices):
-    MONDAY = 0, "Monday"
-    TUESDAY = 1, "Tuesday"
-    WEDNESDAY = 2, "Wednesday"
-    THURSDAY = 3, "Thursday"
-    FRIDAY = 4, "Friday"
-    SATURDAY = 5, "Saturday"
-    SUNDAY = 6, "Sunday"
+from .choices import (  # noqa: F401  (re-exported: existing imports rely on this)
+    ACTIVE_STATUSES,
+    BookingStatus,
+    Weekday,
+)
 
 
 class TestDriveSchedule(models.Model):
@@ -124,21 +121,6 @@ class TestDriveSlot(models.Model):
     def is_bookable(self):
         """Cheap display check. The API re-checks properly under a row lock."""
         return self.is_open and self.seats_left > 0 and self.starts_at > timezone.now()
-
-
-class BookingStatus(models.TextChoices):
-    # A request until staff accept it. The seat is held meanwhile - otherwise two
-    # customers could both be pending for one place and one would have to be turned
-    # away afterwards, which is worse than briefly showing the slot as full.
-    PENDING = "pending", "Awaiting confirmation"
-    CONFIRMED = "confirmed", "Confirmed"
-    CANCELLED = "cancelled", "Cancelled"
-    COMPLETED = "completed", "Completed"
-    NO_SHOW = "no_show", "Did not attend"
-
-
-#: Statuses that occupy a seat and count towards a customer's limit.
-ACTIVE_STATUSES = (BookingStatus.PENDING, BookingStatus.CONFIRMED)
 
 
 class TestDriveBooking(models.Model):

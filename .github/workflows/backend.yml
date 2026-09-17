@@ -27,6 +27,19 @@ jobs:
     defaults:
       run:
         working-directory: backend
+
+    # DynamoDB Local, not moto. The booking design rests on attribute-to-attribute
+    # comparison inside a ConditionExpression, the positional codes in
+    # CancellationReasons, ReturnValuesOnConditionCheckFailure returning the offending
+    # item, and ValidationException on two operations against one item. A Python
+    # reimplementation of those is the wrong thing to test against - a false green there
+    # would be the worst outcome available.
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:2.5.2
+        ports:
+          - 8123:8000
+
     steps:
       - uses: actions/checkout@v4
 
@@ -38,8 +51,16 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      # No DATABASE_URL, so this runs against SQLite and needs no cloud access.
+      # No DATABASE_URL, so the ORM half runs against SQLite and needs no cloud access.
+      # The credentials are placeholders: DynamoDB Local validates the signature's shape
+      # but not the key, and nothing here reaches real AWS.
       - name: Run tests
+        env:
+          DYNAMODB_ENDPOINT_URL: http://localhost:8123
+          DDB_TABLE: dakkamotors_test
+          AWS_ACCESS_KEY_ID: local
+          AWS_SECRET_ACCESS_KEY: local
+          AWS_DEFAULT_REGION: ap-northeast-1
         run: python manage.py test --verbosity 2
 
   deploy:

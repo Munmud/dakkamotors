@@ -18,9 +18,7 @@ from django.db.models import Q
 from .models import Car
 
 
-class QuestionLanguage(models.TextChoices):
-    EN = "en", "English"
-    JA = "ja", "日本語"
+from .choices import QuestionLanguage  # noqa: F401  (re-exported)
 
 
 class CarQuestion(models.Model):

@@ -37,6 +37,11 @@ env = environ.Env(
     MAIL_FROM_NAME=(str, "Dakka Motors"),
     MAIL_REPLY_TO=(str, ""),
     STAFF_ALERT_EMAIL=(str, ""),
+    # DynamoDB. The table name is fixed by CloudFormation; the endpoint override is
+    # empty everywhere except local development and CI, where it points at
+    # DynamoDB Local. Never set it in production.
+    DDB_TABLE=(str, "dakkamotors"),
+    DYNAMODB_ENDPOINT_URL=(str, ""),
 )
 
 # Read .env when present. Absent in Lambda, where real env vars are used instead.
@@ -128,6 +133,16 @@ else:
 # down to zero while a connection is held open, and persistent connections are useless
 # in Lambda anyway.
 DATABASES["default"]["CONN_MAX_AGE"] = 0
+
+
+# --------------------------------------------------------------------------------------
+# DynamoDB
+# --------------------------------------------------------------------------------------
+
+# Read by cars/store/base.py. Aurora is on its way out; while both exist, nothing in
+# the store package touches DATABASES and nothing in the ORM touches these.
+DDB_TABLE = env("DDB_TABLE")
+DYNAMODB_ENDPOINT_URL = env("DYNAMODB_ENDPOINT_URL")
 
 # Password hashing is deliberately slow, which is right in production and painful in a
 # suite that creates dozens of accounts - it took the staff-permission tests from a few

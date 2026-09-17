@@ -7,9 +7,11 @@ from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils.text import slugify
 
-# Widths generated for every uploaded photo. 320 covers gallery thumbnails, 800 the
-# listing cards, 1600 the gallery's main image on a high-density screen.
-DERIVATIVE_WIDTHS = (320, 800, 1600)
+from .choices import (  # noqa: F401  (re-exported: existing imports rely on this)
+    DERIVATIVE_WIDTHS,
+    CarStatus,
+    FuelType,
+)
 
 
 class StaffAccount(User):
@@ -30,20 +32,6 @@ class StaffAccount(User):
         proxy = True
         verbose_name = "staff account"
         verbose_name_plural = "staff accounts"
-
-
-class FuelType(models.TextChoices):
-    PETROL = "petrol", "Petrol"
-    DIESEL = "diesel", "Diesel"
-    HYBRID = "hybrid", "Hybrid"
-    ELECTRIC = "electric", "Electric"
-    LPG = "lpg", "LPG"
-
-
-class CarStatus(models.TextChoices):
-    AVAILABLE = "available", "Available"
-    RESERVED = "reserved", "Reserved"
-    SOLD = "sold", "Sold"
 
 
 class Car(models.Model):

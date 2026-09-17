@@ -1,0 +1,24 @@
+# DynamoDB Local, for running the store tests.
+#
+# Deliberately DynamoDB Local rather than moto: the booking design rests on
+# attribute-to-attribute comparison inside a ConditionExpression, the positional codes in
+# CancellationReasons, ReturnValuesOnConditionCheckFailure returning the offending item,
+# and ValidationException on two operations against one item. Those must be exercised
+# against the real engine -- a false green from a reimplementation is the worst outcome
+# available here.
+#
+#   docker compose up -d dynamodb
+#   cd backend && DYNAMODB_ENDPOINT_URL=http://localhost:8123 python manage.py test
+#
+# -inMemory means state is dropped on restart, which is what we want: the test base class
+# truncates between tests and nothing should ever depend on a previous run.
+
+services:
+  dynamodb:
+    image: amazon/dynamodb-local:2.5.2
+    container_name: dakkamotors-dynamodb
+    command: -jar DynamoDBLocal.jar -inMemory -port 8000
+    ports:
+      # Host 8123 so it never collides with `manage.py runserver` on 8000. The container
+      # side matches the CI service in .github/workflows/backend.yml.
+      - "8123:8000"

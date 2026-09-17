@@ -16,10 +16,7 @@ from django.db import models
 from django.db.models import Q
 
 
-class NotificationKind(models.TextChoices):
-    BOOKING_CONFIRMED = "booking_confirmed", "Test drive confirmed"
-    BOOKING_CANCELLED = "booking_cancelled", "Test drive cancelled"
-    QUESTION_ANSWERED = "question_answered", "Question answered"
+from .choices import NotificationKind  # noqa: F401  (re-exported)
 
 
 class Notification(models.Model):
