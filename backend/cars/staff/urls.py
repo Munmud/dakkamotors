@@ -8,6 +8,7 @@ Django log line to find.
 
 from django.urls import path
 
+from . import views_auth
 from . import views_bookings
 from . import views_cars
 from . import views_questions
@@ -16,6 +17,10 @@ from . import views_schedules
 app_name = "staff"
 
 urlpatterns = [
+    path("auth/sign-in/", views_auth.sign_in, name="sign-in"),
+    path("auth/callback/", views_auth.callback, name="auth-callback"),
+    path("auth/sign-out/", views_auth.sign_out, name="sign-out"),
+    path("signed-out", views_auth.signed_out, name="signed-out"),
     path("questions/", views_questions.question_list, name="question-list"),
     path("questions/<str:question_id>/", views_questions.question_detail,
          name="question-detail"),

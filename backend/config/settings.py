@@ -55,6 +55,8 @@ env = environ.Env(
     # Endpoint override for a local Cognito stand-in, the same shape as
     # DYNAMODB_ENDPOINT_URL. Empty everywhere except tests; never set in production.
     COGNITO_ENDPOINT_URL=(str, ""),
+    # The only Cognito secret. From SSM in production; never in a repo.
+    COGNITO_STAFF_CLIENT_SECRET=(str, ""),
 )
 
 # Read .env when present. Absent in Lambda, where real env vars are used instead.
@@ -168,6 +170,7 @@ COGNITO_STAFF_CLIENT_ID = env("COGNITO_STAFF_CLIENT_ID")
 COGNITO_DOMAIN = env("COGNITO_DOMAIN")
 COGNITO_JWKS_PATH = env("COGNITO_JWKS_PATH")
 COGNITO_ENDPOINT_URL = env("COGNITO_ENDPOINT_URL")
+COGNITO_STAFF_CLIENT_SECRET = env("COGNITO_STAFF_CLIENT_SECRET")
 
 # Password hashing is deliberately slow, which is right in production and painful in a
 # suite that creates dozens of accounts - it took the staff-permission tests from a few
