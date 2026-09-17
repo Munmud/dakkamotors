@@ -508,3 +508,66 @@ class LegacyCarPointer(BaseItem, discriminator="carid"):
 
     slug = UnicodeAttribute(null=True)
     car_id = UnicodeAttribute(null=True)
+
+
+# --------------------------------------------------------------------------------------
+# Auth state
+# --------------------------------------------------------------------------------------
+
+class PendingRegistration(BaseItem, discriminator="pending"):
+    """A sign-up waiting on its emailed link.
+
+    Cognito holds the UNCONFIRMED user and the password from step one, so unlike the
+    table this replaces there is no password hash here at all. What is left is the
+    things Cognito has nowhere to put.
+    """
+
+    email = UnicodeAttribute(null=True)
+    name = UnicodeAttribute(null=True)
+    phone = UnicodeAttribute(null=True)
+    next_path = UnicodeAttribute(null=True)
+    language = UnicodeAttribute(default="en")
+    token_hash = UnicodeAttribute(null=True)
+    created_at = UTCDateTimeAttribute(null=True)
+    ttl = NumberAttribute(null=True)
+
+
+class PendingToken(BaseItem, discriminator="pendtok"):
+    """Hash of the emailed link -> the address waiting on it."""
+
+    email = UnicodeAttribute(null=True)
+    ttl = NumberAttribute(null=True)
+
+
+class ResetToken(BaseItem, discriminator="resettok"):
+    """Hash of a password-reset link.
+
+    Carries the epoch it was minted under so a completed reset can invalidate every
+    sibling link, which is what deriving the token from the password hash used to do
+    for free.
+    """
+
+    sub = UnicodeAttribute(null=True)
+    email = UnicodeAttribute(null=True)
+    epoch = NumberAttribute(default=0)
+    ttl = NumberAttribute(null=True)
+
+
+class ResetEpoch(BaseItem, discriminator="resetepoch"):
+    n = NumberAttribute(default=0)
+
+
+class LegacyPassword(BaseItem, discriminator="legacypw"):
+    """A Django PBKDF2 hash, kept only until its owner next signs in.
+
+    Cognito will not accept a hash on AdminCreateUser, so the alternative to this is
+    emailing every customer to say their password no longer works. A UserMigration
+    trigger verifies against this on first sign-in instead, and the customer notices
+    nothing.
+    """
+
+    email = UnicodeAttribute(null=True)
+    password_hash = UnicodeAttribute(null=True)
+    name = UnicodeAttribute(null=True)
+    phone = UnicodeAttribute(null=True)
+    ttl = NumberAttribute(null=True)

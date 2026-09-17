@@ -42,6 +42,19 @@ env = environ.Env(
     # DynamoDB Local. Never set it in production.
     DDB_TABLE=(str, "dakkamotors"),
     DYNAMODB_ENDPOINT_URL=(str, ""),
+    # Cognito. Pool and client ids are not secrets; only the staff client secret is,
+    # and that comes from SSM.
+    COGNITO_POOL_ID=(str, ""),
+    COGNITO_CUSTOMER_CLIENT_ID=(str, ""),
+    COGNITO_STAFF_CLIENT_ID=(str, ""),
+    COGNITO_DOMAIN=(str, ""),
+    # A copy of the pool's JWKS, baked into the deploy. A pool publishes exactly two
+    # signing keys and does not rotate them, so coupling every cold start to a Cognito
+    # endpoint being reachable buys nothing. Empty means fetch over the network.
+    COGNITO_JWKS_PATH=(str, ""),
+    # Endpoint override for a local Cognito stand-in, the same shape as
+    # DYNAMODB_ENDPOINT_URL. Empty everywhere except tests; never set in production.
+    COGNITO_ENDPOINT_URL=(str, ""),
 )
 
 # Read .env when present. Absent in Lambda, where real env vars are used instead.
@@ -144,6 +157,18 @@ DATABASES["default"]["CONN_MAX_AGE"] = 0
 DDB_TABLE = env("DDB_TABLE")
 DYNAMODB_ENDPOINT_URL = env("DYNAMODB_ENDPOINT_URL")
 
+
+# --------------------------------------------------------------------------------------
+# Cognito
+# --------------------------------------------------------------------------------------
+
+COGNITO_POOL_ID = env("COGNITO_POOL_ID")
+COGNITO_CUSTOMER_CLIENT_ID = env("COGNITO_CUSTOMER_CLIENT_ID")
+COGNITO_STAFF_CLIENT_ID = env("COGNITO_STAFF_CLIENT_ID")
+COGNITO_DOMAIN = env("COGNITO_DOMAIN")
+COGNITO_JWKS_PATH = env("COGNITO_JWKS_PATH")
+COGNITO_ENDPOINT_URL = env("COGNITO_ENDPOINT_URL")
+
 # Password hashing is deliberately slow, which is right in production and painful in a
 # suite that creates dozens of accounts - it took the staff-permission tests from a few
 # seconds to well over a minute. Only ever applied while running tests.
@@ -235,10 +260,15 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 12,
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
-    # Session only. DRF's default also enables BasicAuthentication, which accepts a
-    # password on every request and has no business on a public API - the app is
-    # same-origin and uses the session cookie.
+    # Cookie credentials only. DRF's default also enables BasicAuthentication, which
+    # accepts a password on every request and has no business on a public API - the app
+    # is same-origin and sends a cookie.
     "DEFAULT_AUTHENTICATION_CLASSES": [
+        "cars.authentication.CognitoCookieAuthentication",
+        # Django's session auth, kept alongside while auth is mid-migration. Both are
+        # cookie credentials and both enforce CSRF, so nothing is weakened by having
+        # two - but this line goes when the ORM's auth tables do, and it is the last
+        # thing keeping `django.contrib.sessions` installed.
         "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_THROTTLE_CLASSES": [],

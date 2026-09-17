@@ -194,3 +194,50 @@ def iso(when):
     if when.tzinfo is None:
         raise ValueError("refusing to serialise a naive datetime")
     return when.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f+0000")
+
+
+# --------------------------------------------------------------------------------------
+# Auth state (Cognito holds the identity; these hold what it does not)
+# --------------------------------------------------------------------------------------
+
+def pending_pk(email):
+    """A sign-up that has not proved its address yet, keyed by the address itself.
+
+    Cognito holds the UNCONFIRMED user and the password from the moment of sign-up; this
+    item holds only what Cognito has nowhere to put -- the name, the phone number, where
+    to send them afterwards, and which language to write in.
+    """
+    return f"PENDING#{email.strip().lower()}"
+
+
+def pending_token_pk(token_hash):
+    """The emailed link, stored as a hash.
+
+    The raw token exists only in the email, so a database leak cannot hand somebody a
+    working activation link. Same reasoning as the column it replaces.
+    """
+    return f"PENDTOK#{token_hash}"
+
+
+def reset_token_pk(token_hash):
+    return f"RESET#{token_hash}"
+
+
+def reset_epoch_pk(sub):
+    """Bumped on every successful reset.
+
+    `PasswordResetTokenGenerator` derived its token from the password hash, so changing
+    the password killed every outstanding link. Cognito never hands us the hash, so the
+    same property is bought with a counter: a link carries the epoch it was minted
+    under, and a reset moves it.
+    """
+    return f"RESETEPOCH#{sub}"
+
+
+def legacy_password_pk(email):
+    """A Django password hash, carried across so nobody has to reset.
+
+    Read by the Cognito UserMigration trigger on a customer's first sign-in and deleted
+    once they have been migrated. Everything here expires on a TTL regardless.
+    """
+    return f"LEGACYPW#{email.strip().lower()}"

@@ -49,7 +49,9 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
-      - run: pip install -r requirements.txt
+      # Dev requirements: the same file plus the local Cognito stand-in. The deploy
+      # job below installs requirements.txt alone, so none of it reaches the Lambda.
+      - run: pip install -r requirements-dev.txt
 
       # No DATABASE_URL, so the ORM half runs against SQLite and needs no cloud access.
       # The credentials are placeholders: DynamoDB Local validates the signature's shape

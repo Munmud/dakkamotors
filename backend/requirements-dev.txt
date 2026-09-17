@@ -1,0 +1,9 @@
+# Test-only dependencies. Deliberately separate from requirements.txt: Zappa packages
+# whatever is installed into the Lambda zip, and moto plus its server extra is tens of
+# megabytes of things production must never import.
+-r requirements.txt
+
+# A local Cognito, run in server mode so it intercepts only the cognito-idp client and
+# leaves the DynamoDB Local calls alone. `mock_aws` would patch botocore globally and
+# swallow those too.
+moto[cognitoidp,server]==5.2.3
