@@ -43,6 +43,17 @@ npm run check-i18n                     # every key present in both en and ja
 Deploys are automatic: push to `main`, path-filtered GitHub Actions workflows deploy the
 backend (Zappa) and the frontend (S3 + CloudFront invalidation) via OIDC. No static keys.
 
+Migration commands (see "Migration in flight"):
+
+```bash
+python manage.py export_aurora --out ./migration/<date>/   # from the pre-cutover commit
+python manage.py import_dynamo --from ./migration/<date>/  # on the new code
+python manage.py reconcile_counters [--fix]                # after a restore, or on doubt
+```
+
+Run the import from a laptop with SSO credentials, not through `zappa manage`: DynamoDB
+is not in a VPC, so nothing about it needs a Lambda.
+
 ## Migration in flight: Aurora -> DynamoDB
 
 **The repo is mid-migration off Aurora PostgreSQL onto DynamoDB.** Both stores are live

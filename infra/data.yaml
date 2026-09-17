@@ -1,0 +1,135 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Dakka Motors - DynamoDB (ap-northeast-1).
+  One table, single-table design, on-demand billing. Replaces the Aurora Serverless v2
+  cluster in network-db.yaml: there is no idle cost at all rather than a small one, and
+  no ~15 second wake-up on the first request after a quiet spell.
+
+  Deployed as its own stack (`dakkamotors-data`) and sharing one with nothing DNS
+  related. The previous attempt at a combined stack took the Route53 hosted zone with it
+  when it was deleted - see docs/TODO.md.
+
+Parameters:
+  TableName:
+    Type: String
+    Default: dakkamotors
+
+  LambdaRoleName:
+    Type: String
+    Default: dakkamotors-production-ZappaLambdaExecutionRole
+    Description: >
+      Created by Zappa on its first deploy and owned by no template
+      (zappa_settings.json sets manage_roles:false). CloudFormation can attach a managed
+      policy to a role it does not own, which is how the backend gets its permissions
+      without importing the role into a stack.
+
+Resources:
+  Table:
+    Type: AWS::DynamoDB::Table
+    # Retain on both, deliberately. This table is the whole business: every car, every
+    # booking, every question. A stack delete or a replacing update must not be able to
+    # take it, and DeletionProtection stops a console mistake doing the same.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Ref TableName
+      # On-demand: idle cost is storage only, which at this size rounds to nothing.
+      # Provisioned capacity would need a floor paid for around the clock, which is the
+      # thing being escaped.
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+
+      AttributeDefinitions:
+        - { AttributeName: pk, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+        - { AttributeName: gsi1pk, AttributeType: S }
+        - { AttributeName: gsi1sk, AttributeType: S }
+        - { AttributeName: gsi2pk, AttributeType: S }
+        - { AttributeName: gsi2sk, AttributeType: S }
+
+      KeySchema:
+        - { AttributeName: pk, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+
+      GlobalSecondaryIndexes:
+        # Listing and queue reads: cars by status, bookings by status, the question
+        # backlog, slots by month, the customer list. Sparse by design - an item with no
+        # gsi1pk simply is not in the index, which is what keeps guard items out of
+        # every listing query for free.
+        - IndexName: gsi1
+          KeySchema:
+            - { AttributeName: gsi1pk, KeyType: HASH }
+            - { AttributeName: gsi1sk, KeyType: RANGE }
+          # ALL rather than INCLUDE: at this item count the extra storage is a few
+          # megabytes, and a projection that has to be revisited every time a field is
+          # added is a slow trap. Revisit at thousands of cars, not before.
+          Projection: { ProjectionType: ALL }
+
+        # A customer's own reads that cross partitions - currently just their questions,
+        # which live in each car's partition rather than theirs.
+        - IndexName: gsi2
+          KeySchema:
+            - { AttributeName: gsi2pk, KeyType: HASH }
+            - { AttributeName: gsi2sk, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+
+      # Pending registrations, password-reset tokens, notification dedupe guards and old
+      # bell entries all carry one. Expiry is DynamoDB's job now; under Aurora it had to
+      # be done on the write path because a scheduled sweeper would have kept the
+      # database awake around the clock.
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+      # NEW_AND_OLD_IMAGES with nothing attached costs nothing, and it is the audit
+      # trail you will want the first time a maintained counter drifts.
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+      SSESpecification:
+        SSEEnabled: true
+
+      Tags:
+        - { Key: Project, Value: dakkamotors }
+
+  BackendPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: dakkamotors-backend-data
+      Description: DynamoDB access for the Zappa-deployed backend.
+      Roles: [!Ref LambdaRoleName]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:PutItem
+              - dynamodb:UpdateItem
+              - dynamodb:DeleteItem
+              - dynamodb:Query
+              - dynamodb:Scan
+              - dynamodb:BatchGetItem
+              - dynamodb:BatchWriteItem
+              - dynamodb:TransactGetItems
+              - dynamodb:TransactWriteItems
+              - dynamodb:ConditionCheckItem
+              - dynamodb:DescribeTable
+            Resource:
+              - !GetAtt Table.Arn
+              # The indexes are separate resources. Omitting this is the classic way to
+              # get an AccessDenied that names the table you can plainly read.
+              - !Sub "${Table.Arn}/index/*"
+
+Outputs:
+  TableName:
+    Value: !Ref Table
+    Export: { Name: dakkamotors-table-name }
+  TableArn:
+    Value: !GetAtt Table.Arn
+    Export: { Name: dakkamotors-table-arn }
+  TableStreamArn:
+    Value: !GetAtt Table.StreamArn
