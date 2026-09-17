@@ -3,10 +3,15 @@ import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage, verifyEmail } from "../lib/auth";
-import { useAuth } from "../lib/AuthContext";
 
 /**
- * The link from the verification email. Clicking it is what creates the account.
+ * The link from the verification email. Clicking it is what makes the account usable.
+ *
+ * It no longer signs them in. Cognito holds the password from the moment of sign-up and
+ * never hands it back, so there is nothing here to authenticate with; verification
+ * confirms the account and sends them to the sign-in form with the address filled in.
+ * The alternative was keeping a recoverable password for three days, which is worse
+ * than one extra screen.
  *
  * The token is read from `window.location` rather than passed to the server in the page
  * request: the CDN cache policy whitelists only `lang`, so every other query string is
@@ -14,7 +19,6 @@ import { useAuth } from "../lib/AuthContext";
  */
 export default function VerifyEmail() {
   const { t } = useTranslation();
-  const { refresh } = useAuth();
   const navigate = useNavigate();
   const [state, setState] = useState("working");
   const [error, setError] = useState(null);
@@ -34,11 +38,13 @@ export default function VerifyEmail() {
     }
 
     verifyEmail(token)
-      .then(async (result) => {
-        await refresh();
+      .then((result) => {
         setState("done");
-        // Straight back to the booking they were part-way through.
-        navigate(result.next || "/account", { replace: true });
+        // /account shows the sign-in form to anyone not signed in, and carries `next`
+        // through it - so they still land on the booking they were part-way through,
+        // one screen later than before.
+        const next = encodeURIComponent(result.next || "/account");
+        navigate(`/account?next=${next}`, { replace: true });
       })
       .catch((err) => {
         setState("failed");

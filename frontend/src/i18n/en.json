@@ -82,7 +82,7 @@
     "resend": "Send the link again",
     "resent": "Sent. It can take a minute to arrive.",
     "verifying": "Confirming your email…",
-    "verified": "Email confirmed. You are signed in.",
+    "verified": "Email confirmed. Please sign in to finish.",
     "verifyFailed": "That link has expired or has already been used.",
     "forgot": "Forgot your password?",
     "resetTitle": "Reset your password",

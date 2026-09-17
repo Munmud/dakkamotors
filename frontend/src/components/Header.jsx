@@ -44,7 +44,7 @@ function AccountLink() {
 /**
  * The way into the admin, for the people who have one.
  *
- * A plain anchor, not a router Link: /api/admin/ is rendered by Django, so React must
+ * A plain anchor, not a router Link: /api/staff/ is rendered by Django, so React must
  * hand the browser over rather than try to route it.
  *
  * This replaced the "Staff login" link that used to sit in the footer of every page.
@@ -60,7 +60,7 @@ function AdminLink() {
   if (state !== "signed-in" || !customer?.is_staff) return null;
 
   return (
-    <a className="masthead__admin" href="/api/admin/">
+    <a className="masthead__admin" href="/api/staff/">
       {t("nav.admin")}
     </a>
   );

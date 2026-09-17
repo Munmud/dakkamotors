@@ -61,10 +61,15 @@ at once, so read this before touching the data layer.
 
 `backend/cars/store/` is the DynamoDB layer: PynamoDB 6.1, one table, single-table
 design with a discriminator. Already moved: **notifications**, **questions**,
-**bookings**, **slots**, **customers**, **cars**, **images**, **schedules**. Still on
-the ORM: **auth only** -- `auth_user`, groups, permissions and sessions, which go when
-Cognito lands. Every other `@admin.register` is gone; the admin now holds staff accounts
-and the read-only customer list, and nothing else.
+**bookings**, **slots**, **customers**, **cars**, **images**, **schedules**, and the
+**customer account flows** (Cognito). Still on the ORM: `auth_user`, groups, permissions
+and sessions -- kept because the staff pages still hang their `@requires` decorator off
+Django permissions, and because the exporter needs the models to read.
+
+Cognito holds identity; DynamoDB holds only what it has nowhere to put (a pending
+sign-up's name and phone, reset tokens, carried-over password hashes). **The pool sends
+no email at all** -- verification and reset messages still go through Brevo, bilingual
+and branded. Do not wire it to SES; that is where the previous attempt stalled.
 
 Ids are strings now wherever an entity has moved, so URL patterns take `<str:pk>`, not
 `<int:pk>`. A slot's id is derived from (schedule, start time) -- that is what makes

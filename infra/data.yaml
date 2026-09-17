@@ -14,6 +14,15 @@ Parameters:
     Type: String
     Default: dakkamotors
 
+  SiteDomain:
+    Type: String
+    Default: dakkamotors.com
+
+  CognitoDomainPrefix:
+    Type: String
+    Default: dakkamotors-staff
+    Description: Prefix for the free Cognito hosted-UI domain. Must be globally unique.
+
   LambdaRoleName:
     Type: String
     Default: dakkamotors-production-ZappaLambdaExecutionRole
@@ -124,6 +133,200 @@ Resources:
               # get an AccessDenied that names the table you can plainly read.
               - !Sub "${Table.Arn}/index/*"
 
+          # Every sign-in, sign-up and profile edit goes through the backend rather than
+          # from the browser, which is what keeps the throttle meaningful - so the role
+          # needs the admin verbs, not only the public ones.
+          - Effect: Allow
+            Action:
+              - cognito-idp:SignUp
+              - cognito-idp:InitiateAuth
+              - cognito-idp:AdminInitiateAuth
+              - cognito-idp:AdminCreateUser
+              - cognito-idp:AdminDeleteUser
+              - cognito-idp:AdminGetUser
+              - cognito-idp:AdminConfirmSignUp
+              - cognito-idp:AdminSetUserPassword
+              - cognito-idp:AdminUpdateUserAttributes
+              - cognito-idp:AdminDisableUser
+              - cognito-idp:AdminEnableUser
+              - cognito-idp:AdminAddUserToGroup
+              - cognito-idp:AdminRemoveUserFromGroup
+              - cognito-idp:AdminListGroupsForUser
+              - cognito-idp:AdminUserGlobalSignOut
+              - cognito-idp:ListUsers
+              - cognito-idp:ListUsersInGroup
+              - cognito-idp:ListGroups
+            Resource: !GetAtt UserPool.Arn
+
+  # ------------------------------------------------------------------- Cognito ---
+  #
+  # The pool is configured to send **nothing**. No AutoVerifiedAttributes, admin-only
+  # recovery, no EmailConfiguration block - so there is no trigger for Cognito to fire.
+  # Verification and password-reset messages keep going out bilingual and branded
+  # through the S3 outbox and Brevo. The alternative is Cognito's plain English default
+  # against a 50/day cap, or SES; docs/TODO.md records an undeleted CognitoEmailRole
+  # left behind by the attempt that stalled on exactly that.
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      UserPoolName: dakkamotors
+      # Email is the sign-in name. The consequence, which is not obvious: the pool's
+      # *internal* username then becomes a UUID and the address is an attribute, so an
+      # access token's `username` claim is the sub. Code that reads it as an email gets
+      # a UUID.
+      UsernameAttributes: [email]
+      UsernameConfiguration:
+        CaseSensitive: false
+      # We own the reset flow; Cognito must not offer its own.
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: admin_only
+            Priority: 1
+      AutoVerifiedAttributes: []
+      DeletionProtection: ACTIVE
+      MfaConfiguration: "OPTIONAL"
+
+      Policies:
+        PasswordPolicy:
+          # Six, not Cognito's default of eight. **This one matters.** A pool has
+          # exactly one password policy, and a stricter one would reject every existing
+          # customer whose password is six or seven characters at the moment the
+          # migration trigger tries to verify it - with an error Cognito words, on the
+          # sign-in screen. The stricter staff rule is enforced in application code
+          # before AdminSetUserPassword instead, because the customer-lax/staff-strict
+          # split cannot be expressed here at all.
+          MinimumLength: 6
+          RequireUppercase: false
+          RequireLowercase: false
+          RequireNumbers: false
+          RequireSymbols: false
+          TemporaryPasswordValidityDays: 1
+
+      # WARNING: Schema is effectively immutable. CloudFormation fails rather than
+      # replaces on most edits, and Cognito has no API to remove a custom attribute -
+      # so getting this list wrong means rebuilding the pool and losing every user.
+      # This is the single most likely thing in the migration to bite.
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+        - Name: given_name
+          AttributeDataType: String
+          Mutable: true
+        - Name: family_name
+          AttributeDataType: String
+          Mutable: true
+        # custom:phone, not the standard phone_number: Cognito validates that one as
+        # E.164 and customers type 080-9282-3601. The standard attribute would reject
+        # the existing data and make phone a sign-in alias and an MFA channel, neither
+        # of which is wanted.
+        - Name: phone
+          AttributeDataType: String
+          Mutable: true
+          StringAttributeConstraints:
+            MaxLength: "32"
+
+  StaffGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref UserPool
+      GroupName: staff
+      Description: What is_staff was.
+      Precedence: 10
+
+  OwnersGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref UserPool
+      GroupName: owners
+      Description: What is_superuser was.
+      Precedence: 0
+
+  InventoryGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref UserPool
+      GroupName: inventory-managers
+      Description: The only group a non-owner may hand out.
+      Precedence: 20
+
+  CustomerClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: customer
+      GenerateSecret: false
+      # ALLOW_USER_PASSWORD_AUTH is deliberately absent. Only the admin flow is enabled,
+      # and that requires signed AWS credentials - so a leaked client id cannot be used
+      # to brute-force from a browser, and every attempt goes through Django where the
+      # 20/hour throttle still does real work.
+      ExplicitAuthFlows:
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+      ReadAttributes:
+        - email
+        - email_verified
+        - given_name
+        - family_name
+        - custom:phone
+      # `email` is not writable. That is the CloudFormation-level expression of
+      # LOCKED_PROFILE_FIELDS: the address is the sign-in name, so letting it move would
+      # let a customer take one that already belongs to somebody else.
+      WriteAttributes:
+        - given_name
+        - family_name
+        - custom:phone
+
+  StaffClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: staff
+      GenerateSecret: true
+      # No password flow at all: staff arrive through the hosted UI, which also gives
+      # them TOTP MFA on the accounts that can edit inventory and other staff - a
+      # genuine upgrade on a plain Django password.
+      ExplicitAuthFlows:
+        - ALLOW_REFRESH_TOKEN_AUTH
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs:
+        - !Sub "https://${SiteDomain}/api/staff/auth/callback"
+      LogoutURLs:
+        - !Sub "https://${SiteDomain}/api/staff/signed-out"
+      AccessTokenValidity: 30
+      RefreshTokenValidity: 12
+      TokenValidityUnits:
+        AccessToken: minutes
+        RefreshToken: hours
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      # The free prefix domain. A custom one would need another ACM certificate for
+      # three people's sign-in page.
+      Domain: !Ref CognitoDomainPrefix
+
 Outputs:
   TableName:
     Value: !Ref Table
@@ -133,3 +336,13 @@ Outputs:
     Export: { Name: dakkamotors-table-arn }
   TableStreamArn:
     Value: !GetAtt Table.StreamArn
+  UserPoolId:
+    Value: !Ref UserPool
+    Export:
+      Name: dakkamotors-user-pool-id
+  CustomerClientId:
+    Value: !Ref CustomerClient
+  StaffClientId:
+    Value: !Ref StaffClient
+  CognitoDomain:
+    Value: !Sub "${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com"
