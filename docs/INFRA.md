@@ -46,9 +46,15 @@ The exceptions above always carry an explicit `--region us-east-1`.
 | Route53 hosted zone | `Z051521126KCXW6R2RVF8` |
 | ACM certificate | `arn:aws:acm:us-east-1:484907516843:certificate/3eed3285-d186-4ea1-abf5-a980ffab5647` |
 
+The Lambda holds no `VpcConfig` and reaches DynamoDB, Cognito, SSM and S3 over the public
+internet.
+
 The VPC (`vpc-07b008c32ab530661`), its two private subnets and the Lambda security group
-were removed in the same update. The Lambda holds no `VpcConfig` and reaches DynamoDB,
-Cognito, SSM and S3 over the public internet.
+were **not** deleted with Aurora. CloudFormation tried for about an hour, gave up, and
+finished the update anyway, which left them as orphans owned by no stack. The cause was
+not AWS being slow: **Lambda will not release a VPC ENI while any published version still
+references the subnets**, and Zappa keeps a version per deploy. Deleting versions 1-24
+removed the last reference. They cost nothing either way.
 
 ---
 
@@ -140,7 +146,7 @@ if there ever is one -- would need it.
 | Owner account | `moontasir042@gmail.com`, in `owners` and `staff` |
 | Buckets | frontend and media emptied; `config/env.json` kept and updated |
 | Aurora | **deleted**, final snapshot `dakkamotors-core-snapshot-dbcluster-m8ulwb0bdvyl` |
-| VPC, subnets, security groups | deleted in the same stack update |
+| VPC, subnets, security groups | **not** deleted -- orphaned when CloudFormation gave up; see above |
 
 The cluster was stopped first to halt ACU billing, then started again only because a
 stopped Aurora cluster cannot be deleted -- `DeleteDBCluster` refuses one. Worth knowing
@@ -235,43 +241,39 @@ aws cloudformation deploy --region ap-northeast-1   --template-file infra/networ
 The `DBPassword` parameter is gone from the template, so it is no longer passed. The four
 surviving outputs keep their names because `infra/edge.yaml` takes all four as parameters.
 
-Still outstanding, none of it costing anything:
+### Cleanup, done 2026-09-19
 
-1. **Trim the deploy role.** `infra/github-oidc.yaml` no longer grants
-   `ec2:DescribeSubnets`, `DescribeSecurityGroups` or `DescribeVpcs` -- Zappa needed them
-   to look up a VPC it no longer joins -- but that stack has not been redeployed, so the
-   live role still has them:
+Everything in the account that was not Dakka Motors was removed: the django-academy stack,
+pipeline, CodeBuild project, budget, three IAM roles and two policies; nine orphaned log
+groups whose Lambdas no longer exist; four SAM CLI scratch buckets and their three stacks;
+and two buckets of another project's data, on the owner's instruction. **us-east-2 is now
+empty.**
 
-   ```bash
-   aws cloudformation deploy --region ap-northeast-1      --template-file infra/github-oidc.yaml --stack-name dakkamotors-github-oidc      --capabilities CAPABILITY_NAMED_IAM
-   ```
+Then the project's own dead weight:
 
-2. **The Lambda execution role still grants ENI management.** `zappa-permissions`, the
-   inline policy on `dakkamotors-production-ZappaLambdaExecutionRole`, carries
-   `ec2:CreateNetworkInterface` and friends. Zappa writes that policy for VPC functions
-   and `manage_roles: false` means nothing regenerates it, so it is a hand edit. Harmless
-   -- a grant with nothing to act on -- but it is dead privilege.
+* **Lambda versions 1-24 deleted.** Every one carried `VpcConfig`, and versions 1-23 ran
+  pre-migration code against a cluster that no longer exists, so they were not usable
+  rollback targets. This is the item that mattered: **Lambda will not release a VPC ENI
+  while any published version still references the subnets**, so the VPC delete had been
+  stuck behind them, not behind AWS being slow. Code storage fell from 1.08 GB to 83 MB.
+* `/dakkamotors/DB_PASSWORD`, `ADMIN_PASSWORD` and `MAHSIUL_PASSWORD` deleted -- a
+  live-looking password that opens nothing is worse than no parameter.
+* The unused SES identity deleted. The mailer calls Brevo; SES had never sent anything.
+* `ec2:*NetworkInterface` removed from the `zappa-permissions` inline policy, and
+  `dakkamotors-github-oidc` redeployed so the deploy role lost its `ec2:Describe*` grants.
+* **30-day retention set on both log groups.** They had none, which made them the only
+  thing in the account that grew without bound.
+* `remote_env` retired in favour of `config/ssm.py` -- see above.
 
-3. **Three stale SSM parameters.** `/dakkamotors/DB_PASSWORD` was the Aurora master
-   password and the cluster is gone. `/dakkamotors/ADMIN_PASSWORD` and
-   `/dakkamotors/MAHSIUL_PASSWORD` were Django admin credentials for accounts that no
-   longer exist. Standard parameters are free, so this is hygiene rather than cost, but a
-   live-looking password that opens nothing is worse than no parameter.
+### Still outstanding
 
-4. **Retire `remote_env`.** SSM is reachable now, so
-   `ssm.get_parameters_by_path("/dakkamotors/", WithDecryption=True)` at settings import
-   replaces `config/env.json`. The VPC was the only reason those values ever had to be
-   hand-copied into an S3 object, and that dance is the most error-prone procedure in this
-   repo. Keep `remote_env` alongside for one release so a rollback needs no settings
-   change.
+**Move derivative generation to a real asynchronous invoke** and delete the inline time
+budget in `cars/tasks.py`. Its opening docstring stopped being true the moment the
+function left the VPC: `lambda:InvokeFunction` is reachable, so a self-invoke no longer
+hangs until timeout.
 
-5. **Move derivative generation to a real asynchronous invoke** and delete the inline time
-   budget in `cars/tasks.py`. Its opening docstring stopped being true the moment the
-   function left the VPC: `lambda:InvokeFunction` is reachable, so a self-invoke no longer
-   hangs until timeout.
-
-The `LEGACYPW#` cleanup from the original list does not apply -- there was no data to
-migrate, so no items were ever written.
+The `LEGACYPW#` cleanup from the original list never applied -- there was no data to
+migrate, so no items were written.
 
 
 ### What the VPC cost, kept as a record

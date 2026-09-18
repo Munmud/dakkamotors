@@ -63,11 +63,10 @@ is not in a VPC, so nothing about it needs a Lambda.
 at the call rather than quietly opening SQLite. `cars/store/` and `cars/cognito.py` are
 the only ways in.
 
-**The cutover has run** (2026-09-18). `main` is deployed, the Lambda is out of the VPC,
-and the site serves from DynamoDB and Cognito. The Aurora cluster is stopped but not yet
-deleted -- that is the last outstanding step, and `docs/INFRA.md` has the command. A
-stopped cluster restarts itself after seven days, so it has a deadline rather than being
-free forever.
+**The cutover has run** (2026-09-18) and **Aurora is deleted**, leaving one final
+snapshot. `main` is deployed, the Lambda is out of the VPC, and the site serves from
+DynamoDB and Cognito. RDS was $13.26 of a $15.75 monthly bill; the bill is now about
+$1.60, nearly all the Route 53 hosted zone.
 
 `backend/cars/store/` is the data layer: PynamoDB 6.1, one table, single-table design with
 a discriminator. Cognito holds identity; DynamoDB holds only what Cognito has nowhere to
@@ -162,6 +161,13 @@ are now TTL attributes the table handles itself.
 sign a presigned POST and the browser uploads directly. `direct-upload.js` is
 progressive enhancement -- file inputs stay file inputs, so a JS failure falls back to a
 normal upload.
+
+**Secrets come from SSM at settings import**, via `config/ssm.py`, which runs only when
+`AWS_LAMBDA_FUNCTION_NAME` is set -- so tests and local development make no network call,
+and a real environment variable always wins. Zappa's `remote_env` is gone: it existed
+because the VPC put the SSM API out of reach, and it meant every secret lived in two
+places that had to be kept in step by hand. Non-secrets live in `zappa_settings.json`,
+in git, where they can be reviewed.
 
 **Email is queued, never sent inline.** `mail.queue_email` writes JSON to an S3 outbox
 and a second Lambda sends it via Brevo (not SES). Brevo is reachable directly now, so
