@@ -51,30 +51,28 @@ The exceptions above always carry an explicit `--region us-east-1`.
 
 ---
 
-## Migration in flight: Aurora -> DynamoDB + Cognito
+## DynamoDB and Cognito
 
-**Both stacks are live at once, on purpose.** Everything the application reads and writes
-is already in DynamoDB and Cognito; Aurora and Django's auth tables are still there
-because they are the rollback. `zappa rollback production -n 1` restores the previous
-Lambda in seconds, and that code reads Aurora, which is still running. Tearing either
-down before the cutover has held would throw that away.
-
-### What has been added
-
-| Stack / resource | Region | Holds |
-|---|---|---|
-| `dakkamotors-data` | Tokyo | The DynamoDB table, the Cognito user pool, three groups, two app clients, the hosted-UI domain, the UserMigration trigger, and the backend's managed IAM policy |
-
-Defined in `infra/data.yaml`. Deployed as its own stack sharing one with nothing
-DNS-related -- the lesson of the `dakkamotors-dev` stack whose deletion took the Route53
-hosted zone with it.
+The application reads and writes DynamoDB and Cognito, and nothing else. `dakkamotors-data`
+is its own stack, sharing one with nothing DNS-related -- the lesson of the
+`dakkamotors-dev` stack whose deletion took the Route53 hosted zone with it.
 
 ### Why DynamoDB
 
-Aurora Serverless v2 at `MinCapacity: 0` costs $3-8/month and takes **~15 seconds to wake
-on the first request after ten idle minutes**. DynamoDB on-demand has no idle cost and no
-wake-up. The saving is about $5/month, which does not justify a migration on its own; the
-cold start and getting out of the VPC do.
+Two reasons, and the first was measured rather than estimated.
+
+**Cost.** Aurora Serverless v2 at `MinCapacity: 0` was billing **$13.26 a month** --
+$12.85 of it ServerlessV2 ACU-hours -- against `DatabaseConnections` averaging 0.00 over
+seven days. It was paid for around the clock and almost nobody connected to it. An
+earlier version of this file said `MinCapacity: 0` meant it "costs almost nothing on an
+idle day"; Cost Explorer disagreed. DynamoDB for the same period: **$0.0015**.
+
+**The cold start.** Aurora took ~15 seconds to wake on the first request after ten idle
+minutes. DynamoDB has no wake-up at all.
+
+Getting out of the VPC came free with both, and retired three workarounds: the inline
+image-resize budget, the S3 outbox as a *necessity* rather than a choice, and the
+hand-copying of secrets into `config/env.json`.
 
 ### Why Cognito never sends an email
 
@@ -131,31 +129,44 @@ items and no existing customers whose passwords must survive. It is still deploy
 because it is correct and costs nothing, and because the first real customer import --
 if there ever is one -- would need it.
 
-### State as of 2026-09-18
+### It has run. State as of 2026-09-18
 
 | | |
 |---|---|
-| Aurora cluster | **stopped** (`rds stop-db-cluster`). ACU billing halted. |
-| `dakkamotors-frontend` | emptied |
-| `dakkamotors-backend-media` | emptied except `config/env.json` |
-| `dakkamotors-outbox` | empty |
-| `dakkamotors-data` stack | **not deployed** -- no table, no pool |
-| Deployed Lambda | still `main`, still in the VPC, last modified 2026-09-10 |
+| `dakkamotors-data` | deployed, twelve resources |
+| Deployed Lambda | the new code, **out of the VPC** (`VpcConfig` empty) |
+| Site | `/` 200, `/api/cars/` 200, `/api/staff/cars/` 302 to the hosted UI |
+| Owner account | `moontasir042@gmail.com`, in `owners` and `staff` |
+| Buckets | frontend and media emptied; `config/env.json` kept and updated |
+| Aurora cluster | **stopped**, still present, pending the teardown below |
 
 **AWS restarts a stopped Aurora cluster automatically after seven days**, so the charge
 resumes around **2026-09-25** unless the cluster is gone by then. Stopping it again buys
-another seven. To bring it back:
+another seven.
 
-```bash
-aws rds start-db-cluster --region ap-northeast-1   --db-cluster-identifier dakkamotors-core-dbcluster-xaurpfprbqso
-```
+Two things the deploy found that no local check could, both now fixed in `data.yaml`:
 
-`config/env.json` is the one thing in S3 that was not regenerable, which is why it was
-kept: Zappa reads it as `remote_env` on every cold start and it holds `SECRET_KEY`. It
-still carries `DATABASE_URL` and the `DJANGO_ADMIN_*` values, which are dead once this is
-done, and it will need `COGNITO_STAFF_CLIENT_SECRET` adding.
+* **`MfaConfiguration` without `EnabledMfas`.** Cognito assumes `SMS_MFA` the moment MFA
+  is anything but `OFF`, and then refuses the pool because there is no SMS configuration
+  and no auto-verified `phone_number` -- neither of which this pool has, deliberately.
+  `SOFTWARE_TOKEN_MFA` is what was always meant.
+* **`email` left out of the customer client's `WriteAttributes`**, described as the
+  CloudFormation-level expression of `LOCKED_PROFILE_FIELDS`. Cognito will not allow a
+  *required* attribute to be non-writable, and email is required because it is the
+  sign-in name. That control only ever worked in `cognito.update_attributes`.
 
-### The steps
+The first failure also left two orphans, because rollback respects both policies that
+exist to prevent loss: the table survived on `DeletionPolicy: Retain` and the pool on
+`DeletionProtection: ACTIVE`. The table was **imported** into the stack rather than
+deleted and recreated; the empty duplicate pool was removed. If a first create fails
+again, check for both before redeploying -- an existing table fails early validation with
+nothing but `[AWS::EarlyValidation::ResourceExistenceCheck]` to go on.
+
+### How it was done
+
+Steps 1 to 5 have run. Kept because the next environment -- a staging stage, a rebuild
+after a disaster, somebody doing this again elsewhere -- needs the order, and because
+step 4 is the one nobody guesses.
 
 1. Create the data stack. Purely additive, costs about nothing, and nothing else can
    proceed without it:
@@ -201,8 +212,9 @@ done, and it will need `COGNITO_STAFF_CLIENT_SECRET` adding.
    (expect 302 to the hosted UI). Sign in as the owner, add a car, upload a photo,
    confirm the derivative appears.
 
-6. Then the teardown below. Aurora is only a rollback until step 3 has been seen to work;
-   after that it is $13.26 a month of nothing.
+6. **The teardown below. This is the only step still outstanding.** Aurora was the
+   rollback until step 5 had been seen to work. It has, so the cluster is now $13.26 a
+   month of nothing, and a stopped cluster restarts itself after seven days.
 
 ### After it has held, over days
 
