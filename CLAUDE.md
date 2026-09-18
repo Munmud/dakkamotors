@@ -57,10 +57,15 @@ is not in a VPC, so nothing about it needs a Lambda.
 
 ## The data layer: DynamoDB and Cognito
 
-**Every request path is on DynamoDB and Cognito.** The Django ORM, `django.contrib.auth`,
-`django.contrib.sessions` and `django.contrib.admin` are still installed but nothing
-serving a request reads them; they are the rollback surface until the cutover has run and
-held, and `docs/INFRA.md` has the teardown that removes them.
+**There is no relational database and no Django auth.** The ORM models,
+`django.contrib.auth`, `django.contrib.sessions`, `django.contrib.admin` and
+`cars/migrations/` are gone; `DATABASES` is `{}`, so anything reaching for the ORM fails
+at the call rather than quietly opening SQLite. `cars/store/` and `cars/cognito.py` are
+the only ways in.
+
+**The cutover has not run yet.** `main` is still the pre-migration code against Aurora, so
+this branch is not deployable until `infra/data.yaml` exists in AWS and the export/import
+has been rehearsed. `docs/INFRA.md` has the order.
 
 `backend/cars/store/` is the data layer: PynamoDB 6.1, one table, single-table design with
 a discriminator. Cognito holds identity; DynamoDB holds only what Cognito has nowhere to
@@ -125,9 +130,11 @@ moto is used only where the token itself is the subject -- `tests_cognito.py` an
 for the rest: moto is an optional dependency, so those tests would be `skipUnless`-gated
 and would vanish on any machine without `requirements-dev.txt`.
 
-`django_manager` and `django_customer` in `tests.py` exist only for the four classes that
-still test the Django admin and the ORM `Notification` model. They are deleted with those
-classes, not ported -- the behaviour they describe stops existing.
+Every class is a `SimpleTestCase`. That is load-bearing rather than tidiness: with no
+database configured, an ORM call that survived the teardown fails instead of quietly
+opening SQLite. `tests_store.count_dynamo_calls` replaces `assertNumQueries` and is worth
+more than it was -- the car detail page is deliberately one Query, and a per-question read
+in a loop is exactly what would undo that.
 
 ## Conventions
 
