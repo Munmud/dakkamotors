@@ -137,7 +137,7 @@ test. Views are thin and translate errors into responses. The store raises typed
 and knows no wording; the domain module owns every sentence a customer reads.
 
 **Comments explain why, not what.** The codebase is deliberately heavy on rationale --
-why `CONN_MAX_AGE = 0`, why there is no NAT gateway, why a slug never changes. Match
+why a slug never changes, why `bump_car` exists, why the pool sends no email. Match
 that. A comment that restates the code is noise; one that records a decision is the most
 valuable thing in the file.
 
@@ -145,9 +145,9 @@ valuable thing in the file.
 `cars/tests.py`. If a change makes you edit one of those strings, suspect the change.
 
 **Nothing runs on a timer.** Slots are materialised when availability is read, not by a
-cron job. This began as a way to let Aurora scale to zero; it survives because it is one
-fewer moving part. Do not add a scheduled sweeper without a reason that outlives that
-one.
+cron job. This began as a way to let Aurora scale to zero, and Aurora is gone; it
+survives because it is one fewer moving part, and because the expiry sweeps it replaced
+are now TTL attributes the table handles itself.
 
 **Uploads go straight to S3.** Lambda has a ~4.5 MB request ceiling, so the staff pages
 sign a presigned POST and the browser uploads directly. `direct-upload.js` is
@@ -155,25 +155,26 @@ progressive enhancement -- file inputs stay file inputs, so a JS failure falls b
 normal upload.
 
 **Email is queued, never sent inline.** `mail.queue_email` writes JSON to an S3 outbox
-and a Lambda outside the VPC sends it via Brevo (not SES). It is fire-and-forget by
-design: a customer's booking must never fail because an email could not be written.
+and a second Lambda sends it via Brevo (not SES). Brevo is reachable directly now, so
+the outbox is a choice rather than a constraint: it is fire-and-forget by design, and a
+customer's booking must never fail -- or wait 600ms -- because of an email.
 
 **The frontend is bilingual.** Every user-visible string goes through `react-i18next`
 with keys in both `en.json` and `ja.json`. `npm run check-i18n` fails the build otherwise.
 
 ## Things that will bite
 
-* **Zappa probes `/` before migrations run**, so a release adding a column fails that
-  probe even when the deploy is fine. The workflow treats it as a warning and gates on a
-  smoke test that runs after migrations.
+* **There are no migrations.** A schema change is a code change to `cars/store/`, and
+  an attribute that is not written is simply absent from an item rather than NULL. Adding
+  one is free; changing the meaning of an existing one needs a backfill you write.
 * **`/api/cars/*` is a separate CloudFront behaviour** that allows only GET/HEAD/OPTIONS
   and strips cookies. A POST there is refused by the CDN with no Django log line. New
   authenticated endpoints must not live under that prefix.
-* **The Lambda is still in a VPC with no NAT**, and will be until the cutover. It can
-  reach Aurora and S3 and nothing else -- no SQS, no SSM, no Lambda self-invoke. A
-  self-invoke does not fail fast, it hangs until timeout and surfaces as a 504. Leaving
-  means emptying `vpc_config`'s lists in `zappa_settings.json` and **not deleting the
-  key**: Zappa only sends `VpcConfig` when it is present.
+* **The Lambda is no longer in a VPC**, which retired three workarounds: the inline
+  image-resize budget in `tasks.py`, the S3 outbox as a *necessity*, and the hand-copy of
+  secrets into `config/env.json`. `vpc_config` in `zappa_settings.json` holds empty lists
+  and **the key must stay** -- Zappa only sends `VpcConfig` when it is present, so
+  deleting the key leaves a deployed function attached to subnets nothing mentions.
 * **DynamoDB reserved keywords** include `capacity`, `status`, `order`, `year` and
   `name`, all of which appear in this schema. PynamoDB aliases them automatically; raw
   boto3 does not.
@@ -183,6 +184,8 @@ with keys in both `en.json` and `ja.json`. `npm run check-i18n` fails the build 
 * **An access token's `username` claim is the sub, not the email**, because the pool uses
   email as the username attribute. Deriving an address from it would look right and be a
   UUID.
-* **`dakkamotors-core` holds the VPC, Aurora *and* both S3 buckets.** Removing the
-  database is a stack **update**, never `delete-stack` -- that would take the site and
-  every photo with it.
+* **`dakkamotors-core` holds both S3 buckets** as well as, until the cutover, the VPC and
+  Aurora. Removing the database is a stack **update**, never `delete-stack` -- that would
+  take the site and every photo with it. `infra/network-db.yaml` keeps its filename for
+  the same reason: CloudFormation identifies a stack by name, and a renamed file invites
+  somebody to create a second one.

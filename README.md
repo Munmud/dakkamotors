@@ -8,7 +8,8 @@ Django admin.
 |---|---|
 | **Backend** | Django 5 + Django REST Framework, deployed to AWS Lambda via Zappa |
 | **Frontend** | React 19 (Vite), served from S3 behind CloudFront |
-| **Database** | Aurora Serverless v2 PostgreSQL (scales to zero); SQLite locally |
+| **Data** | DynamoDB, single table, on-demand; DynamoDB Local for development |
+| **Identity** | Amazon Cognito; the pool sends no email, Brevo does |
 | **Media** | S3, served through CloudFront |
 | **Region** | `ap-northeast-1` (Tokyo) — ACM cert + CloudFront in `us-east-1` (AWS requirement) |
 | **Currency** | JPY |
