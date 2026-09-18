@@ -48,6 +48,19 @@ def _local_dynamo_available():
 AVAILABLE = _local_dynamo_available()
 
 
+def ensure_table():
+    """Create the table if it is not there yet.
+
+    Both entry points need this and neither may assume the other ran first: Django
+    orders tests by module, so every `DynamoReset` class in `tests.py` runs before
+    anything in this file. Leaning on that order is what let the suite pass against a
+    container left over from an earlier run and fail against a fresh one -- the table
+    was simply still there.
+    """
+    if not BaseItem.exists():
+        BaseItem.create_table(wait=True)
+
+
 def truncate_table():
     """Empty the table between tests, at the raw client.
 
@@ -84,8 +97,7 @@ class DynamoTestCase(SimpleTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        if not BaseItem.exists():
-            BaseItem.create_table(wait=True)
+        ensure_table()
 
     def setUp(self):
         super().setUp()

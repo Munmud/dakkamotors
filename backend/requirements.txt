@@ -8,5 +8,14 @@ boto3==1.43.90
 Pillow==12.3.0
 psycopg2-binary==2.9.12
 
+# The DynamoDB layer. `cars/store/` is the only data access path the application has, so
+# this is not optional in any environment -- a missing pynamodb is an ImportError at
+# `manage.py check`, not a degraded feature.
+pynamodb==6.1.0
+
+# Cognito access tokens are RS256, so the `crypto` extra (cryptography) is required, not
+# a nicety: without it PyJWT refuses the algorithm and every authenticated request 401s.
+PyJWT[crypto]==2.14.0
+
 # Deployment (not needed to run locally, but kept here so CI installs one file)
 zappa==0.62.1

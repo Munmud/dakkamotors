@@ -55,7 +55,7 @@ from .store import notifications as notification_store
 from .store import questions as question_store
 from .store import schedules as schedule_store
 from .store import slots as slot_store
-from .tests_store import truncate_table
+from .tests_store import ensure_table, truncate_table
 from .uploads import UploadRejected, _validate
 
 
@@ -67,6 +67,11 @@ class DynamoReset:
     now writes there -- notifications, so far -- leaks into the next test unless it is
     cleared explicitly. Mix this in wherever that applies.
     """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        ensure_table()
 
     def setUp(self):
         super().setUp()
