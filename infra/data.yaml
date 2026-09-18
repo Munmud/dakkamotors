@@ -320,6 +320,14 @@ Resources:
       LambdaConfig:
         UserMigration: !GetAtt UserMigrationFunction.Arn
       MfaConfiguration: "OPTIONAL"
+      # TOTP only, and this list is not optional despite the name. Without it Cognito
+      # assumes SMS_MFA the moment MfaConfiguration is anything but OFF, and then refuses
+      # the pool: "SMS configuration and Auto verification for phone_number are required
+      # when MFA is required/optional". Neither exists here on purpose -- the pool sends
+      # nothing, and `custom:phone` is deliberately not the standard attribute, so there
+      # is no verified number to text. An authenticator app needs none of that.
+      EnabledMfas:
+        - SOFTWARE_TOKEN_MFA
 
       Policies:
         PasswordPolicy:
@@ -414,10 +422,18 @@ Resources:
         - given_name
         - family_name
         - custom:phone
-      # `email` is not writable. That is the CloudFormation-level expression of
-      # LOCKED_PROFILE_FIELDS: the address is the sign-in name, so letting it move would
-      # let a customer take one that already belongs to somebody else.
+      # `email` has to be here, and that is a Cognito rule rather than a choice: a
+      # required attribute cannot be left out of WriteAttributes, and the pool needs
+      # email required because it is the sign-in name. Leaving it out is refused with
+      # "Invalid write attributes specified while creating a client".
+      #
+      # So LOCKED_PROFILE_FIELDS cannot be expressed at this level. It is enforced where
+      # it actually matters instead: `cognito.update_attributes` accepts given_name,
+      # family_name and phone and silently refuses anything else, and the client has no
+      # password auth flow at all -- every write goes through Django, which is the only
+      # thing holding AWS credentials. A customer never talks to this client directly.
       WriteAttributes:
+        - email
         - given_name
         - family_name
         - custom:phone
