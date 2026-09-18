@@ -7,7 +7,12 @@ place instead of reconstructed from Django's permission naming.
 **This is stronger than the arrangement it replaces.** The reconcile-on-every-deploy step
 existed because permissions could drift -- somebody could tick a box in the admin and
 grant something. There is no UI that can grant a permission now, so drift is impossible
-by construction and the CI step that re-asserted it is simply gone.
+by construction: this module is the only place a role is defined, and changing one means
+changing code and passing review.
+
+(The CI step that re-asserted the old group still runs -- `.github/workflows/backend.yml`
+calls `ensure_inventory_group` on every deploy. It goes with `django.contrib.auth`, and
+until it does it is reconciling a group nothing reads.)
 """
 
 from ..cognito import INVENTORY_GROUP, OWNERS_GROUP
