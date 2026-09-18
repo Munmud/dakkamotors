@@ -23,7 +23,7 @@ The exceptions above always carry an explicit `--region us-east-1`.
 | Stack / resource | Region | Holds |
 |---|---|---|
 | `dakkamotors-data` | Tokyo | The DynamoDB table, the Cognito pool, three groups, two app clients, the hosted-UI domain, the UserMigration trigger, the backend's managed IAM policy |
-| `dakkamotors-core` | Tokyo | Both S3 buckets. **Still holds the VPC, its subnets, security groups, the S3 Gateway Endpoint and a stopped Aurora cluster** until the teardown runs. |
+| `dakkamotors-core` | Tokyo | Both S3 buckets. The VPC and Aurora were deleted 2026-09-18. |
 | `dakkamotors-github-oidc` | Tokyo | GitHub OIDC provider + `dakkamotors-github-deploy` role |
 | `dakkamotors-edge` | **us-east-1** | CloudFront distribution, SPA router function, API cache policy |
 | Zappa (`dakkamotors-production`) | Tokyo | Lambda + API Gateway. Managed by Zappa, not by our templates. |
@@ -42,12 +42,13 @@ The exceptions above always carry an explicit `--region us-east-1`.
 | Cognito customer client | `61o4ucujbcoknsqtnt4pd68lmr` (no secret) |
 | Cognito staff client | `kti6vuj2t4e927pav3rq3cst0` (secret in SSM at `/dakkamotors/COGNITO_STAFF_CLIENT_SECRET`) |
 | Cognito hosted UI | `dakkamotors-staff.auth.ap-northeast-1.amazoncognito.com` |
-| Aurora cluster (**stopped**) | `dakkamotors-core-dbcluster-xaurpfprbqso` — auto-restarts ~2026-09-25 |
+| Final Aurora snapshot | `dakkamotors-core-snapshot-dbcluster-m8ulwb0bdvyl` — the cluster was deleted 2026-09-18 |
 | Route53 hosted zone | `Z051521126KCXW6R2RVF8` |
 | ACM certificate | `arn:aws:acm:us-east-1:484907516843:certificate/3eed3285-d186-4ea1-abf5-a980ffab5647` |
-| VPC | `vpc-07b008c32ab530661` |
-| Private subnets | `subnet-0d0828c388d998a72`, `subnet-02157e24d4ccd96e8` |
-| Lambda security group | `sg-04c0624b553366b7a` |
+
+The VPC (`vpc-07b008c32ab530661`), its two private subnets and the Lambda security group
+were removed in the same update. The Lambda holds no `VpcConfig` and reaches DynamoDB,
+Cognito, SSM and S3 over the public internet.
 
 ---
 
@@ -138,11 +139,17 @@ if there ever is one -- would need it.
 | Site | `/` 200, `/api/cars/` 200, `/api/staff/cars/` 302 to the hosted UI |
 | Owner account | `moontasir042@gmail.com`, in `owners` and `staff` |
 | Buckets | frontend and media emptied; `config/env.json` kept and updated |
-| Aurora cluster | **stopped**, still present, pending the teardown below |
+| Aurora | **deleted**, final snapshot `dakkamotors-core-snapshot-dbcluster-m8ulwb0bdvyl` |
+| VPC, subnets, security groups | deleted in the same stack update |
 
-**AWS restarts a stopped Aurora cluster automatically after seven days**, so the charge
-resumes around **2026-09-25** unless the cluster is gone by then. Stopping it again buys
-another seven.
+The cluster was stopped first to halt ACU billing, then started again only because a
+stopped Aurora cluster cannot be deleted -- `DeleteDBCluster` refuses one. Worth knowing
+before planning a teardown around a stopped cluster: the stop is a cost measure, not a
+step towards deletion.
+
+Deleting the RDS resources took about fifteen minutes. The VPC took longer, because four
+Lambda ENIs stayed `in-use` after the function left it. That is the documented 20-40
+minute release, and it is why the order in this runbook puts the VPC last.
 
 Two things the deploy found that no local check could, both now fixed in `data.yaml`:
 
@@ -212,136 +219,87 @@ step 4 is the one nobody guesses.
    (expect 302 to the hosted UI). Sign in as the owner, add a car, upload a photo,
    confirm the derivative appears.
 
-6. **The teardown below. This is the only step still outstanding.** Aurora was the
-   rollback until step 5 had been seen to work. It has, so the cluster is now $13.26 a
-   month of nothing, and a stopped cluster restarts itself after seven days.
+6. The teardown, once step 5 had been seen to work. Aurora was the rollback until then.
 
-### After it has held, over days
+### The teardown, done 2026-09-18
 
-Only once the cutover has run and been quiet for a week. Nothing below is reversible in
-the way the cutover is, so the order matters more than the speed.
+Run as a stack **update**, never `delete-stack`: `dakkamotors-core` holds the frontend and
+media buckets alongside the database, and deleting the stack would take the site and every
+photo with it. The change set was inspected first and showed twelve removals, all VPC and
+RDS, with no bucket or bucket policy in scope.
 
-**The code side is already done** and is on the branch: the ORM models, the Django admin,
-`django.contrib.auth`, `django.contrib.sessions` and the transitional bridges are gone,
-`DATABASES` is `{}`, and `infra/network-db.yaml` no longer describes a VPC or a database.
-What is left is the AWS side, which has to be done by hand with credentials this repo
-deliberately does not hold.
+```bash
+aws cloudformation deploy --region ap-northeast-1   --template-file infra/network-db.yaml --stack-name dakkamotors-core   --parameter-overrides FrontendBucketName=dakkamotors-frontend                         MediaBucketName=dakkamotors-backend-media
+```
 
-1. **Leave the VPC.** Empty both lists in `zappa_settings.json` -- **do not delete the
-   `vpc_config` key**, Zappa only sends `VpcConfig` when it is present, so removing it
-   leaves the function attached to the old subnets. Then:
+The `DBPassword` parameter is gone from the template, so it is no longer passed. The four
+surviving outputs keep their names because `infra/edge.yaml` takes all four as parameters.
 
-   ```bash
-   zappa update production
-   aws lambda get-function-configuration      --function-name dakkamotors-production      --query 'VpcConfig' --region ap-northeast-1
-   ```
+Still outstanding, none of it costing anything:
 
-   Expect empty `SubnetIds` and `SecurityGroupIds`. If they are not empty, stop -- every
-   step below will hang.
-
-2. **Detach the VPC execution policy**, then wait for the ENIs to release. That takes
-   20-40 minutes and the subnets cannot be deleted until it has happened.
+1. **Trim the deploy role.** `infra/github-oidc.yaml` no longer grants
+   `ec2:DescribeSubnets`, `DescribeSecurityGroups` or `DescribeVpcs` -- Zappa needed them
+   to look up a VPC it no longer joins -- but that stack has not been redeployed, so the
+   live role still has them:
 
    ```bash
-   aws iam detach-role-policy      --role-name dakkamotors-production-ZappaLambdaExecutionRole      --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
-
-   # Poll until this returns nothing.
-   aws ec2 describe-network-interfaces --region ap-northeast-1      --filters Name=vpc-id,Values=vpc-07b008c32ab530661      --query 'NetworkInterfaces[].NetworkInterfaceId'
+   aws cloudformation deploy --region ap-northeast-1      --template-file infra/github-oidc.yaml --stack-name dakkamotors-github-oidc      --capabilities CAPABILITY_NAMED_IAM
    ```
 
-3. **Take a final Aurora snapshot by hand**, before anything deletes anything. `DBCluster`
-   carries `DeletionPolicy: Snapshot`, so CloudFormation will take one too -- this is the
-   one you control the name of, and it is the only copy of the pre-cutover data that is
-   not on somebody's laptop.
+2. **The Lambda execution role still grants ENI management.** `zappa-permissions`, the
+   inline policy on `dakkamotors-production-ZappaLambdaExecutionRole`, carries
+   `ec2:CreateNetworkInterface` and friends. Zappa writes that policy for VPC functions
+   and `manage_roles: false` means nothing regenerates it, so it is a hand edit. Harmless
+   -- a grant with nothing to act on -- but it is dead privilege.
 
-   ```bash
-   aws rds create-db-cluster-snapshot --region ap-northeast-1      --db-cluster-identifier dakkamotors-core-dbcluster-xaurpfprbqso      --db-cluster-snapshot-identifier dakkamotors-final-pre-dynamo
-   aws rds wait db-cluster-snapshot-available --region ap-northeast-1      --db-cluster-snapshot-identifier dakkamotors-final-pre-dynamo
-   ```
+3. **Three stale SSM parameters.** `/dakkamotors/DB_PASSWORD` was the Aurora master
+   password and the cluster is gone. `/dakkamotors/ADMIN_PASSWORD` and
+   `/dakkamotors/MAHSIUL_PASSWORD` were Django admin credentials for accounts that no
+   longer exist. Standard parameters are free, so this is hygiene rather than cost, but a
+   live-looking password that opens nothing is worse than no parameter.
 
-4. **Update the core stack.** This is the destructive step, and it is an **update, not a
-   delete**: `dakkamotors-core` holds the VPC, Aurora *and both S3 buckets*
-   (`infra/network-db.yaml`). `delete-stack` would take the site and every photo with it.
+4. **Retire `remote_env`.** SSM is reachable now, so
+   `ssm.get_parameters_by_path("/dakkamotors/", WithDecryption=True)` at settings import
+   replaces `config/env.json`. The VPC was the only reason those values ever had to be
+   hand-copied into an S3 object, and that dance is the most error-prone procedure in this
+   repo. Keep `remote_env` alongside for one release so a rollback needs no settings
+   change.
 
-   ```bash
-   aws cloudformation deploy --region ap-northeast-1      --template-file infra/network-db.yaml      --stack-name dakkamotors-core      --parameter-overrides        FrontendBucketName=<frontend-bucket> MediaBucketName=<media-bucket>
-   ```
+5. **Move derivative generation to a real asynchronous invoke** and delete the inline time
+   budget in `cars/tasks.py`. Its opening docstring stopped being true the moment the
+   function left the VPC: `lambda:InvokeFunction` is reachable, so a self-invoke no longer
+   hangs until timeout.
 
-   The new template has no `DBPassword` parameter, so drop it from the overrides. Watch
-   the events: the eleven VPC and Aurora resources go, the buckets and their policies
-   stay, and the four outputs `infra/edge.yaml` consumes keep their names.
+The `LEGACYPW#` cleanup from the original list does not apply -- there was no data to
+migrate, so no items were ever written.
 
-   ```bash
-   aws cloudformation describe-stack-events --region ap-northeast-1      --stack-name dakkamotors-core --max-items 40      --query 'StackEvents[].[LogicalResourceId,ResourceStatus]' --output table
-   ```
 
-5. **Confirm the buckets survived**, because this is the failure that is silent until
-   somebody loads the site:
+### What the VPC cost, kept as a record
 
-   ```bash
-   aws s3 ls | grep dakkamotors
-   curl -sI https://dakkamotors.com/ | head -1
-   ```
+Three sections used to live here: why the database was Aurora Serverless v2, why there was
+no NAT Gateway, and what the VPC could and could not reach. None of it is true any more,
+and the shape of it is worth remembering because it explains code that is still in the
+repo.
 
-6. **Trim the deploy role.** `infra/github-oidc.yaml` grants `ec2:DescribeSubnets`,
-   `ec2:DescribeSecurityGroups` and `ec2:DescribeVpcs` purely for Zappa's VPC lookup.
-   Redeploy that stack without them.
+The Lambda sat in a VPC with no NAT Gateway, because a NAT is ~$32/month and the site's
+entire bill was under $16. A free S3 Gateway Endpoint let it reach S3. It could reach
+Aurora and S3, and **nothing else** -- no SSM, no SQS, no SES, no `lambda:InvokeFunction`.
+A self-invoke did not fail fast; it hung until the 120-second timeout and surfaced as a
+504.
 
-7. **Retire `remote_env`** in favour of reading SSM at settings import. SSM is reachable
-   now, and the VPC was the only reason the values ever had to be hand-copied into
-   `config/env.json` -- the most error-prone procedure in this repo.
+That single constraint shaped three things:
 
-8. **Move derivative generation to a real asynchronous invoke** and delete the inline
-   time budget in `cars/tasks.py`. Its opening docstring stopped being true the moment
-   the function left the VPC.
+* **`cars/tasks.py` resizes images inline, against a time budget**, because it could not
+  invoke itself asynchronously.
+* **`mail.queue_email` writes to an S3 outbox** for a second Lambda outside the VPC to
+  send. Brevo was unreachable from inside.
+* **Secrets were hand-copied into `config/env.json` on S3**, because SSM was unreachable
+  at settings import.
 
-9. **Delete the `LEGACYPW#` items at 90 days.** The TTL does it; check that it did.
+All three are now choices rather than constraints. The outbox is worth keeping on its
+merits -- a booking must not fail, or wait 600ms, because of an email. The other two are
+in the outstanding list above.
 
-Once the VPC is gone, **the section below about what it can and cannot reach no longer
-applies** -- SSM, SES, SQS and `lambda:InvokeFunction` all become reachable, which is
-what retires three separate workarounds.
-
-### Why the database is Aurora Serverless v2
-
-This account's 12-month free tier has expired, so `db.t4g.micro` would cost roughly
-$15/month to sit idle. Aurora Serverless v2 with `MinCapacity: 0` pauses after 10
-minutes of inactivity and bills only storage while asleep.
-
-The tradeoff is a **~15 second wake-up on the first request after a quiet spell**. Two
-things blunt it: `/api/cars*` is cached at CloudFront for 60 seconds, so most visitors
-never reach the database at all, and `CONN_MAX_AGE = 0` in Django ensures connections
-close so the cluster can actually pause.
-
-If the cold start ever becomes a real complaint, raise `MinCapacity` to `0.5` in
-`infra/network-db.yaml` — that removes the pause entirely, at roughly $40/month.
-
-### Why there is no NAT Gateway
-
-Lambda sits inside the VPC to reach Aurora. The only other thing it needs is S3, and a
-**Gateway VPC Endpoint is free**, where a NAT Gateway would cost about $32/month. There
-is deliberately no internet gateway and no route to the internet in this VPC.
-
-### What the VPC can and cannot reach
-
-Lambda runs in a private subnet with **no NAT gateway**, and the only VPC endpoint is
-the free S3 *gateway* endpoint. That keeps the bill near zero, but it has a consequence
-worth knowing before designing anything asynchronous:
-
-**The function can reach Aurora and S3, and nothing else.** There is no network path to
-the Lambda API, SQS, SNS or Secrets Manager. A Lambda self-invoke - the natural way to
-push image resizing into the background - does not fail fast; it *hangs* until the
-function times out, which surfaces as a 504 from API Gateway and looks nothing like a
-networking problem. Reaching any of those services needs an interface VPC endpoint at
-roughly $10/month per service across two AZs, which is more than this entire site costs.
-
-Two things do still work, because they are *push* rather than *pull*: an S3 event
-notification and a CloudWatch Events schedule can both invoke the function, since the
-Lambda service places the invocation rather than the function reaching out.
-
-A scheduled sweeper is nonetheless avoided, for a different reason: every run would
-query the database, and Aurora only scales to zero after ten idle minutes. Polling on a
-timer would keep it permanently awake and undo the saving. Image resizing therefore runs
-inline under a time budget - see `cars/tasks.py`.
 
 ### Why Django serves the HTML
 
@@ -364,18 +322,20 @@ still come straight from S3 and never touch the origin.
 cannot advertise a car that has been sold. Business facts - address, hours, service area -
 live in `cars/seo.py`.
 
-### Deploys must not race the schema
+### The smoke test is the deploy gate
 
-Zappa probes `/` immediately after uploading, before migrations run, so **any release
-that adds a column fails that probe even though the deploy is fine**. Retrying it while
-the schema is behind is how a half-applied migration happens. The workflow therefore
-treats the probe as a warning and gates on a smoke test that runs *after* migrations,
-hitting the origin directly so a cached page cannot mask a broken deploy.
+Zappa probes `/` immediately after uploading and calls a non-200 a failed deploy. It is
+not a reliable gate on its own: the probe can hit a cold start, and on any release that
+changes `vpc_config` it runs while the ENIs are still detaching -- which is exactly what
+the DynamoDB cutover did. The workflow treats it as a warning and gates on the smoke test
+at the end of the job, which hits the origin directly so a cached page cannot mask a
+broken deploy.
 
-One Django trap worth remembering: `SlugField` sets `db_index=True` by default. Adding
-one and then altering it to `unique=True` in the same migration makes Postgres build the
-same `..._like` index twice and the migration dies on "relation already exists". The
-intermediate column has to be `db_index=False`.
+There are no migrations to race any more. A schema change is a code change to
+`cars/store/`: an attribute nothing writes is simply absent from an item rather than
+NULL, so adding one is free. Changing what an existing one *means* needs a backfill you
+write yourself, and `reconcile_counters` is the model for how.
+
 
 ### Why there is no CORS configuration
 
@@ -388,62 +348,68 @@ adding `django-cors-headers`, something has drifted from this design.
 
 ## Staff accounts
 
-Two levels of access exist.
+Cognito groups, not Django permissions. `cars/staff/permissions.py` is the whole policy
+and is the only place a role is defined.
 
-| | Can do | Cannot do |
-|---|---|---|
-| `admin` (superuser) | Everything, including deleting accounts and editing other superusers | — |
-| **Inventory Managers** group | Add, edit, delete cars and photos; upload media; add and edit staff colleagues | Reach the owner's account, become a superuser, grant permissions, or delete an account |
+| Group | Can do |
+|---|---|
+| `owners` | Everything, including staff administration |
+| `inventory-managers` | Cars, photos, questions, schedules, slots; view and change bookings; view customers |
+| `staff` | Nothing by itself -- it is what gets somebody *past* the door, not through any particular one |
 
-### Why staff administration is a proxy model
+### Why staff administration is owners-only
 
-Members manage colleagues through **`cars.StaffAccount`**, a proxy over `auth.User`, so
-the permissions are `cars.*_staffaccount` and the group **never holds an `auth`
-permission**. That is deliberate: `/api/admin/auth/user/` keeps returning 403 for them,
-and the real user admin stays superuser-only.
+`OWNER_ONLY` in `permissions.py` holds back `staff.*` and `group.change` whatever else a
+group is given. Whoever can edit staff accounts can open the owner's account, reset its
+password, or add themselves to `owners` -- that is not a bug in the permission, it is what
+the permission *means*, so it belongs to owners alone.
 
-Handing a non-superuser `auth.change_user` with Django's stock `UserAdmin` is a complete
-privilege escalation — the holder can reset the owner's password, tick "superuser" on
-themselves, or grant themselves any permission. `StaffAccountAdmin` closes each route:
-superusers are filtered from the queryset *and* refused by the permission hooks, the
-`is_superuser` and `user_permissions` fields are absent from the fieldsets *and* forced
-on save, group choices are limited to an allowlist, and nobody can deactivate their own
-account. Superusers get Django's untouched behaviour.
+**This is stricter than the arrangement it replaced.** `StaffAccountAdmin` let inventory
+managers administer colleagues inside a sandbox: superusers filtered from the queryset
+*and* refused by the permission hooks, `is_superuser` and `user_permissions` absent from
+the fieldsets *and* forced on save, group choices limited to an allowlist, and nobody able
+to deactivate themselves. Four guards that all had to agree, because the underlying page
+was powerful and access had to be clawed back. Here the page is simply unreachable, and
+`tests_staff_accounts.py` asserts the shut door instead of re-proving the sandbox.
 
-Removing someone means unticking **Active**, not deleting: reversible, and it keeps the
-admin history of their edits readable. The group has no `delete_staffaccount`.
+What survives from that design, because it still bites somebody who *does* have the
+power: an owner cannot deactivate their own account, and the group list on the form offers
+`ASSIGNABLE_GROUPS` only -- `owners` is not a choice, so a POST carrying it fails
+validation rather than being silently dropped.
 
-The restriction is not cosmetic. Django's admin renders only the models a user holds
-permissions for, *and* re-checks on every view, so a member sees no Authentication
-section and gets a 403 on `/api/admin/auth/user/` if the URL is typed directly. They
-cannot escalate because granting rights needs `auth.change_user`, which the group does
-not include.
+**There is no delete.** Deactivating is the reversible verb, and a removed account would
+orphan every booking, question and notification keyed on that sub.
 
-`is_staff` is what the presigned upload endpoint checks (`IsAdminUser` in DRF means
-staff, not superuser), so members can upload photos and video without extra permissions.
-
-The group is defined in `cars/management/commands/ensure_inventory_group.py` and
-reconciled on every deploy, so that file is the source of truth — permissions added by
-hand in the admin are removed again on the next release.
 
 ### Adding someone
 
+Through the staff pages: sign in as an owner and use `/api/staff/accounts/add/`. The pool
+sends no email, so the page shows the temporary password once, in the response to the
+request that created it -- pass it on there and then. Cognito forces a change at first
+sign-in, so its lifetime is one use.
+
+The `create_inventory_user` command that used to live here is gone with
+`django.contrib.auth`, and with it the three-step dance of putting a password into SSM,
+copying it into `config/env.json` because the Lambda could not reach SSM from inside the
+VPC, and remembering to take it out again.
+
+### The first owner
+
+A chicken and egg: the staff page needs an owner signed in, and a new pool has nobody.
+Make the first one by hand, once.
+
 ```bash
-# 1. Generate a password and keep it somewhere durable
-python -c "import secrets,string;print(''.join(secrets.choice(string.ascii_letters+string.digits+'!#%-_') for _ in range(20)))"
-MSYS_NO_PATHCONV=1 aws ssm put-parameter --name "/dakkamotors/<NAME>_PASSWORD"   --type SecureString --value '<generated>' --region ap-northeast-1
-
-# 2. Put it where the Lambda can read it. It cannot reach the SSM API from inside the
-#    VPC, so the password travels through remote_env (config/env.json in S3) exactly as
-#    DJANGO_ADMIN_PASSWORD does. Add INVENTORY_USER_PASSWORD, then run:
-cd backend && source .venv/Scripts/activate
-zappa manage production "create_inventory_user --username <user> --email <email>   --first-name '<First>' --last-name '<Last>'"
-
-# 3. Remove INVENTORY_USER_PASSWORD from config/env.json afterwards.
+POOL=ap-northeast-1_czNqEUiq5
+EMAIL=you@example.com
+aws cognito-idp admin-create-user --region ap-northeast-1 --user-pool-id $POOL   --username "$EMAIL"   --user-attributes Name=email,Value="$EMAIL" Name=email_verified,Value=true   --temporary-password '<a strong one>' --message-action SUPPRESS
+for g in staff owners; do
+  aws cognito-idp admin-add-user-to-group --region ap-northeast-1     --user-pool-id $POOL --username "$EMAIL" --group-name $g
+done
 ```
 
-Re-running `create_inventory_user` never resets an existing password, and it refuses to
-modify a superuser, so a mistyped username cannot quietly demote the owner's account.
+`MessageAction SUPPRESS` is required, not optional: the pool has no `EmailConfiguration`,
+so Cognito has nothing to send the invitation with and fails if asked to.
+
 
 ---
 
@@ -453,20 +419,27 @@ Stored as SSM **SecureString** parameters (Parameter Store, not Secrets Manager 
 per-secret monthly charge):
 
 ```
-/dakkamotors/DB_PASSWORD
 /dakkamotors/DJANGO_SECRET_KEY
-/dakkamotors/ADMIN_PASSWORD
+/dakkamotors/COGNITO_STAFF_CLIENT_SECRET
+/dakkamotors/BREVO_API_KEY
 ```
 
 Read one back:
 
 ```bash
-aws ssm get-parameter --name "/dakkamotors/ADMIN_PASSWORD" \
+aws ssm get-parameter --name "/dakkamotors/DJANGO_SECRET_KEY" \
   --with-decryption --query Parameter.Value --output text
 ```
 
 > On Git Bash for Windows, prefix SSM commands with `MSYS_NO_PATHCONV=1` or the leading
-> `/` in the parameter name is rewritten into a Windows path and the lookup fails.
+> `/` in the parameter name is rewritten into a Windows path and the call fails with
+> "Parameter name must be a fully qualified name", which does not point at the cause.
+
+Three more are stored and open nothing: `/dakkamotors/DB_PASSWORD` was the Aurora master
+password and the cluster is gone; `/dakkamotors/ADMIN_PASSWORD` and
+`/dakkamotors/MAHSIUL_PASSWORD` were Django admin credentials. Free to keep, worth
+deleting anyway -- a live-looking password that opens nothing is worse than no parameter,
+because the next person has to work out which it is.
 
 The Lambda receives these through Zappa's `remote_env`: a private JSON file at
 `s3://dakkamotors-backend-media/config/env.json`, fetched on cold start. Secrets are
@@ -481,42 +454,42 @@ aws configure set region ap-northeast-1
 
 # 1. Secrets
 python - <<'PY'
-import secrets, string, boto3
+import secrets, boto3
 ssm = boto3.client("ssm", region_name="ap-northeast-1")
-pw = string.ascii_letters + string.digits + "!#%*+-_=?"   # Aurora rejects / @ " and space
+# (no other secret is generated here: Cognito owns passwords now)
 for name, value in {
-    "/dakkamotors/DB_PASSWORD": "".join(secrets.choice(pw) for _ in range(32)),
     "/dakkamotors/DJANGO_SECRET_KEY": secrets.token_urlsafe(64),
-    "/dakkamotors/ADMIN_PASSWORD": "".join(secrets.choice(pw) for _ in range(20)),
 }.items():
     ssm.put_parameter(Name=name, Value=value, Type="SecureString", Overwrite=True)
 PY
 
-# 2. Network, database, buckets
-DBPW=$(aws ssm get-parameter --name "/dakkamotors/DB_PASSWORD" --with-decryption \
-       --query Parameter.Value --output text)
+# 2. Buckets
 aws cloudformation deploy --stack-name dakkamotors-core \
-  --template-file infra/network-db.yaml \
-  --parameter-overrides DBPassword="$DBPW"
+  --template-file infra/network-db.yaml
 
 # 3. CI/CD role
 aws cloudformation deploy --stack-name dakkamotors-github-oidc \
   --template-file infra/github-oidc.yaml --capabilities CAPABILITY_NAMED_IAM
 
-# 4. Backend. Fill vpc_config in backend/zappa_settings.json from the stack outputs first.
+# 4. Table, pool, migration trigger, backend IAM policy
+aws cloudformation deploy --stack-name dakkamotors-data \
+  --template-file infra/data.yaml --capabilities CAPABILITY_NAMED_IAM
+
+# 5. Backend. Put the four Cognito outputs into backend/zappa_settings.json first, and
+#    save the pool JWKS to backend/config/cognito_jwks.json. Step 4 must come before
+#    this: with the ids empty there is nothing to authenticate against.
 cd backend
 zappa deploy production
-zappa manage production migrate
 zappa manage production "collectstatic --noinput"
-zappa manage production create_admin_user
+# Then make the first owner by hand - see "The first owner" above.
 
-# 5. CDN. us-east-1, and no certificate on the first pass so it works before DNS.
+# 6. CDN. us-east-1, and no certificate on the first pass so it works before DNS.
 aws cloudformation deploy --stack-name dakkamotors-edge --region us-east-1 \
   --template-file infra/edge.yaml \
   --parameter-overrides \
     FrontendBucketDomain=... MediaBucketDomain=... ApiGatewayDomain=...
 
-# 6. Frontend, and the final DNS cutover once the registrar is updated.
+# 7. Frontend, and the final DNS cutover once the registrar is updated.
 cd frontend && npm ci && npm run build
 aws s3 sync dist/ s3://dakkamotors-frontend --delete
 bash infra/finish-dns-cutover.sh
