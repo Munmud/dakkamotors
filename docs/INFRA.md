@@ -130,26 +130,91 @@ no Django: the hash format is verifiable in about fifteen lines of stdlib `hashl
 5. Tag the pre-cutover commit: `git tag pre-dynamo`. The exporter needs the ORM models
    and they are removed afterwards, so this tag is the only place it will still run.
 
-### The window, 30-45 minutes, weekday morning JST, announced
+### The cluster is stopped right now
 
-1. Point CloudFront's default and `/api/*` behaviours at a maintenance response.
-2. Wait for in-flight Lambdas to drain.
-3. `python manage.py export_aurora --out ./migration/<date>/` from the `pre-dynamo` tag.
-4. `python manage.py import_dynamo --from ./migration/<date>/` on the new code, run from
-   a laptop with SSO credentials -- DynamoDB is not in a VPC, so this needs no Lambda.
-5. `zappa update production`, then `collectstatic`.
+On 2026-09-18 the Aurora cluster was stopped with `rds stop-db-cluster`. ACU billing --
+$12.85 of a $15.75 monthly bill -- stops with it; storage and every byte of data remain.
+The site is down while it is stopped, which was accepted deliberately to stop the burn.
+
+**AWS restarts a stopped Aurora cluster automatically after seven days.** That puts the
+deadline at roughly **2026-09-25**. If the cutover is not done by then the charge simply
+resumes, and stopping it again buys another seven. To bring it back at any point:
+
+```bash
+aws rds start-db-cluster --region ap-northeast-1   --db-cluster-identifier dakkamotors-core-dbcluster-xaurpfprbqso
+aws rds wait db-cluster-available --region ap-northeast-1   --db-cluster-identifier dakkamotors-core-dbcluster-xaurpfprbqso
+```
+
+The export in step 3 below needs it running, so start it first and expect a few minutes.
+
+### The window, with downtime accepted
+
+The original plan here was a choreographed 30-45 minute window behind a CloudFront
+maintenance response, because the site had to stay up. It does not: downtime is
+acceptable, the cluster is already stopped, and that removes most of the choreography.
+What it does **not** remove is the order -- Aurora still holds the only copy of the
+customers, cars, bookings and questions, so nothing deletes it before the export has run
+and been checked.
+
+1. Create the data stack. It is purely additive and costs about nothing:
+
+   ```bash
+   aws cloudformation deploy --region ap-northeast-1      --template-file infra/data.yaml      --stack-name dakkamotors-data      --capabilities CAPABILITY_NAMED_IAM
+   ```
+
+2. Put the outputs where the app reads them:
+
+   ```bash
+   aws cloudformation describe-stacks --region ap-northeast-1      --stack-name dakkamotors-data      --query 'Stacks[0].Outputs[].[OutputKey,OutputValue]' --output table
+   ```
+
+   `COGNITO_POOL_ID`, `COGNITO_CUSTOMER_CLIENT_ID`, `COGNITO_STAFF_CLIENT_ID` and
+   `COGNITO_DOMAIN` go into `backend/zappa_settings.json`, which currently has all four as
+   empty strings. The staff client secret goes to SSM at
+   `/dakkamotors/COGNITO_STAFF_CLIENT_SECRET`. Then save the pool's signing keys, which
+   are baked into the deploy so a cold start is not coupled to a Cognito endpoint being
+   reachable:
+
+   ```bash
+   curl -s https://cognito-idp.ap-northeast-1.amazonaws.com/<pool-id>/.well-known/jwks.json      > backend/config/cognito_jwks.json
+   ```
+
+3. Start Aurora, export, stop it again:
+
+   ```bash
+   git checkout pre-dynamo
+   python manage.py export_aurora --out ./migration/$(date +%Y-%m-%d)/
+   ```
+
+   The tag is the only commit that can run this -- the models it reads are deleted in the
+   commit after it, and it is also the only place `cars.tests_migration` runs. Check the
+   manifest's counts against the cluster before going further.
+
+4. Import, on the branch, from a laptop with credentials. DynamoDB is not in a VPC, so
+   this needs no Lambda:
+
+   ```bash
+   git checkout dynamodb-migration
+   python manage.py import_dynamo --from ./migration/<date>/
+   python manage.py reconcile_counters        # no --fix; expect no drift
+   ```
+
+5. Merge to `main` and push. That is the deploy -- the workflow is path-filtered on
+   pushes to `main`. **Do not push before step 4**: the Cognito ids would still be empty
+   and the table empty, so every request would 500 with the data still in Postgres.
+
 6. Smoke test against the API Gateway origin directly, bypassing the CDN: `/`,
    `/api/cars/`, a car by slug, the same car by its old numeric id (expect 301),
    `/sitemap.xml`, `/llms.txt`, `/robots.txt`, and `/api/staff/cars/` (expect 302).
+
 7. **Sign in as a pre-arranged real customer account.** This is what proves the
    UserMigration trigger works, and nothing before it does.
-8. Sign in as staff through the hosted UI; edit a car, confirm a booking.
-9. Lift maintenance, invalidate CloudFront.
 
-**Rollback is `zappa rollback production -n 1` plus lifting maintenance -- about two
-minutes** -- and it is real only because nothing is deleted during the window. The one
-thing it cannot undo is a booking or sign-up made in the interim, which would need
-re-entering by hand. Keep the window short.
+8. Sign in as staff through the hosted UI; edit a car, confirm a booking.
+
+Rollback while Aurora still exists is `zappa rollback production -n 1` plus starting the
+cluster. Once step 4 of the teardown below has run, rollback means a snapshot restore --
+which is the reason the teardown is a separate list rather than step 9 here.
 
 ### After it has held, over days
 
