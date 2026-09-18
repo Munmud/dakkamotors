@@ -22,7 +22,8 @@ The exceptions above always carry an explicit `--region us-east-1`.
 
 | Stack / resource | Region | Holds |
 |---|---|---|
-| `dakkamotors-core` | Tokyo | VPC, 2 private subnets, security groups, S3 Gateway Endpoint, Aurora Serverless v2, both S3 buckets |
+| `dakkamotors-data` | Tokyo | The DynamoDB table, the Cognito pool, three groups, two app clients, the hosted-UI domain, the UserMigration trigger, the backend's managed IAM policy |
+| `dakkamotors-core` | Tokyo | Both S3 buckets. **Still holds the VPC, its subnets, security groups, the S3 Gateway Endpoint and a stopped Aurora cluster** until the teardown runs. |
 | `dakkamotors-github-oidc` | Tokyo | GitHub OIDC provider + `dakkamotors-github-deploy` role |
 | `dakkamotors-edge` | **us-east-1** | CloudFront distribution, SPA router function, API cache policy |
 | Zappa (`dakkamotors-production`) | Tokyo | Lambda + API Gateway. Managed by Zappa, not by our templates. |
@@ -36,7 +37,12 @@ The exceptions above always carry an explicit `--region us-east-1`.
 |---|---|
 | CloudFront distribution | `E2IW2C27CUGP1D` — `dakkamotors.com`, `www.dakkamotors.com`, `d2y8zvbmyas7y1.cloudfront.net` |
 | API Gateway (Zappa) | `https://q0zvyay9pa.execute-api.ap-northeast-1.amazonaws.com/production` |
-| Aurora writer endpoint | `dakkamotors-core-dbcluster-xaurpfprbqso.cluster-cnicq6qeyk3e.ap-northeast-1.rds.amazonaws.com` |
+| DynamoDB table | `dakkamotors` |
+| Cognito user pool | `ap-northeast-1_czNqEUiq5` |
+| Cognito customer client | `61o4ucujbcoknsqtnt4pd68lmr` (no secret) |
+| Cognito staff client | `kti6vuj2t4e927pav3rq3cst0` (secret in SSM at `/dakkamotors/COGNITO_STAFF_CLIENT_SECRET`) |
+| Cognito hosted UI | `dakkamotors-staff.auth.ap-northeast-1.amazoncognito.com` |
+| Aurora cluster (**stopped**) | `dakkamotors-core-dbcluster-xaurpfprbqso` — auto-restarts ~2026-09-25 |
 | Route53 hosted zone | `Z051521126KCXW6R2RVF8` |
 | ACM certificate | `arn:aws:acm:us-east-1:484907516843:certificate/3eed3285-d186-4ea1-abf5-a980ffab5647` |
 | VPC | `vpc-07b008c32ab530661` |
