@@ -59,18 +59,20 @@ def build_derivatives_task(car_image_id):
     Returns True when the copies were built, False when it was deferred.
     """
     from .images import build_derivatives
-    from .models import CarImage
+    from .store import images as image_store
+    from .store.errors import NotFound
 
     if _budget_remaining() <= 0:
         logger.info("Budget spent; deferring derivatives for CarImage %s", car_image_id)
         return False
 
+    car_id, _, image_id = str(car_image_id).partition(":")
     try:
-        car_image = CarImage.objects.get(pk=car_image_id)
-    except CarImage.DoesNotExist:
+        car_image = image_store.get(car_id, image_id)
+    except NotFound:
         return False
 
-    if not car_image.image or car_image.derivatives_ready:
+    if not car_image.image_name or car_image.derivatives_ready:
         return False
 
     try:
@@ -89,13 +91,16 @@ def process_pending(limit=10):
     Called opportunistically from admin saves, where the database is already awake, so
     it costs nothing extra in Aurora time.
     """
-    from .models import CarImage
+    from .store import images as image_store
 
     done = 0
-    pending = CarImage.objects.filter(derivatives_ready=False).exclude(image="")
-    for car_image in pending[:limit]:
+    # A sparse GSI partition, normally empty: the index attributes are removed when the
+    # copies land, so this costs one small query rather than a scan for a flag.
+    for car_image in image_store.pending_derivatives(limit=limit):
         if _budget_remaining() <= 0:
             break
-        if build_derivatives_task(car_image.pk):
+        if not car_image.image_name:
+            continue
+        if build_derivatives_task(f"{car_image.car_id}:{car_image.image_id}"):
             done += 1
     return done

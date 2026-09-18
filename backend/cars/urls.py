@@ -1,13 +1,14 @@
 from django.urls import path
-from rest_framework.routers import DefaultRouter
 
 from . import auth_views, booking_views, notification_views, qa_views
-from .views import CarViewSet
+from .views import CarDetailView, CarListView
 
-router = DefaultRouter()
-router.register(r"cars", CarViewSet, basename="car")
+urlpatterns = [
+    # Was a DefaultRouter ModelViewSet. There is no queryset to hang one on any more,
+    # and the router's conventions were doing nothing two explicit routes do not.
+    path("cars/", CarListView.as_view(), name="car-list"),
+    path("cars/<str:slug>/", CarDetailView.as_view(), name="car-detail"),
 
-urlpatterns = router.urls + [
     # Customer accounts. Everything under /api/ has CDN caching disabled and cookies
     # forwarded, which is what these need and what the cached pages cannot offer.
     path("auth/csrf/", auth_views.CsrfView.as_view(), name="auth-csrf"),
@@ -38,13 +39,16 @@ urlpatterns = router.urls + [
         booking_views.BookingListCreateView.as_view(),
         name="booking-list",
     ),
+    # <str:pk>, not <int:pk>: a booking id is a sortable string now, not a sequence.
+    # Leaving it as int would 404 before the view ran, which reads as "no such URL"
+    # rather than as the "booking not found" the customer should be told.
     path(
-        "test-drive/bookings/<int:pk>/cancel/",
+        "test-drive/bookings/<str:pk>/cancel/",
         booking_views.BookingCancelView.as_view(),
         name="booking-cancel",
     ),
     path(
-        "test-drive/bookings/<int:pk>/reschedule/",
+        "test-drive/bookings/<str:pk>/reschedule/",
         booking_views.BookingRescheduleView.as_view(),
         name="booking-reschedule",
     ),

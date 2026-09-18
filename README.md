@@ -8,7 +8,8 @@ Django admin.
 |---|---|
 | **Backend** | Django 5 + Django REST Framework, deployed to AWS Lambda via Zappa |
 | **Frontend** | React 19 (Vite), served from S3 behind CloudFront |
-| **Database** | Aurora Serverless v2 PostgreSQL (scales to zero); SQLite locally |
+| **Data** | DynamoDB, single table, on-demand; DynamoDB Local for development |
+| **Identity** | Amazon Cognito; the pool sends no email, Brevo does |
 | **Media** | S3, served through CloudFront |
 | **Region** | `ap-northeast-1` (Tokyo) — ACM cert + CloudFront in `us-east-1` (AWS requirement) |
 | **Currency** | JPY |
@@ -43,12 +44,12 @@ source .venv/Scripts/activate      # Windows (Git Bash);  .venv/bin/activate on 
 pip install -r requirements.txt
 
 cp .env.example .env               # defaults are fine for local work
-python manage.py migrate           # creates db.sqlite3
-python manage.py createsuperuser
+python manage.py runserver
 python manage.py runserver
 ```
 
-With no `DATABASE_URL` set, the backend falls back to SQLite — you do not need AWS or a
+There is no relational database. The store runs against DynamoDB Local (`docker compose
+up -d dynamodb`) and identity against Cognito, so you do not need AWS or a
 Postgres server to run it.
 
 - API: <http://localhost:8000/api/cars/>
@@ -81,7 +82,6 @@ cd backend && python manage.py test
 |---|---|
 | `SECRET_KEY` | Django secret. A throwaway default ships for local use. |
 | `DEBUG` | `True` locally, `False` in production. |
-| `DATABASE_URL` | Postgres URL. **Unset locally** to use SQLite. |
 | `ALLOWED_HOSTS` | Comma-separated hostnames. |
 | `AWS_STORAGE_BUCKET_NAME` | Media/static bucket. Unset locally to store uploads on disk. |
 

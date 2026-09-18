@@ -12,7 +12,7 @@
 (function () {
   "use strict";
 
-  var SIGN_URL = "/api/admin/uploads/sign/";
+  var SIGN_URL = "/api/staff/uploads/sign/";
 
   function csrfToken() {
     var input = document.querySelector("input[name=csrfmiddlewaretoken]");

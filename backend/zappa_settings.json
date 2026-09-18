@@ -15,14 +15,34 @@
         "memory_size": 1024,
         "log_level": "INFO",
         "apigateway_description": "Dakka Motors API",
+        "_comment_vpc": [
+            "Empty, and the key stays. Zappa only sends VpcConfig when the key is",
+            "present, so deleting it would leave the deployed function attached to the",
+            "old subnets with nothing in the template saying so. Empty lists are what",
+            "detach it.",
+            "",
+            "Order on the real deploy: `zappa update production`, confirm with",
+            "`aws lambda get-function-configuration` that VpcConfig is empty, then",
+            "detach AWSLambdaVPCAccessExecutionRole and wait 20-40 minutes for the ENIs",
+            "to release before the subnets can go. See docs/INFRA.md."
+        ],
         "vpc_config": {
-            "SubnetIds": [
-                "subnet-0d0828c388d998a72",
-                "subnet-02157e24d4ccd96e8"
-            ],
-            "SecurityGroupIds": [
-                "sg-04c0624b553366b7a"
-            ]
+            "SubnetIds": [],
+            "SecurityGroupIds": []
+        },
+        "_comment_env": [
+            "Pool and client ids are not secrets, so they live here rather than in the",
+            "remote env file. Only COGNITO_STAFF_CLIENT_SECRET and DJANGO_SECRET_KEY",
+            "are, and those still come through remote_env from SSM by hand. Fill these",
+            "in from the dakkamotors-data stack outputs before the first deploy."
+        ],
+        "environment_variables": {
+            "DDB_TABLE": "dakkamotors",
+            "COGNITO_POOL_ID": "ap-northeast-1_czNqEUiq5",
+            "COGNITO_CUSTOMER_CLIENT_ID": "61o4ucujbcoknsqtnt4pd68lmr",
+            "COGNITO_STAFF_CLIENT_ID": "kti6vuj2t4e927pav3rq3cst0",
+            "COGNITO_DOMAIN": "dakkamotors-staff.auth.ap-northeast-1.amazoncognito.com",
+            "COGNITO_JWKS_PATH": "config/cognito_jwks.json"
         },
         "remote_env": "s3://dakkamotors-backend-media/config/env.json",
         "keep_warm": false,

@@ -1,0 +1,102 @@
+{% extends "staff/base.html" %}
+
+{% comment %}
+One question. Replaces CarQuestionAdmin's change form.
+
+The three actions are separate forms with separate buttons, each saying what it does,
+because they have genuinely different consequences: answering emails the customer,
+publishing puts their words on a public page, and editing the question changes what the
+public will read. A single "Save" covering all three is how the admin's changelist
+managed to publish unanswered questions.
+{% endcomment %}
+
+{% block content %}
+  <h1>Question about the {{ question.car_label|default:"car" }}</h1>
+
+  <div class="panel">
+    <table>
+      <tr>
+        <th style="width: 10rem;">State</th>
+        <td>{{ question.state }}</td>
+      </tr>
+      <tr><th>Car</th>
+        <td>
+          {% if question.car_slug %}
+            <a href="/cars/{{ question.car_slug }}" target="_blank" rel="noopener">
+              {{ question.car_label }}</a>
+          {% else %}{{ question.car_label }}{% endif %}
+        </td>
+      </tr>
+      <tr><th>Asked by</th><td>{{ question.customer_email|default:"—" }}</td></tr>
+      <tr><th>Asked in</th>
+        <td>{% if question.language == "ja" %}Japanese{% else %}English{% endif %}</td></tr>
+      <tr><th>Asked</th><td>{{ question.created_at|date:"j M Y, H:i" }}</td></tr>
+      {% if question.answered_at %}
+        <tr><th>Answered</th><td>{{ question.answered_at|date:"j M Y, H:i" }}</td></tr>
+      {% endif %}
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2 style="font-size:1rem;margin-top:0;">The question</h2>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="edit-question">
+      {{ question_form.question }}
+      <p class="help">{{ question_form.question.help_text }}</p>
+      <div class="actions">
+        <button class="secondary" type="submit">Save question text</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2 style="font-size:1rem;margin-top:0;">Your answer</h2>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="answer">
+      {{ answer_form.answer }}
+      <p class="help">{{ answer_form.answer.help_text }}</p>
+      <div class="actions">
+        <button type="submit">Save answer</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2 style="font-size:1rem;margin-top:0;">Public page</h2>
+    {% if question.is_published %}
+      <p class="help">
+        This question and your answer are on the car's page and in search results. The
+        customer's name is never shown.
+      </p>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="unpublish">
+        <div class="actions">
+          <button class="danger" type="submit">Remove from the car's page</button>
+        </div>
+      </form>
+    {% else %}
+      <p class="help">
+        Publishing puts the question and your answer on the car's public page and in
+        search results. The customer's name is never shown. The page is cached, so allow
+        up to five minutes for it to appear.
+      </p>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="publish">
+        <div class="actions">
+          <button type="submit" {% if not question.is_answered %}disabled{% endif %}>
+            Publish on the car's page
+          </button>
+          {% if not question.is_answered %}
+            <span class="help">Write an answer first.</span>
+          {% endif %}
+        </div>
+      </form>
+    {% endif %}
+  </div>
+
+  <p><a href="{% url 'staff:question-list' %}">&larr; Back to the queue</a></p>
+{% endblock %}

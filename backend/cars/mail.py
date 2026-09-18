@@ -20,6 +20,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from . import email_theme as theme
+from . import identity
 from . import seo
 
 logger = logging.getLogger(__name__)
@@ -81,11 +82,35 @@ def queue_email(*, to, subject, html, text="", reply_to=None):
 # --------------------------------------------------------------------------------------
 
 
-def _when(slot, language="en"):
-    local = timezone.localtime(slot.starts_at)
+def _when(starts_at, ends_at, language="en"):
+    """Format an appointment window.
+
+    Takes the two instants rather than a slot row: a booking carries snapshots of its
+    own window now, so there is no row to pass, and a booking must read correctly even
+    after the slot it pointed at is gone.
+    """
+    local = timezone.localtime(starts_at)
     if language == "ja":
-        return f"{local:%Y年%-m月%-d日（%a）%H:%M}〜{timezone.localtime(slot.ends_at):%H:%M}"
-    return f"{local:%A %d %B %Y, %H:%M}–{timezone.localtime(slot.ends_at):%H:%M}"
+        return f"{local:%Y年%-m月%-d日（%a）%H:%M}〜{timezone.localtime(ends_at):%H:%M}"
+    return f"{local:%A %d %B %Y, %H:%M}–{timezone.localtime(ends_at):%H:%M}"
+
+
+def _email_for(customer, booking):
+    """The customer's address, preferring the live account over the snapshot.
+
+    A booking carries a copy of who made it, so a message about it still reads
+    correctly after the account behind it is gone.
+    """
+    return identity.email_of(customer) or (booking.customer_email or "")
+
+
+def _greeting_for(customer, booking):
+    """What to call them: a first name if there is one, otherwise whatever we have."""
+    first = (getattr(customer, "first_name", "") or "").strip()
+    return (first
+            or identity.full_name_of(customer)
+            or (booking.customer_name or "")
+            or "there")
 
 
 def _address_lines():
@@ -97,7 +122,7 @@ def _address_lines():
     ]
 
 
-def notify_staff_of_booking(booking):
+def notify_staff_of_booking(booking, customer=None):
     """Tell the shop someone has asked for a test drive.
 
     This is the message that closes the gap where a booking existed only in the admin and
@@ -108,13 +133,12 @@ def notify_staff_of_booking(booking):
     if not recipients:
         return False
 
-    customer = booking.customer
-    profile = getattr(customer, "customer_profile", None)
-    name = customer.get_full_name() or customer.username
-    phone = profile.phone if profile else "not given"
-    when = _when(booking.slot)
+    name = identity.full_name_of(customer) or booking.customer_name or "a customer"
+    phone = identity.phone_of(customer) or booking.customer_phone or "not given"
+    email = _email_for(customer, booking)
+    when = _when(booking.slot_starts_at, booking.slot_ends_at)
     car = booking.car_label or "no car specified"
-    admin_url = f"{seo.SITE_URL}/api/admin/cars/testdrivebooking/{booking.pk}/change/"
+    admin_url = f"{seo.SITE_URL}/api/staff/bookings/{booking.booking_id}/"
 
     html = theme.render(
         heading="New test drive request",
@@ -126,8 +150,8 @@ def notify_staff_of_booking(booking):
                 ("Car", _esc(car)),
                 ("Customer", _esc(name)),
                 ("Phone", f'<a href="tel:{_esc(phone)}" style="color:{theme.INK};">{_esc(phone)}</a>'),
-                ("Email", f'<a href="mailto:{_esc(customer.email)}" style="color:{theme.INK};">'
-                          f"{_esc(customer.email)}</a>"),
+                ("Email", f'<a href="mailto:{_esc(email)}" style="color:{theme.INK};">'
+                          f"{_esc(email)}</a>"),
             ]),
             theme.callout(
                 "The slot is held for them, but <strong>they have not been told it is "
@@ -144,7 +168,7 @@ def notify_staff_of_booking(booking):
         f"Car:      {car}\n"
         f"Customer: {name}\n"
         f"Phone:    {phone}\n"
-        f"Email:    {customer.email}\n\n"
+        f"Email:    {email}\n\n"
         f"The place is held, but they have not been told it is confirmed.\n"
         f"Confirm here: {admin_url}\n"
     )
@@ -155,20 +179,20 @@ def notify_staff_of_booking(booking):
         html=html,
         text=text,
         # So a reply goes to the customer rather than into a noreply void.
-        reply_to=customer.email or None,
+        reply_to=email or None,
     )
 
 
-def confirm_booking_with_customer(booking):
+def confirm_booking_with_customer(booking, customer=None):
     """Tell the customer the appointment is on, and everything they need to turn up."""
-    customer = booking.customer
-    if not customer.email:
+    email = _email_for(customer, booking)
+    if not email:
         return False
 
     b = seo.BUSINESS
-    when = _when(booking.slot)
+    when = _when(booking.slot_starts_at, booking.slot_ends_at)
     car = booking.car_label or ""
-    greeting = customer.first_name or customer.username
+    greeting = _greeting_for(customer, booking)
     manage_url = f"{seo.SITE_URL}/account"
     address_html = "<br>".join(_esc(line) for line in _address_lines()[1:])
 
@@ -210,22 +234,22 @@ def confirm_booking_with_customer(booking):
     )
 
     return queue_email(
-        to=customer.email,
+        to=email,
         subject=f"Test drive confirmed: {when}",
         html=html,
         text=text,
     )
 
 
-def notify_customer_of_cancellation(booking):
+def notify_customer_of_cancellation(booking, customer=None):
     """Only sent when the shop cancels - a customer cancelling knows already."""
-    customer = booking.customer
-    if not customer.email:
+    email = _email_for(customer, booking)
+    if not email:
         return False
 
     b = seo.BUSINESS
-    when = _when(booking.slot)
-    greeting = customer.first_name or customer.username
+    when = _when(booking.slot_starts_at, booking.slot_ends_at)
+    greeting = _greeting_for(customer, booking)
     book_url = f"{seo.SITE_URL}/account"
 
     html = theme.render(
@@ -255,7 +279,7 @@ def notify_customer_of_cancellation(booking):
         f"or book one yourself at {book_url}\n\n{b['name']}\n"
     )
 
-    return queue_email(to=customer.email, subject=f"Test drive cancelled: {when}", html=html, text=text)
+    return queue_email(to=email, subject=f"Test drive cancelled: {when}", html=html, text=text)
 
 
 # --------------------------------------------------------------------------------------
@@ -389,26 +413,30 @@ def send_password_reset_email(user, link, language="en"):
 # --------------------------------------------------------------------------------------
 
 
-def notify_staff_of_question(question):
-    """Someone has asked something about a car and is waiting on an answer."""
+def notify_staff_of_question(question, customer=None):
+    """Someone has asked something about a car and is waiting on an answer.
+
+    The customer is passed in rather than read off the question: questions now live in
+    DynamoDB and carry only a subject identifier, while the person's name and address
+    come from whatever owns identity - Django auth today, Cognito shortly.
+    """
     recipients = _config("STAFF_ALERT_EMAIL")
     if not recipients:
         return False
 
-    customer = question.customer
-    name = (customer.get_full_name() or customer.username) if customer else "a visitor"
-    email = customer.email if customer else ""
-    admin_url = f"{seo.SITE_URL}/api/admin/cars/carquestion/{question.pk}/change/"
+    name = identity.full_name_of(customer) or "a visitor"
+    email = identity.email_of(customer)
+    admin_url = f"{seo.SITE_URL}/api/staff/questions/{question.question_id}/"
 
     html = theme.render(
         heading="A question about a car",
-        preheader=f"{question.car} — {question.question[:80]}",
+        preheader=f"{question.car_label} — {question.question[:80]}",
         body="".join([
             theme.lead(f"<strong>{_esc(name)}</strong> has asked about the "
-                       f"{_esc(str(question.car))}."),
+                       f"{_esc(question.car_label)}."),
             theme.callout(_esc(question.question).replace("\n", "<br>")),
             theme.details([
-                ("Car", _esc(str(question.car))),
+                ("Car", _esc(question.car_label)),
                 ("Asked in", "Japanese" if question.language == "ja" else "English"),
                 ("Customer", _esc(name)),
                 ("Email", f'<a href="mailto:{_esc(email)}" style="color:{theme.INK};">'
@@ -424,7 +452,7 @@ def notify_staff_of_question(question):
     )
 
     text = (
-        f"{name} has asked about the {question.car}.\n\n"
+        f"{name} has asked about the {question.car_label}.\n\n"
         f"{question.question}\n\n"
         f"Asked in: {'Japanese' if question.language == 'ja' else 'English'}\n"
         f"Customer: {name}\n"
@@ -435,29 +463,29 @@ def notify_staff_of_question(question):
 
     return queue_email(
         to=[address.strip() for address in recipients.split(",")],
-        subject=f"Question about the {question.car}",
+        subject=f"Question about the {question.car_label}",
         html=html,
         text=text,
         reply_to=email or None,
     )
 
 
-def notify_customer_of_answer(question):
+def notify_customer_of_answer(question, customer=None):
     """Their question has been answered. Sent once, on the first answer only."""
-    customer = question.customer
-    if not customer or not customer.email:
+    if not customer or not identity.email_of(customer):
         return False
 
     b = seo.BUSINESS
-    car_url = f"{seo.SITE_URL}/cars/{question.car.slug}"
-    name = customer.first_name or customer.username
+    car_url = f"{seo.SITE_URL}/cars/{question.car_slug}"
+    name = (getattr(customer, "first_name", "")
+            or identity.full_name_of(customer))
 
     if question.language == "ja":
-        subject = f"ご質問への回答 - {question.car}"
+        subject = f"ご質問への回答 - {question.car_label}"
         html = theme.render(
             language="ja",
             heading="ご質問への回答",
-            preheader=f"{question.car}についてのご質問にお答えしました。",
+            preheader=f"{question.car_label}についてのご質問にお答えしました。",
             body="".join([
                 theme.lead(f"{_esc(name)} 様 — お問い合わせありがとうございました。"),
                 theme.paragraph("いただいたご質問:"),
@@ -478,10 +506,10 @@ def notify_customer_of_answer(question):
             f"お電話: {b['telephone_display']}\n\n{b['name_ja']}\n"
         )
     else:
-        subject = f"Your question about the {question.car}"
+        subject = f"Your question about the {question.car_label}"
         html = theme.render(
             heading="We have answered your question",
-            preheader=f"About the {question.car}.",
+            preheader=f"About the {question.car_label}.",
             body="".join([
                 theme.lead(f"Hello {_esc(name)} — thanks for asking."),
                 theme.paragraph("You asked:"),
@@ -495,7 +523,7 @@ def notify_customer_of_answer(question):
             ]),
         )
         text = (
-            f"Hello {name},\n\nThanks for asking about the {question.car}.\n\n"
+            f"Hello {name},\n\nThanks for asking about the {question.car_label}.\n\n"
             f"You asked:\n{question.question}\n\n"
             f"Our answer:\n{question.answer}\n\n"
             f"See the car: {car_url}\n"

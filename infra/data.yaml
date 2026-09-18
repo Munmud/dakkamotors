@@ -1,0 +1,497 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Dakka Motors - DynamoDB (ap-northeast-1).
+  One table, single-table design, on-demand billing. Replaces the Aurora Serverless v2
+  cluster in network-db.yaml: there is no idle cost at all rather than a small one, and
+  no ~15 second wake-up on the first request after a quiet spell.
+
+  Deployed as its own stack (`dakkamotors-data`) and sharing one with nothing DNS
+  related. The previous attempt at a combined stack took the Route53 hosted zone with it
+  when it was deleted - see docs/TODO.md.
+
+Parameters:
+  TableName:
+    Type: String
+    Default: dakkamotors
+
+  SiteDomain:
+    Type: String
+    Default: dakkamotors.com
+
+  CognitoDomainPrefix:
+    Type: String
+    Default: dakkamotors-staff
+    Description: Prefix for the free Cognito hosted-UI domain. Must be globally unique.
+
+  LambdaRoleName:
+    Type: String
+    Default: dakkamotors-production-ZappaLambdaExecutionRole
+    Description: >
+      Created by Zappa on its first deploy and owned by no template
+      (zappa_settings.json sets manage_roles:false). CloudFormation can attach a managed
+      policy to a role it does not own, which is how the backend gets its permissions
+      without importing the role into a stack.
+
+Resources:
+  Table:
+    Type: AWS::DynamoDB::Table
+    # Retain on both, deliberately. This table is the whole business: every car, every
+    # booking, every question. A stack delete or a replacing update must not be able to
+    # take it, and DeletionProtection stops a console mistake doing the same.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Ref TableName
+      # On-demand: idle cost is storage only, which at this size rounds to nothing.
+      # Provisioned capacity would need a floor paid for around the clock, which is the
+      # thing being escaped.
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+
+      AttributeDefinitions:
+        - { AttributeName: pk, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+        - { AttributeName: gsi1pk, AttributeType: S }
+        - { AttributeName: gsi1sk, AttributeType: S }
+        - { AttributeName: gsi2pk, AttributeType: S }
+        - { AttributeName: gsi2sk, AttributeType: S }
+
+      KeySchema:
+        - { AttributeName: pk, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+
+      GlobalSecondaryIndexes:
+        # Listing and queue reads: cars by status, bookings by status, the question
+        # backlog, slots by month, the customer list. Sparse by design - an item with no
+        # gsi1pk simply is not in the index, which is what keeps guard items out of
+        # every listing query for free.
+        - IndexName: gsi1
+          KeySchema:
+            - { AttributeName: gsi1pk, KeyType: HASH }
+            - { AttributeName: gsi1sk, KeyType: RANGE }
+          # ALL rather than INCLUDE: at this item count the extra storage is a few
+          # megabytes, and a projection that has to be revisited every time a field is
+          # added is a slow trap. Revisit at thousands of cars, not before.
+          Projection: { ProjectionType: ALL }
+
+        # A customer's own reads that cross partitions - currently just their questions,
+        # which live in each car's partition rather than theirs.
+        - IndexName: gsi2
+          KeySchema:
+            - { AttributeName: gsi2pk, KeyType: HASH }
+            - { AttributeName: gsi2sk, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+
+      # Pending registrations, password-reset tokens, notification dedupe guards and old
+      # bell entries all carry one. Expiry is DynamoDB's job now; under Aurora it had to
+      # be done on the write path because a scheduled sweeper would have kept the
+      # database awake around the clock.
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+      # NEW_AND_OLD_IMAGES with nothing attached costs nothing, and it is the audit
+      # trail you will want the first time a maintained counter drifts.
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+      SSESpecification:
+        SSEEnabled: true
+
+      Tags:
+        - { Key: Project, Value: dakkamotors }
+
+  BackendPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: dakkamotors-backend-data
+      Description: DynamoDB access for the Zappa-deployed backend.
+      Roles: [!Ref LambdaRoleName]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:PutItem
+              - dynamodb:UpdateItem
+              - dynamodb:DeleteItem
+              - dynamodb:Query
+              - dynamodb:Scan
+              - dynamodb:BatchGetItem
+              - dynamodb:BatchWriteItem
+              - dynamodb:TransactGetItems
+              - dynamodb:TransactWriteItems
+              - dynamodb:ConditionCheckItem
+              - dynamodb:DescribeTable
+            Resource:
+              - !GetAtt Table.Arn
+              # The indexes are separate resources. Omitting this is the classic way to
+              # get an AccessDenied that names the table you can plainly read.
+              - !Sub "${Table.Arn}/index/*"
+
+          # Every sign-in, sign-up and profile edit goes through the backend rather than
+          # from the browser, which is what keeps the throttle meaningful - so the role
+          # needs the admin verbs, not only the public ones.
+          - Effect: Allow
+            Action:
+              - cognito-idp:SignUp
+              - cognito-idp:InitiateAuth
+              - cognito-idp:AdminInitiateAuth
+              - cognito-idp:AdminCreateUser
+              - cognito-idp:AdminDeleteUser
+              - cognito-idp:AdminGetUser
+              - cognito-idp:AdminConfirmSignUp
+              - cognito-idp:AdminSetUserPassword
+              - cognito-idp:AdminUpdateUserAttributes
+              - cognito-idp:AdminDisableUser
+              - cognito-idp:AdminEnableUser
+              - cognito-idp:AdminAddUserToGroup
+              - cognito-idp:AdminRemoveUserFromGroup
+              - cognito-idp:AdminListGroupsForUser
+              - cognito-idp:AdminUserGlobalSignOut
+              - cognito-idp:ListUsers
+              - cognito-idp:ListUsersInGroup
+              - cognito-idp:ListGroups
+            Resource: !GetAtt UserPool.Arn
+
+  # --------------------------------------------------- password carry-over ---
+  #
+  # Django stores `pbkdf2_sha256$<iters>$<salt>$<hash>`. Cognito will not accept a hash
+  # on AdminCreateUser, so without this every existing customer would get an unprompted
+  # "your password no longer works" email on the day of the cutover - which for a small
+  # dealership is a measurable loss of accounts.
+  #
+  # Instead: on a first sign-in for a user Cognito does not know, it calls this with the
+  # plaintext. The function verifies it against the hash carried over from Postgres and
+  # returns the attributes; Cognito then creates the user with that password and the
+  # customer notices nothing. The LEGACYPW# items carry a 90-day TTL and are deleted on
+  # first use.
+  #
+  # Deliberately no Django and no dependencies: Django's hash format is verifiable with
+  # stdlib hashlib in about fifteen lines, and a trigger that has to import an ORM to
+  # check a password is a trigger that will break.
+  UserMigrationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: read-carried-over-passwords
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:DeleteItem]
+                Resource: !GetAtt Table.Arn
+
+  UserMigrationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: dakkamotors-user-migration
+      Runtime: python3.13
+      Handler: index.handler
+      Timeout: 10
+      Role: !GetAtt UserMigrationRole.Arn
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref Table
+      Code:
+        ZipFile: |
+          """Cognito UserMigration trigger: verify a Django password, once."""
+          import base64
+          import hashlib
+          import hmac
+          import os
+
+          import boto3
+
+          TABLE = os.environ["TABLE_NAME"]
+          ddb = boto3.client("dynamodb")
+
+
+          def verify(password, encoded):
+              """Check a password against Django's pbkdf2_sha256 format.
+
+              `pbkdf2_sha256$<iterations>$<salt>$<base64 hash>`. Anything else - a
+              different algorithm, an unusable hash - is refused rather than guessed at.
+              """
+              try:
+                  algorithm, iterations, salt, expected = encoded.split("$", 3)
+              except ValueError:
+                  return False
+              if algorithm != "pbkdf2_sha256":
+                  return False
+              derived = hashlib.pbkdf2_hmac(
+                  "sha256", password.encode("utf-8"), salt.encode("utf-8"),
+                  int(iterations))
+              return hmac.compare_digest(
+                  base64.b64encode(derived).decode("ascii"), expected)
+
+
+          def handler(event, context):
+              if event.get("triggerSource") != "UserMigration_Authentication":
+                  # Forgot-password migration is not used: account recovery is
+                  # admin_only on this pool, so our own reset flow is the only one.
+                  raise Exception("Unsupported trigger")
+
+              email = (event.get("userName") or "").strip().lower()
+              password = event["request"].get("password") or ""
+
+              item = ddb.get_item(
+                  TableName=TABLE,
+                  Key={"pk": {"S": "LEGACYPW#" + email}, "sk": {"S": "META"}},
+                  ConsistentRead=True,
+              ).get("Item")
+              if not item or not verify(password, item["password_hash"]["S"]):
+                  # One message for "no such carried-over account" and "wrong password",
+                  # so the sign-in form cannot be used to discover who was migrated.
+                  raise Exception("Bad credentials")
+
+              name = item.get("name", {}).get("S", "")
+              first, _, last = name.partition(" ")
+              attributes = {"email": email, "email_verified": "true"}
+              if first:
+                  attributes["given_name"] = first[:150]
+              if last:
+                  attributes["family_name"] = last[:150]
+              phone = item.get("phone", {}).get("S", "")
+              if phone:
+                  attributes["custom:phone"] = phone[:32]
+
+              event["response"]["userAttributes"] = attributes
+              event["response"]["finalUserStatus"] = "CONFIRMED"
+              # They just proved the password, so making them confirm it again would be
+              # the one thing this trigger exists to avoid.
+              event["response"]["messageAction"] = "SUPPRESS"
+
+              # Migrated. The TTL would get there eventually; this makes it exact.
+              ddb.delete_item(
+                  TableName=TABLE,
+                  Key={"pk": {"S": "LEGACYPW#" + email}, "sk": {"S": "META"}},
+              )
+              return event
+
+  UserMigrationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt UserMigrationFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
+
+  # ------------------------------------------------------------------- Cognito ---
+  #
+  # The pool is configured to send **nothing**. No AutoVerifiedAttributes, admin-only
+  # recovery, no EmailConfiguration block - so there is no trigger for Cognito to fire.
+  # Verification and password-reset messages keep going out bilingual and branded
+  # through the S3 outbox and Brevo. The alternative is Cognito's plain English default
+  # against a 50/day cap, or SES; docs/TODO.md records an undeleted CognitoEmailRole
+  # left behind by the attempt that stalled on exactly that.
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      UserPoolName: dakkamotors
+      # Email is the sign-in name. The consequence, which is not obvious: the pool's
+      # *internal* username then becomes a UUID and the address is an attribute, so an
+      # access token's `username` claim is the sub. Code that reads it as an email gets
+      # a UUID.
+      UsernameAttributes: [email]
+      UsernameConfiguration:
+        CaseSensitive: false
+      # We own the reset flow; Cognito must not offer its own.
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: admin_only
+            Priority: 1
+      AutoVerifiedAttributes: []
+      DeletionProtection: ACTIVE
+      LambdaConfig:
+        UserMigration: !GetAtt UserMigrationFunction.Arn
+      MfaConfiguration: "OPTIONAL"
+      # TOTP only, and this list is not optional despite the name. Without it Cognito
+      # assumes SMS_MFA the moment MfaConfiguration is anything but OFF, and then refuses
+      # the pool: "SMS configuration and Auto verification for phone_number are required
+      # when MFA is required/optional". Neither exists here on purpose -- the pool sends
+      # nothing, and `custom:phone` is deliberately not the standard attribute, so there
+      # is no verified number to text. An authenticator app needs none of that.
+      EnabledMfas:
+        - SOFTWARE_TOKEN_MFA
+
+      Policies:
+        PasswordPolicy:
+          # Six, not Cognito's default of eight. **This one matters.** A pool has
+          # exactly one password policy, and a stricter one would reject every existing
+          # customer whose password is six or seven characters at the moment the
+          # migration trigger tries to verify it - with an error Cognito words, on the
+          # sign-in screen. The stricter staff rule is enforced in application code
+          # before AdminSetUserPassword instead, because the customer-lax/staff-strict
+          # split cannot be expressed here at all.
+          MinimumLength: 6
+          RequireUppercase: false
+          RequireLowercase: false
+          RequireNumbers: false
+          RequireSymbols: false
+          TemporaryPasswordValidityDays: 1
+
+      # WARNING: Schema is effectively immutable. CloudFormation fails rather than
+      # replaces on most edits, and Cognito has no API to remove a custom attribute -
+      # so getting this list wrong means rebuilding the pool and losing every user.
+      # This is the single most likely thing in the migration to bite.
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+        - Name: given_name
+          AttributeDataType: String
+          Mutable: true
+        - Name: family_name
+          AttributeDataType: String
+          Mutable: true
+        # custom:phone, not the standard phone_number: Cognito validates that one as
+        # E.164 and customers type 080-9282-3601. The standard attribute would reject
+        # the existing data and make phone a sign-in alias and an MFA channel, neither
+        # of which is wanted.
+        - Name: phone
+          AttributeDataType: String
+          Mutable: true
+          StringAttributeConstraints:
+            MaxLength: "32"
+
+  StaffGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref UserPool
+      GroupName: staff
+      Description: What is_staff was.
+      Precedence: 10
+
+  OwnersGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref UserPool
+      GroupName: owners
+      Description: What is_superuser was.
+      Precedence: 0
+
+  InventoryGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref UserPool
+      GroupName: inventory-managers
+      Description: The only group a non-owner may hand out.
+      Precedence: 20
+
+  CustomerClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: customer
+      GenerateSecret: false
+      # ALLOW_USER_PASSWORD_AUTH is deliberately absent. Only the admin flow is enabled,
+      # and that requires signed AWS credentials - so a leaked client id cannot be used
+      # to brute-force from a browser, and every attempt goes through Django where the
+      # 20/hour throttle still does real work.
+      ExplicitAuthFlows:
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+      ReadAttributes:
+        - email
+        - email_verified
+        - given_name
+        - family_name
+        - custom:phone
+      # `email` has to be here, and that is a Cognito rule rather than a choice: a
+      # required attribute cannot be left out of WriteAttributes, and the pool needs
+      # email required because it is the sign-in name. Leaving it out is refused with
+      # "Invalid write attributes specified while creating a client".
+      #
+      # So LOCKED_PROFILE_FIELDS cannot be expressed at this level. It is enforced where
+      # it actually matters instead: `cognito.update_attributes` accepts given_name,
+      # family_name and phone and silently refuses anything else, and the client has no
+      # password auth flow at all -- every write goes through Django, which is the only
+      # thing holding AWS credentials. A customer never talks to this client directly.
+      WriteAttributes:
+        - email
+        - given_name
+        - family_name
+        - custom:phone
+
+  StaffClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: staff
+      GenerateSecret: true
+      # No password flow at all: staff arrive through the hosted UI, which also gives
+      # them TOTP MFA on the accounts that can edit inventory and other staff - a
+      # genuine upgrade on a plain Django password.
+      ExplicitAuthFlows:
+        - ALLOW_REFRESH_TOKEN_AUTH
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs:
+        - !Sub "https://${SiteDomain}/api/staff/auth/callback"
+      LogoutURLs:
+        - !Sub "https://${SiteDomain}/api/staff/signed-out"
+      AccessTokenValidity: 30
+      RefreshTokenValidity: 12
+      TokenValidityUnits:
+        AccessToken: minutes
+        RefreshToken: hours
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      # The free prefix domain. A custom one would need another ACM certificate for
+      # three people's sign-in page.
+      Domain: !Ref CognitoDomainPrefix
+
+Outputs:
+  TableName:
+    Value: !Ref Table
+    Export: { Name: dakkamotors-table-name }
+  TableArn:
+    Value: !GetAtt Table.Arn
+    Export: { Name: dakkamotors-table-arn }
+  TableStreamArn:
+    Value: !GetAtt Table.StreamArn
+  UserPoolId:
+    Value: !Ref UserPool
+    Export:
+      Name: dakkamotors-user-pool-id
+  CustomerClientId:
+    Value: !Ref CustomerClient
+  StaffClientId:
+    Value: !Ref StaffClient
+  CognitoDomain:
+    Value: !Sub "${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com"

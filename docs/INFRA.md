@@ -43,6 +43,246 @@ The exceptions above always carry an explicit `--region us-east-1`.
 | Private subnets | `subnet-0d0828c388d998a72`, `subnet-02157e24d4ccd96e8` |
 | Lambda security group | `sg-04c0624b553366b7a` |
 
+---
+
+## Migration in flight: Aurora -> DynamoDB + Cognito
+
+**Both stacks are live at once, on purpose.** Everything the application reads and writes
+is already in DynamoDB and Cognito; Aurora and Django's auth tables are still there
+because they are the rollback. `zappa rollback production -n 1` restores the previous
+Lambda in seconds, and that code reads Aurora, which is still running. Tearing either
+down before the cutover has held would throw that away.
+
+### What has been added
+
+| Stack / resource | Region | Holds |
+|---|---|---|
+| `dakkamotors-data` | Tokyo | The DynamoDB table, the Cognito user pool, three groups, two app clients, the hosted-UI domain, the UserMigration trigger, and the backend's managed IAM policy |
+
+Defined in `infra/data.yaml`. Deployed as its own stack sharing one with nothing
+DNS-related -- the lesson of the `dakkamotors-dev` stack whose deletion took the Route53
+hosted zone with it.
+
+### Why DynamoDB
+
+Aurora Serverless v2 at `MinCapacity: 0` costs $3-8/month and takes **~15 seconds to wake
+on the first request after ten idle minutes**. DynamoDB on-demand has no idle cost and no
+wake-up. The saving is about $5/month, which does not justify a migration on its own; the
+cold start and getting out of the VPC do.
+
+### Why Cognito never sends an email
+
+The pool has `AutoVerifiedAttributes: []`, `admin_only` recovery and no
+`EmailConfiguration`, so it has no trigger to fire. Verification and password-reset
+messages still go through `mail.queue_email` -> S3 -> the mailer Lambda -> Brevo,
+bilingual and branded.
+
+This is deliberate and it is the decision that made Cognito adoptable here. The
+alternatives are its plain-English default mail against a hard **50 messages/day** cap,
+or SES -- which needs domain verification, a production-access request out of the
+sandbox, and a second sender's DKIM/SPF/DMARC alongside Brevo's. `docs/TODO.md` records
+the `dakkamotors-dev` stack stuck in `DELETE_FAILED` on an undeleted `CognitoEmailRole`,
+which is the role Cognito creates when wired to SES. **Do not wire it to SES.**
+
+### Three settings that will bite if changed
+
+* **`MinimumLength: 6`, no complexity.** A pool has exactly one password policy.
+  A stricter one rejects every existing customer whose password is six or seven
+  characters *at the moment the migration trigger tries to verify it* -- on the sign-in
+  screen, in Cognito's words. The stricter staff rule lives in application code because
+  the customer-lax/staff-strict split cannot be expressed in a pool at all.
+* **`Schema` is effectively immutable.** CloudFormation fails rather than replaces on
+  most edits and there is no API to remove a custom attribute, so a wrong attribute list
+  means rebuilding the pool and losing every user. Build and tear one down in a scratch
+  account before the first real deploy.
+* **`custom:phone`, not `phone_number`.** Cognito validates the standard attribute as
+  E.164 and customers type `080-9282-3601`. The standard one would reject the existing
+  data and make phone a sign-in alias and an MFA channel.
+
+### Passwords cannot be migrated
+
+Django stores `pbkdf2_sha256$...`; Cognito will not accept a hash on `AdminCreateUser`.
+The alternative to solving this is emailing every customer to say their password no
+longer works, which for a small dealership is a measurable loss of accounts.
+
+Instead the importer writes a `LEGACYPW#<email>` item per customer and a Cognito
+**UserMigration** trigger verifies against it on first sign-in, then deletes it. The
+items carry a 90-day TTL regardless. The trigger is inline in `infra/data.yaml` and needs
+no Django: the hash format is verifiable in about fifteen lines of stdlib `hashlib`.
+
+---
+
+## The cutover
+
+**There is no data to migrate.** The Aurora cluster held test data only, confirmed on
+2026-09-18, so `export_aurora` and `import_dynamo` are not part of this. They stay in the
+repo and at the `pre-dynamo` tag because they were written, tested and may be wanted for
+a future restore -- but the cutover does not run them, and nothing here depends on the
+export being correct. That removes the riskiest part of the original plan outright.
+
+It also means the `UserMigration` trigger has nothing to carry: there are no `LEGACYPW#`
+items and no existing customers whose passwords must survive. It is still deployed,
+because it is correct and costs nothing, and because the first real customer import --
+if there ever is one -- would need it.
+
+### State as of 2026-09-18
+
+| | |
+|---|---|
+| Aurora cluster | **stopped** (`rds stop-db-cluster`). ACU billing halted. |
+| `dakkamotors-frontend` | emptied |
+| `dakkamotors-backend-media` | emptied except `config/env.json` |
+| `dakkamotors-outbox` | empty |
+| `dakkamotors-data` stack | **not deployed** -- no table, no pool |
+| Deployed Lambda | still `main`, still in the VPC, last modified 2026-09-10 |
+
+**AWS restarts a stopped Aurora cluster automatically after seven days**, so the charge
+resumes around **2026-09-25** unless the cluster is gone by then. Stopping it again buys
+another seven. To bring it back:
+
+```bash
+aws rds start-db-cluster --region ap-northeast-1   --db-cluster-identifier dakkamotors-core-dbcluster-xaurpfprbqso
+```
+
+`config/env.json` is the one thing in S3 that was not regenerable, which is why it was
+kept: Zappa reads it as `remote_env` on every cold start and it holds `SECRET_KEY`. It
+still carries `DATABASE_URL` and the `DJANGO_ADMIN_*` values, which are dead once this is
+done, and it will need `COGNITO_STAFF_CLIENT_SECRET` adding.
+
+### The steps
+
+1. Create the data stack. Purely additive, costs about nothing, and nothing else can
+   proceed without it:
+
+   ```bash
+   aws cloudformation deploy --region ap-northeast-1      --template-file infra/data.yaml      --stack-name dakkamotors-data      --capabilities CAPABILITY_NAMED_IAM
+   ```
+
+2. Read the outputs and put them where the app reads them:
+
+   ```bash
+   aws cloudformation describe-stacks --region ap-northeast-1      --stack-name dakkamotors-data      --query 'Stacks[0].Outputs[].[OutputKey,OutputValue]' --output table
+   ```
+
+   `COGNITO_POOL_ID`, `COGNITO_CUSTOMER_CLIENT_ID`, `COGNITO_STAFF_CLIENT_ID` and
+   `COGNITO_DOMAIN` go into `backend/zappa_settings.json`, which has all four as empty
+   strings today. The staff client secret goes to SSM at
+   `/dakkamotors/COGNITO_STAFF_CLIENT_SECRET`, and into `config/env.json`. Then bake the
+   pool's signing keys into the deploy, so a cold start is not coupled to a Cognito
+   endpoint being reachable:
+
+   ```bash
+   curl -s https://cognito-idp.ap-northeast-1.amazonaws.com/<pool-id>/.well-known/jwks.json      > backend/config/cognito_jwks.json
+   ```
+
+3. Merge `dynamodb-migration` to `main` and push. That is the deploy: the workflow is
+   path-filtered on pushes to `main`. **Not before step 2** -- with the Cognito ids empty
+   and no table, every request 500s.
+
+4. Create an owner account, since there is no data and no staff user:
+
+   ```bash
+   aws cognito-idp admin-create-user --region ap-northeast-1      --user-pool-id <pool-id> --username <you@example.com>      --user-attributes Name=email,Value=<you@example.com> Name=email_verified,Value=true      --temporary-password '<a strong one>' --message-action SUPPRESS
+   aws cognito-idp admin-add-user-to-group --region ap-northeast-1      --user-pool-id <pool-id> --username <you@example.com> --group-name owners
+   aws cognito-idp admin-add-user-to-group --region ap-northeast-1      --user-pool-id <pool-id> --username <you@example.com> --group-name staff
+   ```
+
+   `MessageAction SUPPRESS` because the pool sends no email at all. After this, every
+   further account is made through `/api/staff/accounts/`.
+
+5. Smoke test against the API Gateway origin directly, bypassing the CDN: `/`,
+   `/api/cars/`, `/sitemap.xml`, `/llms.txt`, `/robots.txt`, and `/api/staff/cars/`
+   (expect 302 to the hosted UI). Sign in as the owner, add a car, upload a photo,
+   confirm the derivative appears.
+
+6. Then the teardown below. Aurora is only a rollback until step 3 has been seen to work;
+   after that it is $13.26 a month of nothing.
+
+### After it has held, over days
+
+Only once the cutover has run and been quiet for a week. Nothing below is reversible in
+the way the cutover is, so the order matters more than the speed.
+
+**The code side is already done** and is on the branch: the ORM models, the Django admin,
+`django.contrib.auth`, `django.contrib.sessions` and the transitional bridges are gone,
+`DATABASES` is `{}`, and `infra/network-db.yaml` no longer describes a VPC or a database.
+What is left is the AWS side, which has to be done by hand with credentials this repo
+deliberately does not hold.
+
+1. **Leave the VPC.** Empty both lists in `zappa_settings.json` -- **do not delete the
+   `vpc_config` key**, Zappa only sends `VpcConfig` when it is present, so removing it
+   leaves the function attached to the old subnets. Then:
+
+   ```bash
+   zappa update production
+   aws lambda get-function-configuration      --function-name dakkamotors-production      --query 'VpcConfig' --region ap-northeast-1
+   ```
+
+   Expect empty `SubnetIds` and `SecurityGroupIds`. If they are not empty, stop -- every
+   step below will hang.
+
+2. **Detach the VPC execution policy**, then wait for the ENIs to release. That takes
+   20-40 minutes and the subnets cannot be deleted until it has happened.
+
+   ```bash
+   aws iam detach-role-policy      --role-name dakkamotors-production-ZappaLambdaExecutionRole      --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+
+   # Poll until this returns nothing.
+   aws ec2 describe-network-interfaces --region ap-northeast-1      --filters Name=vpc-id,Values=vpc-07b008c32ab530661      --query 'NetworkInterfaces[].NetworkInterfaceId'
+   ```
+
+3. **Take a final Aurora snapshot by hand**, before anything deletes anything. `DBCluster`
+   carries `DeletionPolicy: Snapshot`, so CloudFormation will take one too -- this is the
+   one you control the name of, and it is the only copy of the pre-cutover data that is
+   not on somebody's laptop.
+
+   ```bash
+   aws rds create-db-cluster-snapshot --region ap-northeast-1      --db-cluster-identifier dakkamotors-core-dbcluster-xaurpfprbqso      --db-cluster-snapshot-identifier dakkamotors-final-pre-dynamo
+   aws rds wait db-cluster-snapshot-available --region ap-northeast-1      --db-cluster-snapshot-identifier dakkamotors-final-pre-dynamo
+   ```
+
+4. **Update the core stack.** This is the destructive step, and it is an **update, not a
+   delete**: `dakkamotors-core` holds the VPC, Aurora *and both S3 buckets*
+   (`infra/network-db.yaml`). `delete-stack` would take the site and every photo with it.
+
+   ```bash
+   aws cloudformation deploy --region ap-northeast-1      --template-file infra/network-db.yaml      --stack-name dakkamotors-core      --parameter-overrides        FrontendBucketName=<frontend-bucket> MediaBucketName=<media-bucket>
+   ```
+
+   The new template has no `DBPassword` parameter, so drop it from the overrides. Watch
+   the events: the eleven VPC and Aurora resources go, the buckets and their policies
+   stay, and the four outputs `infra/edge.yaml` consumes keep their names.
+
+   ```bash
+   aws cloudformation describe-stack-events --region ap-northeast-1      --stack-name dakkamotors-core --max-items 40      --query 'StackEvents[].[LogicalResourceId,ResourceStatus]' --output table
+   ```
+
+5. **Confirm the buckets survived**, because this is the failure that is silent until
+   somebody loads the site:
+
+   ```bash
+   aws s3 ls | grep dakkamotors
+   curl -sI https://dakkamotors.com/ | head -1
+   ```
+
+6. **Trim the deploy role.** `infra/github-oidc.yaml` grants `ec2:DescribeSubnets`,
+   `ec2:DescribeSecurityGroups` and `ec2:DescribeVpcs` purely for Zappa's VPC lookup.
+   Redeploy that stack without them.
+
+7. **Retire `remote_env`** in favour of reading SSM at settings import. SSM is reachable
+   now, and the VPC was the only reason the values ever had to be hand-copied into
+   `config/env.json` -- the most error-prone procedure in this repo.
+
+8. **Move derivative generation to a real asynchronous invoke** and delete the inline
+   time budget in `cars/tasks.py`. Its opening docstring stopped being true the moment
+   the function left the VPC.
+
+9. **Delete the `LEGACYPW#` items at 90 days.** The TTL does it; check that it did.
+
+Once the VPC is gone, **the section below about what it can and cannot reach no longer
+applies** -- SSM, SES, SQS and `lambda:InvokeFunction` all become reachable, which is
+what retires three separate workarounds.
+
 ### Why the database is Aurora Serverless v2
 
 This account's 12-month free tier has expired, so `db.t4g.micro` would cost roughly

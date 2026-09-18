@@ -1,0 +1,198 @@
+# Dakka Motors
+
+A used-car dealership site for a shop in Hamura, Japan. Django + DRF on AWS Lambda,
+React SPA, bilingual (English/Japanese). Buyers browse inventory, ask questions about a
+car, and book test drives; staff answer, confirm and manage stock.
+
+Everything runs in `ap-northeast-1` except the three things AWS forces into `us-east-1`
+(CloudFront, its ACM certificate, and Budgets).
+
+## Layout
+
+```
+backend/         Django 5.2 + DRF, deployed to Lambda by Zappa
+  cars/          the single app -- inventory, bookings, Q&A, notifications
+  config/        settings, root urls, wsgi
+frontend/        React 19 + Vite, deployed to S3 behind CloudFront
+infra/           hand-written CloudFormation (no CDK, no Terraform)
+docs/INFRA.md    the real runbook: live resource ids, cost rationale, teardown
+```
+
+## Commands
+
+```bash
+# Backend
+cd backend
+python -m venv .venv && source .venv/Scripts/activate   # Windows Git Bash
+pip install -r requirements.txt
+cp .env.example .env
+python manage.py runserver
+
+# Tests. DynamoDB Local is required.
+docker compose up -d dynamodb          # from the repo root
+cd backend
+DYNAMODB_ENDPOINT_URL=http://localhost:8123 DDB_TABLE=dakkamotors_test \
+  AWS_ACCESS_KEY_ID=local AWS_SECRET_ACCESS_KEY=local \
+  python manage.py test
+
+# Frontend
+cd frontend && npm ci && npm run dev
+npm run check-i18n                     # every key present in both en and ja
+```
+
+Deploys are automatic: push to `main`, path-filtered GitHub Actions workflows deploy the
+backend (Zappa) and the frontend (S3 + CloudFront invalidation) via OIDC. No static keys.
+
+Migration commands (see `docs/INFRA.md`):
+
+```bash
+git checkout pre-dynamo    # the only commit that can still run the exporter
+python manage.py export_aurora --out ./migration/<date>/
+python manage.py import_dynamo --from ./migration/<date>/  # on the new code
+python manage.py reconcile_counters [--fix]                # after a restore, or on doubt
+```
+
+Run the import from a laptop with SSO credentials, not through `zappa manage`: DynamoDB
+is not in a VPC, so nothing about it needs a Lambda.
+
+## The data layer: DynamoDB and Cognito
+
+**There is no relational database and no Django auth.** The ORM models,
+`django.contrib.auth`, `django.contrib.sessions`, `django.contrib.admin` and
+`cars/migrations/` are gone; `DATABASES` is `{}`, so anything reaching for the ORM fails
+at the call rather than quietly opening SQLite. `cars/store/` and `cars/cognito.py` are
+the only ways in.
+
+**The cutover has not run yet.** `main` is still the pre-migration code against Aurora, so
+this branch is not deployable until `infra/data.yaml` exists in AWS and the export/import
+has been rehearsed. `docs/INFRA.md` has the order.
+
+`backend/cars/store/` is the data layer: PynamoDB 6.1, one table, single-table design with
+a discriminator. Cognito holds identity; DynamoDB holds only what Cognito has nowhere to
+put (a pending sign-up's name and phone, reset tokens, carried-over password hashes).
+**The pool sends no email at all** -- verification and reset messages go through Brevo,
+bilingual and branded. Do not wire it to SES; that is where the previous attempt stalled.
+
+Passwords cannot be migrated -- Cognito will not accept a hash on `AdminCreateUser` -- so
+a `UserMigration` Lambda trigger (inline in `infra/data.yaml`) verifies the carried-over
+Django hash on a customer's first sign-in. `tests_user_migration.py` extracts that inline
+source from the template and tests it against hashes Django actually produces, so the
+thing that will run is the thing that was checked.
+
+Ids are strings, so URL patterns take `<str:pk>`. A slot's id is derived from (schedule,
+start time) -- that is what makes materialising slots idempotent, and why two fixtures
+wanting distinct slots at the same instant need distinct rules.
+
+### Rules
+
+* **Never build a `pk`/`sk` inline.** Every key comes from `store/keys.py`.
+* **Never index `cancellation_reasons` by hand.** PynamoDB regroups transaction items by
+  operation type (ConditionCheck, Delete, Put, Update) regardless of call order, so the
+  list is parallel to *that*, not to the order you added them. Use the labels
+  `store/txn.py` provides. Getting this wrong misattributes a failure and tells the
+  customer the wrong thing.
+* **Never write an unconditional `UpdateItem` against an item that may not exist.** It is
+  an upsert, and the stub it creates carries no discriminator -- invisible to every
+  polymorphic read in this package, and enough to block the real item from ever being
+  created. Guard with `.pk.exists()`. This cost real debugging time once already.
+* **`store/questions.py` is the only permitted writer of `is_published`.** That
+  exclusivity replaces the `CheckConstraint` DynamoDB cannot express, and a test enforces
+  it mechanically.
+* **Test truncation drops to the raw client** (`tests_store.truncate_table`), for the same
+  discriminator reason. `tests_store.ensure_table` creates the table, and **both** entry
+  points call it -- Django orders tests by module, so `tests.py` runs before
+  `tests_store.py` and leaning on the other one having gone first is how the suite came to
+  pass locally against a leftover container and fail against a fresh one.
+
+### Staff pages
+
+`cars/staff/` is server-rendered and replaces `django.contrib.admin` entirely: cars,
+images, bookings, slots, schedules, questions, customers and staff accounts.
+`django.contrib.admin` is built on `QuerySet` and `ModelForm`, so an entity that leaves
+the ORM takes its admin page with it -- which is why each page was built in the same step
+as its store module.
+
+Authentication is Cognito's hosted UI, isolated in `staff/auth.py`; the views, forms and
+templates never learn how somebody signed in. **`staff/permissions.py` is the whole
+policy.** `OWNER_ONLY` keeps staff administration to owners, which is stricter than the
+sandbox it replaces: whoever can edit staff accounts can open the owner's, so the
+escalation is refused before a page is reached rather than by four guards agreeing.
+
+### Signing a test in
+
+`tests_fake_cognito.py`. Both cookie flows resolve `cars.authentication.verify` at call
+time, so patching that one name covers DRF and the staff pages, and **nothing in
+production branches on being tested**. Use `sign_in(self.client, user)`, or
+`staff=True` for the staff pages.
+
+moto is used only where the token itself is the subject -- `tests_cognito.py` and
+`tests_staff_auth.py` mint and verify real RS256 signatures. It is deliberately not used
+for the rest: moto is an optional dependency, so those tests would be `skipUnless`-gated
+and would vanish on any machine without `requirements-dev.txt`.
+
+Every class is a `SimpleTestCase`. That is load-bearing rather than tidiness: with no
+database configured, an ORM call that survived the teardown fails instead of quietly
+opening SQLite. `tests_store.count_dynamo_calls` replaces `assertNumQueries` and is worth
+more than it was -- the car detail page is deliberately one Query, and a per-question read
+in a loop is exactly what would undo that.
+
+## Conventions
+
+**Rules live in domain modules, not views.** `booking.py`, `qa.py`, `notifications.py`
+hold every check, so the same rule applies from the API, a management command, curl or a
+test. Views are thin and translate errors into responses. The store raises typed errors
+and knows no wording; the domain module owns every sentence a customer reads.
+
+**Comments explain why, not what.** The codebase is deliberately heavy on rationale --
+why a slug never changes, why `bump_car` exists, why the pool sends no email. Match
+that. A comment that restates the code is noise; one that records a decision is the most
+valuable thing in the file.
+
+**Tests assert behaviour and wording.** Customer-facing strings are asserted verbatim in
+`cars/tests.py`. If a change makes you edit one of those strings, suspect the change.
+
+**Nothing runs on a timer.** Slots are materialised when availability is read, not by a
+cron job. This began as a way to let Aurora scale to zero, and Aurora is gone; it
+survives because it is one fewer moving part, and because the expiry sweeps it replaced
+are now TTL attributes the table handles itself.
+
+**Uploads go straight to S3.** Lambda has a ~4.5 MB request ceiling, so the staff pages
+sign a presigned POST and the browser uploads directly. `direct-upload.js` is
+progressive enhancement -- file inputs stay file inputs, so a JS failure falls back to a
+normal upload.
+
+**Email is queued, never sent inline.** `mail.queue_email` writes JSON to an S3 outbox
+and a second Lambda sends it via Brevo (not SES). Brevo is reachable directly now, so
+the outbox is a choice rather than a constraint: it is fire-and-forget by design, and a
+customer's booking must never fail -- or wait 600ms -- because of an email.
+
+**The frontend is bilingual.** Every user-visible string goes through `react-i18next`
+with keys in both `en.json` and `ja.json`. `npm run check-i18n` fails the build otherwise.
+
+## Things that will bite
+
+* **There are no migrations.** A schema change is a code change to `cars/store/`, and
+  an attribute that is not written is simply absent from an item rather than NULL. Adding
+  one is free; changing the meaning of an existing one needs a backfill you write.
+* **`/api/cars/*` is a separate CloudFront behaviour** that allows only GET/HEAD/OPTIONS
+  and strips cookies. A POST there is refused by the CDN with no Django log line. New
+  authenticated endpoints must not live under that prefix.
+* **The Lambda is no longer in a VPC**, which retired three workarounds: the inline
+  image-resize budget in `tasks.py`, the S3 outbox as a *necessity*, and the hand-copy of
+  secrets into `config/env.json`. `vpc_config` in `zappa_settings.json` holds empty lists
+  and **the key must stay** -- Zappa only sends `VpcConfig` when it is present, so
+  deleting the key leaves a deployed function attached to subnets nothing mentions.
+* **DynamoDB reserved keywords** include `capacity`, `status`, `order`, `year` and
+  `name`, all of which appear in this schema. PynamoDB aliases them automatically; raw
+  boto3 does not.
+* **Cognito's `Schema` is effectively immutable.** CloudFormation fails rather than
+  replaces on most edits and there is no API to remove a custom attribute, so a wrong
+  attribute list means rebuilding the pool and losing every user.
+* **An access token's `username` claim is the sub, not the email**, because the pool uses
+  email as the username attribute. Deriving an address from it would look right and be a
+  UUID.
+* **`dakkamotors-core` holds both S3 buckets** as well as, until the cutover, the VPC and
+  Aurora. Removing the database is a stack **update**, never `delete-stack` -- that would
+  take the site and every photo with it. `infra/network-db.yaml` keeps its filename for
+  the same reason: CloudFormation identifies a stack by name, and a renamed file invites
+  somebody to create a second one.

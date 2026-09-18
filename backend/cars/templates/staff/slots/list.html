@@ -1,0 +1,80 @@
+{% extends "staff/base.html" %}
+
+{% comment %}
+Actual dates, generated from the weekly rules. This is where "that Friday is closed"
+gets done.
+
+Closing a slot stops new bookings; it never cancels the ones already taken. Staff cancel
+those individually from the booking queue, because each one emails a person.
+{% endcomment %}
+
+{% block content %}
+  <h1>Test drive slots</h1>
+
+  <form class="panel filters" method="get">
+    <div style="flex: 1 1 10rem;">
+      <label for="{{ form.start.id_for_label }}">{{ form.start.label }}</label>
+      {{ form.start }}
+    </div>
+    <div style="flex: 1 1 10rem;">
+      <label for="{{ form.end.id_for_label }}">{{ form.end.label }}</label>
+      {{ form.end }}
+    </div>
+    <div style="flex: 0 1 auto;">
+      <label>&nbsp;</label>
+      <label style="font-size:.85rem;color:var(--ink);">
+        {{ form.only_open }} Open only
+      </label>
+    </div>
+    <div><button type="submit">Show</button></div>
+  </form>
+
+  <div class="panel">
+    <p class="help" style="margin-top:0;">
+      Showing {{ start|date:"j M Y" }} to {{ end|date:"j M Y" }}. Slots are generated
+      from the weekly rules whenever someone asks for availability, so a new rule shows
+      up here without anyone pressing anything.
+    </p>
+
+    {% if slots %}
+      <table>
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Booked</th>
+            <th>State</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for slot in slots %}
+            <tr>
+              <td>
+                {{ slot.starts_at|date:"D j M Y, H:i" }}–{{ slot.ends_at|date:"H:i" }}
+              </td>
+              <td>{{ slot.booked_count }} / {{ slot.capacity }}</td>
+              <td>
+                {% if slot.is_open %}
+                  <span class="pill public">Open</span>
+                {% else %}
+                  <span class="pill">Closed</span>
+                {% endif %}
+              </td>
+              <td style="text-align:right;">
+                <form method="post" action="{% url 'staff:slot-toggle' slot.slot_id %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <button class="secondary" type="submit">
+                    {% if slot.is_open %}Close{% else %}Re-open{% endif %}
+                  </button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">No slots in that range.</p>
+    {% endif %}
+  </div>
+{% endblock %}

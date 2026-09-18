@@ -1,0 +1,148 @@
+{% extends "staff/base.html" %}
+
+{% comment %}
+Add or edit one car, with its photos.
+
+`direct-upload.js` sends the bytes to S3 before the form submits and writes the storage
+name into a hidden field next to each file input, which is how a 12 MB walkaround gets
+past Lambda's ~4.5 MB request ceiling. It is progressive enhancement: the file inputs
+stay ordinary file inputs, so if the script fails the form still works through Django's
+normal upload path.
+{% endcomment %}
+
+{% block content %}
+  <h1>{{ title }}</h1>
+
+  {% if car %}
+    <p class="help" style="margin-top:-.6rem;">
+      <a href="/cars/{{ car.slug }}" target="_blank" rel="noopener">View on the site</a>
+      · <code>{{ car.slug }}</code>
+      <br>The slug is set on the first save and then left alone: changing it breaks
+      every link already shared and every result already indexed.
+    </p>
+  {% endif %}
+
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <div class="panel"><ul class="messages">
+        {% for error in form.non_field_errors %}<li class="error">{{ error }}</li>{% endfor %}
+      </ul></div>
+    {% endif %}
+
+    {% for group, fields in form.groups %}
+      <div class="panel">
+        <h2 style="font-size:1rem;margin-top:0;">{{ group }}</h2>
+        {% for field in fields %}
+          <div style="margin-bottom:.9rem;">
+            <label for="{{ field.id_for_label }}"
+                   style="display:block;font-size:.78rem;color:var(--muted);margin-bottom:.2rem;">
+              {{ field.label }}{% if field.field.required %} *{% endif %}
+            </label>
+            {{ field }}
+            {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
+            {% for error in field.errors %}
+              <p class="help" style="color:var(--bad);">{{ error }}</p>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+    {% endfor %}
+
+    {% if car %}
+      <div class="panel">
+        <h2 style="font-size:1rem;margin-top:0;">Photos</h2>
+        {% if images %}
+          <table>
+            <thead>
+              <tr><th></th><th>Order</th><th>Card photo</th><th>Remove</th></tr>
+            </thead>
+            <tbody>
+              {% for image in images %}
+                <tr>
+                  <td style="width:6rem;">
+                    <img src="{{ image.url }}" alt=""
+                         style="height:56px;border-radius:4px;">
+                    {% if not image.derivatives_ready %}
+                      <span class="pill waiting">optimising…</span>
+                    {% endif %}
+                  </td>
+                  <td style="width:6rem;">
+                    <input type="number" min="0"
+                           name="image-{{ image.image_id }}-order"
+                           value="{{ image.order }}">
+                  </td>
+                  <td style="width:7rem;">
+                    <input type="radio" name="primary" value="{{ image.image_id }}"
+                           {% if image.is_primary %}checked{% endif %}>
+                  </td>
+                  <td style="width:6rem;">
+                    <input type="checkbox" name="image-{{ image.image_id }}-delete">
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <p class="help">
+            Only the photo marked as the card photo appears on the listing. Removing one
+            deletes the original and its resized copies from the bucket.
+          </p>
+        {% else %}
+          <p class="empty">No photos yet.</p>
+        {% endif %}
+
+        <h3 style="font-size:.9rem;margin-bottom:.4rem;">Add photos</h3>
+        {{ image_formset.management_form }}
+        <table>
+          <thead><tr><th>Photo</th><th>Card photo</th><th>Order</th></tr></thead>
+          <tbody>
+            {% for subform in image_formset %}
+              <tr>
+                <td>
+                  {{ subform.image }}{{ subform.image_key }}
+                  {% for error in subform.image.errors %}
+                    <p class="help" style="color:var(--bad);">{{ error }}</p>
+                  {% endfor %}
+                </td>
+                <td style="width:7rem;">{{ subform.is_primary }}</td>
+                <td style="width:7rem;">{{ subform.order }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+
+    <div class="actions">
+      <button type="submit">Save</button>
+      {% if car %}
+        <button class="secondary" type="submit" name="action"
+                value="rebuild-derivatives">Rebuild optimised copies</button>
+      {% endif %}
+    </div>
+  </form>
+
+  {% if car %}
+    <div class="panel" style="margin-top:1.2rem;">
+      <h2 style="font-size:1rem;margin-top:0;">Delete</h2>
+      <p class="help">
+        Removes the car, its photos and the files behind them. A booking that pointed at
+        it keeps the car's name, so the appointment still makes sense afterwards.
+      </p>
+      <form method="post"
+            onsubmit="return confirm('Delete this car and all its photos?');">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="delete">
+        <div class="actions">
+          <button class="danger" type="submit">Delete this car</button>
+        </div>
+      </form>
+    </div>
+
+    <p><a href="{% url 'staff:car-list' %}">&larr; Back to the inventory</a></p>
+  {% endif %}
+
+  <link rel="stylesheet" href="/static/cars/direct-upload.css">
+  <script src="/static/cars/direct-upload.js" defer></script>
+{% endblock %}

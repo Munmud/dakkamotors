@@ -10,30 +10,35 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import booking as rules
-from .booking_models import TestDriveSlot
-from .models import Car
+from .store import cars as car_store
 
 
-class SlotSerializer(serializers.ModelSerializer):
+class SlotSerializer(serializers.Serializer):
+    """Plain, not a ModelSerializer: slots live in DynamoDB now.
+
+    `id` is a string -- the slot id is derived from (schedule, start time) rather than
+    being a sequence, which is what makes materialising slots idempotent. The client
+    treats it as opaque and hands it straight back, so the change is invisible to it.
+    """
+
+    id = serializers.CharField(source="slot_id", read_only=True)
+    starts_at = serializers.DateTimeField(read_only=True)
+    ends_at = serializers.DateTimeField(read_only=True)
+    capacity = serializers.IntegerField(read_only=True)
     seats_left = serializers.IntegerField(read_only=True)
-
-    class Meta:
-        model = TestDriveSlot
-        fields = ["id", "starts_at", "ends_at", "capacity", "seats_left"]
 
 
 class BookingSerializer(serializers.Serializer):
-    id = serializers.IntegerField(read_only=True)
+    id = serializers.CharField(source="booking_id", read_only=True)
     status = serializers.CharField(read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
-    starts_at = serializers.DateTimeField(source="slot.starts_at", read_only=True)
-    ends_at = serializers.DateTimeField(source="slot.ends_at", read_only=True)
-    slot = serializers.IntegerField(source="slot_id", read_only=True)
+    # Snapshotted onto the booking rather than read through the slot, so a booking still
+    # renders correctly after the slot it pointed at is gone.
+    starts_at = serializers.DateTimeField(source="slot_starts_at", read_only=True)
+    ends_at = serializers.DateTimeField(source="slot_ends_at", read_only=True)
+    slot = serializers.CharField(source="slot_id", read_only=True)
     car_label = serializers.CharField(read_only=True)
-    car_slug = serializers.SerializerMethodField()
-
-    def get_car_slug(self, obj):
-        return obj.car.slug if obj.car else None
+    car_slug = serializers.CharField(read_only=True)
 
 
 class SlotListView(APIView):
@@ -64,7 +69,7 @@ class BookingListCreateView(APIView):
         car = None
         car_slug = request.data.get("car")
         if car_slug:
-            car = Car.objects.filter(slug=car_slug).first()
+            car = car_store.by_slug(car_slug)
             if car is None:
                 return Response(
                     {"detail": "That car is no longer listed."},

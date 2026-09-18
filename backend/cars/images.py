@@ -11,9 +11,11 @@ import io
 import logging
 
 from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from PIL import Image, ImageOps
 
-from .models import DERIVATIVE_WIDTHS
+from .choices import DERIVATIVE_WIDTHS
+from .store import images as image_store
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +39,13 @@ def build_derivatives(car_image, widths=DERIVATIVE_WIDTHS):
     Returns the list of widths written. Widths larger than the original are skipped:
     upscaling costs bytes and adds no detail, and claiming a 1600px copy that is really
     a blurred 900px one would make `srcset` pick the wrong file.
-    """
-    storage = car_image.image.storage
 
-    with car_image.image.open("rb") as fh:
+    `car_image` is a store record now, so the original is opened by name through the
+    default storage rather than through an ImageField. Same bucket, same object.
+    """
+    storage = default_storage
+
+    with storage.open(car_image.image_name, "rb") as fh:
         source = Image.open(fh)
         # Phone cameras record orientation in EXIF rather than rotating the pixels, so
         # without this a portrait photo is served on its side.
@@ -77,9 +82,9 @@ def build_derivatives(car_image, widths=DERIVATIVE_WIDTHS):
         storage.save(name, ContentFile(buffer.read()))
         written.append(source.width)
 
-    car_image.derivative_widths = ",".join(str(w) for w in written)
-    car_image.derivatives_ready = True
-    car_image.save(update_fields=["derivative_widths", "derivatives_ready"])
+    # Recorded through the store, which also drops the photo out of the sparse
+    # "pending" index and refreshes the car's listing-card reference.
+    image_store.mark_derivatives_ready(car_image.car_id, car_image.image_id, written)
 
-    logger.info("Built derivatives for CarImage %s: %s", car_image.pk, written)
+    logger.info("Built derivatives for CarImage %s: %s", car_image.image_id, written)
     return written

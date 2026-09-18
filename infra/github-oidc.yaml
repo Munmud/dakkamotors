@@ -113,9 +113,6 @@ Resources:
                 Action: [logs:DescribeLogStreams, logs:FilterLogEvents, logs:GetLogEvents]
                 Resource: "*"
               - Effect: Allow
-                Action: [ec2:DescribeSubnets, ec2:DescribeSecurityGroups, ec2:DescribeVpcs]
-                Resource: "*"
-              - Effect: Allow
                 Action: [ssm:GetParameter, ssm:GetParameters]
                 Resource: !Sub arn:aws:ssm:*:${AWS::AccountId}:parameter/dakkamotors/*
               # Zappa reattaches the Lambda execution role on every update.

@@ -1,0 +1,79 @@
+{% extends "staff/base.html" %}
+
+{% comment %}
+The backlog. Replaces CarQuestionAdmin's changelist.
+
+Deliberately no tick-boxes: the admin changelist skipped ModelAdmin.form entirely, so a
+bulk publish went round the "has an answer" guard. Each question is opened and acted on
+explicitly, with buttons that say what they will do.
+{% endcomment %}
+
+{% block content %}
+  <h1>
+    Questions
+    {% if waiting %}<span class="pill waiting">{{ waiting }} waiting</span>{% endif %}
+  </h1>
+
+  <form class="panel filters" method="get">
+    <div style="flex: 2 1 16rem;">
+      <label for="{{ form.q.id_for_label }}">{{ form.q.label }}</label>
+      {{ form.q }}
+    </div>
+    <div style="flex: 1 1 10rem;">
+      <label for="{{ form.state.id_for_label }}">{{ form.state.label }}</label>
+      {{ form.state }}
+    </div>
+    <div style="flex: 1 1 9rem;">
+      <label for="{{ form.language.id_for_label }}">{{ form.language.label }}</label>
+      {{ form.language }}
+    </div>
+    <div style="flex: 1 1 9rem;">
+      <label for="{{ form.brand.id_for_label }}">{{ form.brand.label }}</label>
+      {{ form.brand }}
+    </div>
+    <div>
+      <button type="submit">Filter</button>
+    </div>
+  </form>
+
+  <div class="panel">
+    {% if questions %}
+      <table>
+        <thead>
+          <tr>
+            <th>Car</th>
+            <th>Question</th>
+            <th>State</th>
+            <th>Language</th>
+            <th>Asked</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for question in questions %}
+            <tr>
+              <td>{{ question.car_label|default:question.car_brand }}</td>
+              <td>
+                <a href="{% url 'staff:question-detail' question.question_id %}">
+                  {{ question.question|truncatechars:70 }}
+                </a>
+              </td>
+              <td>
+                {% if question.is_published %}
+                  <span class="pill public">{{ question.state }}</span>
+                {% elif not question.is_answered %}
+                  <span class="pill waiting">{{ question.state }}</span>
+                {% else %}
+                  <span class="pill">{{ question.state }}</span>
+                {% endif %}
+              </td>
+              <td>{{ question.language }}</td>
+              <td>{{ question.created_at|date:"j M Y, H:i" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">Nothing matches those filters.</p>
+    {% endif %}
+  </div>
+{% endblock %}

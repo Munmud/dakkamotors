@@ -15,46 +15,53 @@ from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 
+from . import identity
 from . import qa
-from .models import Car
-from .qa_models import CarQuestion
+from .store import cars as car_store
+from .store import questions as question_store
 
 
-class PublicQuestionSerializer(serializers.ModelSerializer):
+class PublicQuestionSerializer(serializers.Serializer):
     """What anyone may see.
 
     An explicit allowlist, and the test asserts the key set exactly. `customer` is absent
     and so is `customer_id`: an id is stable across pages, so publishing one would let a
     reader work out that the same person asked about four cars. That is attribution by
     another name, and the decision was that published pairs are anonymous.
+
+    A plain Serializer rather than a ModelSerializer since questions moved to DynamoDB.
+    The allowlist is now the whole definition rather than a filter over a model's fields,
+    which if anything makes the anonymity easier to see.
     """
 
-    class Meta:
-        model = CarQuestion
-        # `language` is here so the app can show a visitor the pairs written in the
-        # language they are reading. It says nothing about who asked.
-        fields = ["id", "question", "answer", "language", "created_at", "answered_at"]
-        read_only_fields = fields
+    # A string id since the move: sortable millisecond-plus-random rather than a
+    # sequence. The client treats it as opaque.
+    id = serializers.CharField(source="question_id", read_only=True)
+    question = serializers.CharField(read_only=True)
+    answer = serializers.CharField(read_only=True)
+    # `language` is here so the app can show a visitor the pairs written in the
+    # language they are reading. It says nothing about who asked.
+    language = serializers.CharField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    answered_at = serializers.DateTimeField(read_only=True)
 
 
-class MyQuestionSerializer(serializers.ModelSerializer):
+class MyQuestionSerializer(serializers.Serializer):
     """The asker's own thread, including the parts the public cannot see.
 
     `is_published` is here so the app can say "we have answered you" without implying the
     answer is on the page - answering and publishing are separate decisions.
     """
 
-    car_slug = serializers.CharField(source="car.slug", read_only=True)
-    car_label = serializers.SerializerMethodField()
-
-    class Meta:
-        model = CarQuestion
-        fields = ["id", "question", "answer", "created_at", "answered_at",
-                  "is_published", "car_slug", "car_label"]
-        read_only_fields = fields
-
-    def get_car_label(self, obj):
-        return str(obj.car)
+    id = serializers.CharField(source="question_id", read_only=True)
+    question = serializers.CharField(read_only=True)
+    answer = serializers.CharField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    answered_at = serializers.DateTimeField(read_only=True)
+    is_published = serializers.BooleanField(read_only=True)
+    # Denormalised onto the question, so the thread needs no car lookup at all.
+    car_slug = serializers.CharField(read_only=True)
+    car_label = serializers.CharField(read_only=True)
 
 
 class AskThrottle(UserRateThrottle):
@@ -74,16 +81,16 @@ class QuestionListCreateView(APIView):
     throttle_classes = [AskThrottle]
 
     def get(self, request):
-        questions = CarQuestion.objects.filter(customer=request.user).select_related("car")
+        questions = question_store.for_customer(identity.sub_of(request.user), limit=50)
         slug = request.query_params.get("car")
         if slug:
-            questions = questions.filter(car__slug=slug)
+            questions = [q for q in questions if q.car_slug == slug]
         return Response(
-            {"results": MyQuestionSerializer(questions[:50], many=True).data}
+            {"results": MyQuestionSerializer(questions, many=True).data}
         )
 
     def post(self, request):
-        car = Car.objects.filter(slug=request.data.get("car") or "").first()
+        car = car_store.by_slug(request.data.get("car") or "")
         if car is None:
             return Response(
                 {"detail": "We could not find that car."},

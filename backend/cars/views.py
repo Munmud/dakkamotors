@@ -1,52 +1,92 @@
-from django.shortcuts import get_object_or_404
-from rest_framework import status, viewsets
+from rest_framework import status
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Car, CarStatus
-from .qa import published_questions_prefetch
+from .choices import CarStatus
 from .serializers import CarDetailSerializer, CarListSerializer
+from .store import cars as car_store
+from .store.errors import NotFound
 from .uploads import UploadRejected, build_presigned_upload
 
 
-class CarViewSet(viewsets.ReadOnlyModelViewSet):
+class CarListView(APIView):
     """Public, read-only inventory.
 
-    The listing is restricted to available cars, but retrieval is not: a customer who
-    was sent a link to a car that has since been reserved should still see the page
-    (with its status shown) rather than a 404.
+    A plain APIView rather than a ModelViewSet: there is no queryset to build on, and
+    the router's conventions were doing nothing here that two explicit views do not.
+
+    Read whole and sliced in Python rather than paginated with a cursor. The inventory
+    is tens of cars, so the whole listing is one Query on a single 1 MB page, and
+    keeping `?page=N` with an accurate `count` means the React app needs no change at
+    all. The ceiling is a few thousand cars, at which point a status partition starts
+    to paginate and this should move to LastEvaluatedKey -- not before.
     """
 
-    def get_queryset(self):
-        queryset = Car.objects.prefetch_related("images")
-        if self.action == "list":
-            return queryset.filter(status=CarStatus.AVAILABLE)
-        # Detail only. A list of cars each carrying its Q&A would be a lot of text
-        # nobody asked for, and CarListSerializer does not expose it anyway.
-        return queryset.prefetch_related(published_questions_prefetch())
+    page_size = 12
 
-    # Readable URLs: /api/cars/2008-daihatsu-tanto-x/. Numeric ids still resolve, so
-    # links shared before the change - and the admin's "view on site" - keep working.
-    lookup_field = "slug"
-    lookup_value_regex = "[^/]+"
+    def get(self, request):
+        cars = car_store.list_by_status(CarStatus.AVAILABLE)
 
-    def get_object(self):
-        value = self.kwargs[self.lookup_field]
-        queryset = self.filter_queryset(self.get_queryset())
-        lookup = {"pk": value} if str(value).isdigit() else {self.lookup_field: value}
-        obj = get_object_or_404(queryset, **lookup)
-        self.check_object_permissions(self.request, obj)
-        return obj
+        try:
+            page = max(int(request.query_params.get("page") or 1), 1)
+        except (TypeError, ValueError):
+            page = 1
 
-    def get_serializer_class(self):
-        if self.action == "list":
-            return CarListSerializer
-        return CarDetailSerializer
+        start = (page - 1) * self.page_size
+        window = cars[start:start + self.page_size]
+        if not window and page > 1:
+            return Response({"detail": "Invalid page."},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        base = request.build_absolute_uri(request.path)
+        return Response({
+            "count": len(cars),
+            "next": f"{base}?page={page + 1}" if start + self.page_size < len(cars) else None,
+            "previous": f"{base}?page={page - 1}" if page > 1 else None,
+            "results": CarListSerializer(window, many=True,
+                                         context={"request": request}).data,
+        })
+
+
+class CarDetailView(APIView):
+    """One car, its photos and its published questions.
+
+    Retrieval is deliberately not restricted to available cars: someone sent a link to
+    a car that has since been reserved should still see the page, with its status shown,
+    rather than a 404.
+
+    Readable URLs: /api/cars/2008-daihatsu-tanto-x/. Numeric ids still resolve, so links
+    shared before slugs existed keep working.
+    """
+
+    def get(self, request, slug):
+        car = _lookup(slug)
+        if car is None:
+            return Response({"detail": "Not found."},
+                            status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            CarDetailSerializer(car, context={"request": request}).data
+        )
+
+
+def _lookup(slug):
+    """By slug, falling back to the legacy numeric id."""
+    try:
+        return car_store.detail_by_slug(slug)
+    except NotFound:
+        pass
+
+    if str(slug).isdigit():
+        try:
+            return car_store.detail(str(slug))
+        except NotFound:
+            return None
+    return None
 
 
 class SignUploadView(APIView):
-    """Hand the admin a short-lived permission to put one file into S3.
+    """Hand the staff pages a short-lived permission to put one file into S3.
 
     Staff only: signing is effectively granting write access to the media bucket, so it
     must never be reachable by the public read-only API's AllowAny default.

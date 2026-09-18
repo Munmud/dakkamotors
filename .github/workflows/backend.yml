@@ -27,6 +27,19 @@ jobs:
     defaults:
       run:
         working-directory: backend
+
+    # DynamoDB Local, not moto. The booking design rests on attribute-to-attribute
+    # comparison inside a ConditionExpression, the positional codes in
+    # CancellationReasons, ReturnValuesOnConditionCheckFailure returning the offending
+    # item, and ValidationException on two operations against one item. A Python
+    # reimplementation of those is the wrong thing to test against - a false green there
+    # would be the worst outcome available.
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:2.5.2
+        ports:
+          - 8123:8000
+
     steps:
       - uses: actions/checkout@v4
 
@@ -36,10 +49,19 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
-      - run: pip install -r requirements.txt
+      # Dev requirements: the same file plus the local Cognito stand-in. The deploy
+      # job below installs requirements.txt alone, so none of it reaches the Lambda.
+      - run: pip install -r requirements-dev.txt
 
-      # No DATABASE_URL, so this runs against SQLite and needs no cloud access.
+      # The credentials are placeholders: DynamoDB Local validates the signature's shape
+      # but not the key, and nothing here reaches real AWS.
       - name: Run tests
+        env:
+          DYNAMODB_ENDPOINT_URL: http://localhost:8123
+          DDB_TABLE: dakkamotors_test
+          AWS_ACCESS_KEY_ID: local
+          AWS_SECRET_ACCESS_KEY: local
+          AWS_DEFAULT_REGION: ap-northeast-1
         run: python manage.py test --verbosity 2
 
   deploy:
@@ -79,20 +101,17 @@ jobs:
       - name: Deploy to Lambda
         run: |
           . .venv/bin/activate
-          zappa update production || echo "::warning::Zappa's post-deploy probe failed; migrations run next"
+          zappa update production
 
-      - name: Apply database migrations
+      # There is no schema to migrate and no permission group to reconcile. Both steps
+      # existed because the ORM did: one applied migrations after Zappa's probe had
+      # already failed against the old schema, the other reconciled permissions that
+      # could be granted by hand in the admin. Neither has anything to act on now, and
+      # the smoke test below is what actually gates the deploy.
+      - name: Check the deployed settings
         run: |
           . .venv/bin/activate
-          zappa manage production migrate
-
-      # Re-asserted every deploy so ensure_inventory_group.py stays the source of
-      # truth: permissions granted by hand in the admin are reconciled away here.
-      # Creating accounts is deliberately not part of a deploy.
-      - name: Reconcile the Inventory Managers group
-        run: |
-          . .venv/bin/activate
-          zappa manage production ensure_inventory_group
+          zappa manage production "check --deploy"
 
       - name: Collect static files to S3
         run: |
@@ -111,4 +130,12 @@ jobs:
             echo "  ${path} -> ${code}"
             [ "$code" = "200" ] || failed=1
           done
+
+          # The staff pages must turn a stranger away rather than 500. One check that
+          # proves the pool id, the client id and the callback URL all line up - which
+          # is exactly the class of thing that breaks silently.
+          code=$(curl -s -o /dev/null -w "%{http_code}" "${ORIGIN}/api/staff/cars/")
+          echo "  /api/staff/cars/ -> ${code}"
+          [ "$code" = "302" ] || failed=1
+
           exit $failed

@@ -1,74 +1,70 @@
-"""Customer accounts.
+"""Customer accounts, on Cognito.
 
-Separate from staff entirely: these users are never `is_staff`, so Django's admin turns
-them away on its own. Email doubles as the username, which keeps Django's own auth and
-password handling unchanged - no custom user model, no risky AUTH_USER_MODEL swap on a
-database that already has accounts.
+Separate from staff entirely: a customer is simply not in the `staff` group, so the
+staff pages turn them away on their own. Email is the sign-in name, which is what the
+pool's `UsernameAttributes: [email]` means -- with the consequence, worth knowing, that
+Cognito's *internal* username is then a UUID and the address is an attribute.
 
-**No `User` row exists until the address has been proved.** A sign-up writes a
-`PendingRegistration` and sends a link; clicking it is what creates the account. That is
-why nothing downstream asks whether a customer is verified - an unverified person simply
-has no account.
+**No usable account exists until the address has been proved.** A sign-up creates an
+UNCONFIRMED Cognito user, which cannot sign in, and stores the name and phone alongside
+it; clicking the emailed link confirms it. That is why nothing downstream asks whether a
+customer is verified -- an unverified person cannot get a token.
+
+**Cognito sends nothing.** Every message here still goes out through `mail.queue_email`
+-> S3 -> Brevo, bilingual and branded. Handing verification to Cognito would mean plain
+English against a 50/day cap, or SES; see `cognito.py` for why neither is wanted.
+
+One behaviour changed on purpose. Verifying used to log the customer straight in, which
+it can no longer do: Cognito holds the password and we never see it again after sign-up.
+Verification returns `{"verified": true}` and the app sends them to the sign-in form.
+The alternative was keeping a recoverable password for three days, which is worse than
+one extra screen.
 """
 
-import datetime as dt
-import hashlib
 import logging
-import secrets
 
-from django.contrib.auth import authenticate, get_user_model, login, logout
-from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.hashers import make_password
-from django.contrib.auth.password_validation import MinimumLengthValidator
-from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import IntegrityError, transaction
 from django.middleware.csrf import get_token
 from django.utils import timezone
-from django.utils.encoding import force_bytes, force_str
-from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
-from . import mail, seo
-from .booking_models import CustomerProfile, PendingRegistration
+from . import authentication, cognito, identity, mail, seo
+from .store import auth as auth_store
+from .store import customers as customer_store
 
 logger = logging.getLogger(__name__)
-User = get_user_model()
 
-PENDING_DAYS = 3
-
-#: Customers are held to length alone. Staff keep the full AUTH_PASSWORD_VALIDATORS set,
-#: because that is what the admin applies - and a staff account can edit inventory and
-#: other staff, where a customer account holds only their own bookings.
-CUSTOMER_PASSWORD_VALIDATORS = [MinimumLengthValidator(min_length=6)]
+#: Length alone, as before. A pool has exactly one password policy and it must stay this
+#: permissive or an existing customer with a six-character password cannot be migrated.
+MIN_PASSWORD_LENGTH = 6
 
 
 class AuthThrottle(AnonRateThrottle):
     """Blunts credential stuffing, bulk sign-ups and inbox bombing.
 
     Matters more than usual: customers may choose weak passwords, so the rate limit is
-    doing work that password complexity is not.
+    doing work that password complexity is not. It is also why every sign-in goes
+    through Django rather than the browser talking to Cognito directly -- the customer
+    app client has no password auth flow enabled at all.
     """
 
     scope = "auth"
 
 
 def _me(user):
-    profile = getattr(user, "customer_profile", None)
     return {
-        "name": user.get_full_name() or user.username,
-        "first_name": user.first_name,
-        "last_name": user.last_name,
-        "email": user.email,
-        "phone": profile.phone if profile else "",
+        "name": identity.full_name_of(user),
+        "first_name": getattr(user, "first_name", "") or "",
+        "last_name": getattr(user, "last_name", "") or "",
+        "email": identity.email_of(user),
+        "phone": identity.phone_of(user),
         # Drives the Admin button in the masthead. It is the viewer's own flag, so
-        # telling them about it reveals nothing they could not already discover by
-        # opening /api/admin/.
-        "is_staff": user.is_staff,
+        # telling them about it reveals nothing they could not discover by opening the
+        # staff URL.
+        "is_staff": bool(getattr(user, "is_staff", False)),
     }
 
 
@@ -84,17 +80,21 @@ def safe_next(value):
     return value[:200]
 
 
-def _hash_token(raw):
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+def _secure_cookies(request):
+    """Secure cookies everywhere except plain-HTTP local development."""
+    return request.is_secure()
 
 
 class CsrfView(APIView):
     """Hands the app a CSRF token.
 
+    Survives the move to Cognito untouched, which surprises people: CSRF protection
+    needs no database and no session. With `CSRF_USE_SESSIONS = False` the token is a
+    cookie-plus-secret construction, so it kept working when `django.contrib.sessions`
+    left.
+
     It cannot come from the rendered page: those are cached at the CDN for five minutes
-    with cookies ignored, so a token set there would be handed to every visitor alike -
-    which is precisely the thing CSRF protection is supposed to prevent. This endpoint
-    lives under /api/, where caching is disabled.
+    with cookies ignored, so a token set there would be handed to every visitor alike.
     """
 
     permission_classes = [AllowAny]
@@ -104,7 +104,7 @@ class CsrfView(APIView):
 
 
 # --------------------------------------------------------------------------------------
-# Registration - two steps, because the account does not exist until step two
+# Registration - two steps, because the account is unusable until step two
 # --------------------------------------------------------------------------------------
 
 
@@ -117,29 +117,21 @@ class RegisterSerializer(serializers.Serializer):
     language = serializers.CharField(required=False, allow_blank=True)
 
     def validate_email(self, value):
-        value = value.strip().lower()
-        if User.objects.filter(username=value).exists() or User.objects.filter(
-            email__iexact=value
-        ).exists():
-            # This does reveal that an account exists. Kept deliberately: a customer who
-            # has forgotten needs telling, and a used-car customer list is not a secret.
-            raise serializers.ValidationError(
-                "An account with that email already exists. Try signing in instead."
-            )
-        return value
+        return value.strip().lower()
 
     def validate_password(self, value):
-        try:
-            validate_password(value, password_validators=CUSTOMER_PASSWORD_VALIDATORS)
-        except DjangoValidationError as exc:
-            raise serializers.ValidationError(list(exc.messages)) from exc
+        if len(value) < MIN_PASSWORD_LENGTH:
+            raise serializers.ValidationError(
+                f"This password is too short. It must contain at least "
+                f"{MIN_PASSWORD_LENGTH} characters."
+            )
         return value
 
 
 class RegisterView(APIView):
-    """Step one: remember what they typed and email them a link.
+    """Step one: create the unconfirmed account and email a link.
 
-    Returns 202 and **no session** - there is nothing to log in to yet.
+    Returns 202 and no session - there is nothing to sign in to yet.
     """
 
     permission_classes = [AllowAny]
@@ -149,42 +141,49 @@ class RegisterView(APIView):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        email = data["email"]
 
-        # Swept here rather than on a timer: a scheduled job would wake Aurora and undo
-        # the scale-to-zero saving, and this is the one moment the table is being
-        # written anyway.
-        PendingRegistration.objects.filter(expires_at__lt=timezone.now()).delete()
+        existing = cognito.status_of(email)
+        if existing == "CONFIRMED":
+            # This does reveal that an account exists. Kept deliberately: a customer who
+            # has forgotten needs telling, and a used-car customer list is not a secret.
+            return Response(
+                {"email": ["An account with that email already exists. "
+                           "Try signing in instead."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if existing == "UNCONFIRMED":
+            # A typo on the first attempt must not lock that address out. Replacing the
+            # unconfirmed account is also how "register again" works.
+            cognito.delete_user(email)
 
-        raw_token = secrets.token_urlsafe(32)
+        try:
+            cognito.sign_up(email=email, password=data["password"],
+                            name=data["name"], phone=data["phone"])
+        except cognito.CognitoError as exc:
+            return Response({"password": [str(exc)]},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         language = "ja" if (data.get("language") or "").startswith("ja") else "en"
-
-        # update_or_create, not create: a typo on the first attempt must not lock that
-        # address out for three days. Re-submitting is also how "resend" works.
-        pending, _ = PendingRegistration.objects.update_or_create(
-            email=data["email"],
-            defaults={
-                "name": data["name"].strip(),
-                "phone": data["phone"].strip(),
-                "password_hash": make_password(data["password"]),
-                "token_hash": _hash_token(raw_token),
-                "next_path": safe_next(data.get("next")),
-                "language": language,
-                "expires_at": timezone.now() + dt.timedelta(days=PENDING_DAYS),
-            },
+        raw_token = auth_store.start_registration(
+            email=email, name=data["name"], phone=data["phone"],
+            next_path=safe_next(data.get("next")), language=language,
+            now=timezone.now(),
         )
 
         mail.send_verification_email(
-            pending, f"{seo.SITE_URL}/account/verify?token={raw_token}"
+            auth_store.find_registration(email),
+            f"{seo.SITE_URL}/account/verify?token={raw_token}",
         )
         return Response(
             {"detail": "Check your email to finish creating your account.",
-             "email": pending.email},
+             "email": email},
             status=status.HTTP_202_ACCEPTED,
         )
 
 
 class VerifyView(APIView):
-    """Step two: the link. This is what actually creates the account."""
+    """Step two: the link. This is what makes the account usable."""
 
     permission_classes = [AllowAny]
     throttle_classes = [AuthThrottle]
@@ -195,10 +194,7 @@ class VerifyView(APIView):
             return Response({"detail": "That link is not valid."},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        pending = PendingRegistration.objects.filter(
-            token_hash=_hash_token(raw_token)
-        ).first()
-
+        pending = auth_store.registration_for_token(raw_token)
         if pending is None:
             return Response(
                 {"detail": "That link has already been used, or is not valid. "
@@ -206,40 +202,29 @@ class VerifyView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if pending.has_expired:
-            pending.delete()
+        if cognito.status_of(pending.email) is None:
+            auth_store.finish_registration(pending)
             return Response(
-                {"detail": "That link has expired. Please register again."},
+                {"detail": "That sign-up has expired. Please register again."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        first_name, _, last_name = pending.name.partition(" ")
-        try:
-            with transaction.atomic():
-                user = User(
-                    username=pending.email,
-                    email=pending.email,
-                    first_name=first_name[:150],
-                    last_name=last_name[:150],
-                    is_staff=False,
-                    is_superuser=False,
-                )
-                # Already hashed at sign-up; carried across without ever having been
-                # stored in plaintext.
-                user.password = pending.password_hash
-                user.save()
-                CustomerProfile.objects.create(user=user, phone=pending.phone)
-                next_path = pending.next_path
-                pending.delete()
-        except IntegrityError:
-            pending.delete()
-            return Response(
-                {"detail": "An account with that email already exists. Please sign in."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        cognito.confirm(pending.email)
+        attrs = cognito.attributes_of(pending.email) or {}
+        # The counter the booking limit is enforced against, and the staff customer
+        # list, both live here rather than in Cognito.
+        customer_store.ensure(sub=attrs.get("sub", ""), email=pending.email,
+                              now=timezone.now())
+        next_path = pending.next_path
+        auth_store.finish_registration(pending)
 
-        login(request, user)
-        return Response({**_me(user), "next": next_path or "/account"})
+        # No session: Cognito has the password and we do not. The app sends them to the
+        # sign-in form with the address filled in.
+        return Response({
+            "verified": True,
+            "email": pending.email,
+            "next": next_path or "/account",
+        })
 
 
 class ResendVerificationView(APIView):
@@ -254,15 +239,17 @@ class ResendVerificationView(APIView):
 
     def post(self, request):
         email = (request.data.get("email") or "").strip().lower()
-        pending = PendingRegistration.objects.filter(email=email).first()
+        pending = auth_store.find_registration(email)
 
-        if pending is not None and not pending.has_expired:
-            raw_token = secrets.token_urlsafe(32)
-            pending.token_hash = _hash_token(raw_token)
-            pending.expires_at = timezone.now() + dt.timedelta(days=PENDING_DAYS)
-            pending.save(update_fields=["token_hash", "expires_at"])
+        if pending is not None and cognito.status_of(email) == "UNCONFIRMED":
+            raw_token = auth_store.start_registration(
+                email=email, name=pending.name, phone=pending.phone,
+                next_path=pending.next_path, language=pending.language,
+                now=timezone.now(),
+            )
             mail.send_verification_email(
-                pending, f"{seo.SITE_URL}/account/verify?token={raw_token}"
+                auth_store.find_registration(email),
+                f"{seo.SITE_URL}/account/verify?token={raw_token}",
             )
 
         return Response(
@@ -284,25 +271,36 @@ class LoginView(APIView):
         email = (request.data.get("email") or "").strip().lower()
         password = request.data.get("password") or ""
 
-        user = authenticate(request, username=email, password=password)
-        if user is None or not user.is_active:
-            # One message for both cases, so the response cannot be used to discover
-            # which addresses have accounts.
+        tokens = cognito.authenticate(email=email, password=password)
+        if not tokens:
+            # One message for every failure - wrong password, no such account, not yet
+            # confirmed - so the response cannot be used to discover which addresses
+            # have accounts.
             return Response(
                 {"detail": "Email or password is incorrect."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        login(request, user)
-        return Response(_me(user))
+        user = cognito.user_for(email) or cognito.CognitoUser(sub=email, email=email)
+        customer_store.ensure(sub=user.sub, email=user.email, now=timezone.now())
+
+        response = Response(_me(user))
+        return authentication.set_session_cookies(
+            response, tokens, secure=_secure_cookies(request))
 
 
 class LogoutView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        logout(request)
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        user = getattr(request, "user", None)
+        if getattr(user, "is_authenticated", False) and hasattr(user, "sub"):
+            # Revokes the refresh token pool-side, so a stolen one stops working rather
+            # than living out its thirty days.
+            cognito.sign_out(user.sub)
+
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        return authentication.clear_session_cookies(response)
 
 
 # What a customer may change about themselves. Anything outside this set is refused
@@ -311,16 +309,14 @@ EDITABLE_PROFILE_FIELDS = {"first_name", "last_name", "phone"}
 
 # Refusing `email` is a security control, not a UI nicety.
 #
-# `username` is set to the email address when the account is created, LoginView
-# authenticates on `username=email`, and PasswordResetView finds the account with
-# `email__iexact=...` then `.first()`. Letting email move without username would
-# decouple the two: a customer could take an address that already belongs to someone
-# else, and that `.first()` becomes a coin toss over whose account a reset link opens.
-# Changing an address safely means moving username with it, re-proving the new address
-# through the PendingRegistration flow, and resolving the collision - a whole feature,
-# not a writable field.
+# The address *is* the sign-in name. Letting it move would let a customer take an
+# address that already belongs to someone else, and a reset link would then be a coin
+# toss over whose account it opens. Changing an address safely means re-proving the new
+# one and resolving the collision - a whole feature, not a writable field. The pool's
+# customer app client has `email` left out of its WriteAttributes, so this is enforced
+# by Cognito as well as here.
 LOCKED_PROFILE_FIELDS = {"email", "username", "password", "is_staff", "is_superuser",
-                         "is_active", "id", "pk"}
+                         "is_active", "id", "pk", "sub"}
 
 
 class ProfileSerializer(serializers.Serializer):
@@ -355,32 +351,25 @@ class MeView(APIView):
 
         serializer = ProfileSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        fields = serializer.validated_data
+        fields = {k: v.strip() for k, v in serializer.validated_data.items()}
 
         user = request.user
-        changed = [f for f in ("first_name", "last_name") if f in fields]
-        for field in changed:
-            setattr(user, field, fields[field].strip())
-        if changed:
-            user.save(update_fields=changed)
+        if fields:
+            cognito.update_attributes(user.sub, **fields)
 
-        if "phone" in fields:
-            # update_or_create, not profile.save(): an account made any way other than
-            # through VerifyView has no profile row at all, and this is the one place a
-            # customer would meet that.
-            CustomerProfile.objects.update_or_create(
-                user=user, defaults={"phone": fields["phone"]}
-            )
+        refreshed = cognito.user_for(user.sub) or user
+        if "phone" in fields or "first_name" in fields or "last_name" in fields:
+            # The staff booking queue reads a snapshot rather than looking a customer up
+            # per row, so it has to be re-stamped when the person edits themselves.
+            from .store import bookings as booking_store
 
-        user.refresh_from_db()
-        return Response(_me(user))
+            booking_store.refresh_customer_snapshot(refreshed)
+        return Response(_me(refreshed))
 
 
 # --------------------------------------------------------------------------------------
 # Password reset
 # --------------------------------------------------------------------------------------
-
-reset_token = PasswordResetTokenGenerator()
 
 
 class PasswordResetView(APIView):
@@ -397,20 +386,16 @@ class PasswordResetView(APIView):
         email = (request.data.get("email") or "").strip().lower()
         language = "ja" if (request.data.get("language") or "").startswith("ja") else "en"
 
+        user = cognito.user_for(email) if cognito.status_of(email) else None
+
         # Customers only. A staff account can edit inventory and other staff, so letting
         # a public endpoint mail a reset link to one would mean anyone who can read that
-        # inbox could take it over. Staff who forget ask the owner, who resets it in the
-        # admin.
-        user = User.objects.filter(
-            email__iexact=email, is_active=True, is_staff=False, is_superuser=False
-        ).first()
-
-        if user is not None:
-            token = reset_token.make_token(user)
-            uid = urlsafe_base64_encode(force_bytes(user.pk))
+        # inbox could take it over. Staff who forget ask the owner.
+        if user is not None and not user.is_staff and not user.is_superuser:
+            raw = auth_store.start_reset(sub=user.sub, email=user.email,
+                                         now=timezone.now())
             mail.send_password_reset_email(
-                user, f"{seo.SITE_URL}/account/reset?uid={uid}&token={token}", language
-            )
+                user, f"{seo.SITE_URL}/account/reset?token={raw}", language)
 
         return Response(
             {"detail": "If we have an account for that address, we have sent a link."},
@@ -423,33 +408,47 @@ class PasswordResetConfirmView(APIView):
     throttle_classes = [AuthThrottle]
 
     def post(self, request):
-        uid = request.data.get("uid") or ""
-        token = request.data.get("token") or ""
+        raw = (request.data.get("token") or "").strip()
         password = request.data.get("password") or ""
 
-        try:
-            user = User.objects.get(pk=force_str(urlsafe_base64_decode(uid)))
-        except (User.DoesNotExist, ValueError, TypeError, OverflowError):
-            user = None
-
-        # Re-checked here as well as when issuing: a link minted before someone became
-        # staff must not still work afterwards.
-        if user is None or user.is_staff or user.is_superuser or not reset_token.check_token(user, token):
+        token = auth_store.reset_for_token(raw) if raw else None
+        if token is None:
             return Response(
                 {"detail": "That link has expired or already been used. "
                            "Please request a new one."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        user = cognito.user_for(token.sub)
+        # Re-checked here as well as when issuing: a link minted before somebody became
+        # staff must not still work afterwards.
+        if user is None or user.is_staff or user.is_superuser:
+            return Response(
+                {"detail": "That link has expired or already been used. "
+                           "Please request a new one."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if len(password) < MIN_PASSWORD_LENGTH:
+            return Response(
+                {"detail": f"This password is too short. It must contain at least "
+                           f"{MIN_PASSWORD_LENGTH} characters."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
-            validate_password(password, user, password_validators=CUSTOMER_PASSWORD_VALIDATORS)
-        except DjangoValidationError as exc:
-            return Response({"detail": " ".join(exc.messages)},
+            cognito.set_password(user.email, password)
+        except cognito.CognitoError as exc:
+            return Response({"detail": str(exc)},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        user.set_password(password)
-        user.save(update_fields=["password"])
-        # Changing the password is what invalidates the link: the token hash is derived
-        # from it, so every outstanding reset link for this account dies here.
-        login(request, user)
-        return Response(_me(user))
+        # Burns this link and every sibling. Deriving the token from the password hash
+        # used to do that for free; the epoch counter buys it back.
+        auth_store.complete_reset(token)
+
+        tokens = cognito.authenticate(email=user.email, password=password)
+        response = Response(_me(user))
+        if tokens:
+            authentication.set_session_cookies(
+                response, tokens, secure=_secure_cookies(request))
+        return response
