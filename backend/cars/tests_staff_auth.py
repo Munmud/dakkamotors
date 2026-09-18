@@ -13,7 +13,7 @@ would be a way into the staff pages -- bypassing the hosted UI and its MFA entir
 
 from unittest import mock
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 
 from . import authentication, cognito
@@ -24,7 +24,7 @@ from .tests_cognito import CognitoBackend
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffAuthTestCase(CognitoBackend, DynamoReset, TestCase):
+class StaffAuthTestCase(CognitoBackend, DynamoReset, SimpleTestCase):
     def staff_token(self, email="staffer@example.com", groups=("staff",),
                     client="staff"):
         """A real, signed token for somebody in the given groups."""
@@ -195,7 +195,7 @@ class CallbackTests(StaffAuthTestCase):
         self.assertNotIn(staff_auth.STAFF_COOKIE, response.cookies)
 
 
-class PermissionTests(TestCase):
+class PermissionTests(SimpleTestCase):
     """Groups replace Django's permission rows."""
 
     def test_an_owner_may_do_anything(self):
@@ -249,10 +249,10 @@ class PermissionTests(TestCase):
 
 
 class SignInUrlTests(StaffAuthTestCase):
-    def test_without_a_hosted_domain_it_falls_back_to_the_admin_login(self):
+    def test_without_a_hosted_domain_there_is_nowhere_to_send_them(self):
         with override_settings(COGNITO_DOMAIN=""):
             url = staff_auth.sign_in_url("/api/staff/cars/")
-        self.assertIn("/api/admin/login/", url)
+        self.assertIn("/api/staff/auth/not-configured", url)
 
     def test_with_a_domain_it_points_at_the_hosted_ui(self):
         with override_settings(COGNITO_DOMAIN="dakkamotors-staff.auth.example.com",

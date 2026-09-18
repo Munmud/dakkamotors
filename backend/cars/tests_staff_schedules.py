@@ -7,7 +7,7 @@ must not take anyone's appointment with it.
 
 import datetime as dt
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -18,7 +18,7 @@ from .store import keys
 from .tests import (
     DynamoReset, MAIL_SETTINGS, make_booking, make_customer, make_schedule,
 )
-from .tests_fake_cognito import FakeCognito, sign_in
+from .tests_fake_cognito import FakeCognito, sign_in, sign_out
 from .tests_staff import make_staff, make_staff_without_permissions
 
 
@@ -38,7 +38,7 @@ def rule_fields(**overrides):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffScheduleTests(FakeCognito, DynamoReset, TestCase):
+class StaffScheduleTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.staff, _ = make_staff()
@@ -46,7 +46,7 @@ class StaffScheduleTests(FakeCognito, DynamoReset, TestCase):
         self.url = reverse("staff:schedule-list")
 
     def test_a_guest_is_sent_to_sign_in(self):
-        self.client.logout()
+        sign_out(self.client, staff=True)
         self.assertEqual(self.client.get(self.url).status_code, 302)
 
     def test_staff_without_the_permission_are_refused(self):

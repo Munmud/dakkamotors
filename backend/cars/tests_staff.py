@@ -9,8 +9,7 @@ code, so they are tested.
 import json
 from unittest import mock
 
-from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 
 from .store import cars as car_store
@@ -51,7 +50,7 @@ def make_staff_without_permissions(username="newstarter"):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffQuestionAccessTests(FakeCognito, DynamoReset, TestCase):
+class StaffQuestionAccessTests(FakeCognito, DynamoReset, SimpleTestCase):
     """Who may reach the queue at all."""
 
     def setUp(self):
@@ -65,7 +64,7 @@ class StaffQuestionAccessTests(FakeCognito, DynamoReset, TestCase):
     def test_a_guest_is_sent_to_sign_in(self):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 302)
-        self.assertIn("/api/admin/login/", response["Location"])
+        self.assertIn("/api/staff/auth/not-configured", response["Location"])
 
     def test_a_signed_in_customer_is_not_staff(self):
         sign_in(self.client, self.customer)
@@ -94,7 +93,7 @@ class StaffQuestionAccessTests(FakeCognito, DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffQuestionQueueTests(FakeCognito, DynamoReset, TestCase):
+class StaffQuestionQueueTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.car = make_car("STAFF-2", brand="Daihatsu", model_name="Tanto")
@@ -145,7 +144,7 @@ class StaffQuestionQueueTests(FakeCognito, DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffAnsweringTests(FakeCognito, DynamoReset, TestCase):
+class StaffAnsweringTests(FakeCognito, DynamoReset, SimpleTestCase):
     """The page must not be able to skip what the domain layer promises."""
 
     def setUp(self):
@@ -160,8 +159,7 @@ class StaffAnsweringTests(FakeCognito, DynamoReset, TestCase):
 
     def post(self, **data):
         with mock.patch("cars.mail.boto3.client") as client:
-            with self.captureOnCommitCallbacks(execute=True):
-                response = self.client.post(self.url, data, follow=True)
+            response = self.client.post(self.url, data, follow=True)
             calls = client.return_value.put_object.call_args_list
         sent = [json.loads(c.kwargs["Body"].decode("utf-8")) for c in calls]
         return response, sent
@@ -212,7 +210,7 @@ class StaffAnsweringTests(FakeCognito, DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffPublishingTests(FakeCognito, DynamoReset, TestCase):
+class StaffPublishingTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.car = make_car("STAFF-5", brand="Honda", model_name="N-Box")

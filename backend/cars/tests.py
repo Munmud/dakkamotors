@@ -8,10 +8,6 @@ import re
 import unittest
 from unittest import mock
 
-from django.contrib.auth import get_user_model
-from django.contrib import admin
-from django.contrib.auth.hashers import check_password
-from django.contrib.auth.models import Group, Permission
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.management import call_command
@@ -19,11 +15,10 @@ from django.core.management.base import CommandError
 from django.utils import timezone
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, connection, transaction
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from PIL import Image
 
-from .management.commands.ensure_inventory_group import GROUP_NAME
 from . import booking as booking_rules
 from . import identity
 from . import email_theme
@@ -31,17 +26,7 @@ from . import mail
 from . import notifications
 from . import qa
 from . import seo
-from .notification_models import Notification, NotificationKind
-from .qa_models import CarQuestion
-from .booking_models import (
-    BookingStatus,
-    CustomerProfile,
-    PendingRegistration,
-    TestDriveBooking,
-    TestDriveSchedule,
-    TestDriveSlot,
-)
-from .models import Car, CarImage, CarStatus, StaffAccount
+from .choices import BookingStatus, CarStatus, NotificationKind
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 
@@ -50,6 +35,7 @@ from .store import cars as car_store
 from .store import customers as customer_store
 from .store import images as image_store
 from .store.models import Car as StoreCar
+from .store.models import PendingRegistration as StorePending
 from .tasks import build_derivatives_task
 from .store import keys as store_keys
 from .store import notifications as notification_store
@@ -58,8 +44,8 @@ from .store import schedules as schedule_store
 from .store import slots as slot_store
 from . import cognito
 from . import tests_fake_cognito as fake_cognito
-from .tests_fake_cognito import FakeCognito, sign_in
-from .tests_store import ensure_table, truncate_table
+from .tests_fake_cognito import FakeCognito, sign_in, sign_out
+from .tests_store import count_dynamo_calls, ensure_table, truncate_table
 from .uploads import UploadRejected, _validate
 
 
@@ -180,7 +166,7 @@ class ClearsThrottleMixin:
         cache.clear()
 
 
-class CarListApiTests(DynamoReset, TestCase):
+class CarListApiTests(DynamoReset, SimpleTestCase):
     def test_list_returns_only_available_cars(self):
         make_car("AVAIL-1", status=CarStatus.AVAILABLE)
         make_car("RESERVED-1", status=CarStatus.RESERVED)
@@ -218,7 +204,7 @@ class CarListApiTests(DynamoReset, TestCase):
         self.assertIsNone(result["primary_image"])
 
 
-class CarDetailApiTests(DynamoReset, TestCase):
+class CarDetailApiTests(DynamoReset, SimpleTestCase):
     def test_detail_is_reachable_for_a_reserved_car(self):
         """A shared link must keep working after the car is reserved or sold."""
         car = make_car("RESERVED-2", status=CarStatus.RESERVED)
@@ -258,7 +244,7 @@ def attach_photo(car, width, height, exif=None, **kwargs):
     return _attach(car, "photo.jpg", jpeg(width, height, exif).read(), **kwargs)
 
 
-class DerivativeTests(DynamoReset, TestCase):
+class DerivativeTests(DynamoReset, SimpleTestCase):
     def test_widths_larger_than_the_original_are_not_generated(self):
         """Upscaling costs bytes and adds no detail, and would make srcset mislead."""
         image = attach_photo(make_car("SMALL"), 900, 675)
@@ -337,7 +323,7 @@ class DerivativeTests(DynamoReset, TestCase):
         self.assertTrue(image.derivatives_ready)
 
 
-class FileCleanupTests(DynamoReset, TestCase):
+class FileCleanupTests(DynamoReset, SimpleTestCase):
     def test_deleting_a_photo_removes_its_files(self):
         """Otherwise every sold-and-removed listing leaks megabytes into the bucket."""
         image = attach_photo(make_car("CLEANUP"), 1000, 750)
@@ -371,7 +357,7 @@ class FileCleanupTests(DynamoReset, TestCase):
         self.assertFalse(storage.exists(original))
 
 
-class DerivativeApiTests(DynamoReset, TestCase):
+class DerivativeApiTests(DynamoReset, SimpleTestCase):
     def test_sources_absent_until_processing_finishes(self):
         """A <source> pointing at an object that does not exist yet renders broken."""
         car = make_car("PENDING")
@@ -409,7 +395,7 @@ class DerivativeApiTests(DynamoReset, TestCase):
         self.assertIn("800", result["primary_image"]["sources"])
 
 
-class RebuildDerivativesCommandTests(DynamoReset, TestCase):
+class RebuildDerivativesCommandTests(DynamoReset, SimpleTestCase):
     def test_repairs_a_half_processed_photo(self):
         from django.core.management import call_command
 
@@ -431,7 +417,7 @@ class RebuildDerivativesCommandTests(DynamoReset, TestCase):
         self.assertEqual(image.available_widths, [320, 800])
 
 
-class UploadValidationTests(TestCase):
+class UploadValidationTests(SimpleTestCase):
     def test_quicktime_video_is_rejected_with_an_explanation(self):
         """HEVC/.mov from an iPhone cannot play in Chrome or Firefox, and nothing
         transcodes it after upload, so accepting it would store a dead file."""
@@ -453,8 +439,8 @@ class UploadValidationTests(TestCase):
             _validate("image", "image/tiff", 1024)
 
 
-class SignUploadEndpointTests(TestCase):
-    url = "/api/admin/uploads/sign/"
+class SignUploadEndpointTests(FakeCognito, SimpleTestCase):
+    url = "/api/staff/uploads/sign/"
 
     def test_anonymous_users_cannot_sign_uploads(self):
         """Signing grants write access to the media bucket."""
@@ -466,8 +452,7 @@ class SignUploadEndpointTests(TestCase):
         self.assertIn(response.status_code, (401, 403))
 
     def test_non_staff_users_cannot_sign_uploads(self):
-        get_user_model().objects.create_user("shopper", password="not-staff-pw-1")
-        self.client.login(username="shopper", password="not-staff-pw-1")
+        sign_in(self.client, fake_cognito.make_user("shopper@example.com"))
 
         response = self.client.post(
             self.url,
@@ -477,8 +462,8 @@ class SignUploadEndpointTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_staff_get_a_helpful_error_for_bad_types(self):
-        get_user_model().objects.create_superuser("boss", password="staff-pw-12345")
-        self.client.login(username="boss", password="staff-pw-12345")
+        sign_in(self.client, fake_cognito.make_user(
+            "boss@example.com", groups=(cognito.STAFF_GROUP, cognito.OWNERS_GROUP)))
 
         response = self.client.post(
             self.url,
@@ -490,114 +475,16 @@ class SignUploadEndpointTests(TestCase):
         self.assertIn("MP4", response.json()["detail"])
 
 
-# --------------------------------------------------------------------------------------
-# Django-backed fixtures, for the four classes that test what is being removed
-# --------------------------------------------------------------------------------------
+# The Django admin's tests went with the admin itself: InventoryGroupTests,
+# InventoryManagerAccessTests, CreateInventoryUserTests, StaffAdministrationTests,
+# SuperuserUnaffectedTests and NotificationModelTests. Every one asserted the behaviour
+# of a page or a model that no longer exists.
 #
-# `InventoryManagerAccessTests`, `StaffAdministrationTests`, `SuperuserUnaffectedTests`
-# and `NotificationModelTests` assert the behaviour of `django.contrib.admin` and of the
-# ORM `Notification` model. Both are on their way out, and neither has a Cognito shape to
-# be ported to -- the escalation those admin tests defend against is refused by
-# `OWNER_ONLY` before a page is reached at all, which is what `tests_staff_accounts.py`
-# asserts instead.
-#
-# Until they are deleted they need real Django users, because that is the thing they are
-# about. These two helpers exist so the rest of the suite can be on Cognito without
-# holding those four classes hostage. Delete them in the same commit.
-
-def django_manager(username="manager", password="inventory-pw-12345"):
-    call_command("ensure_inventory_group", stdout=io.StringIO())
-    user = get_user_model().objects.create_user(username=username, password=password)
-    user.is_staff = True
-    user.save()
-    user.groups.add(Group.objects.get(name=GROUP_NAME))
-    return user, password
-
-
-def django_customer(email="buyer@example.com", password="customer-pw-1234",
-                    phone="080-1111-2222"):
-    user = get_user_model().objects.create_user(
-        username=email, email=email, password=password,
-        first_name="Test", last_name="Buyer")
-    CustomerProfile.objects.create(user=user, phone=phone)
-    return user, password
-
-
-class InventoryGroupTests(TestCase):
-    """The role is a security boundary, so the negative cases carry the weight."""
-
-    def setUp(self):
-        call_command("ensure_inventory_group", stdout=io.StringIO())
-        self.group = Group.objects.get(name=GROUP_NAME)
-
-    def test_group_grants_exactly_the_cars_permissions(self):
-        granted = {
-            f"{p.content_type.app_label}.{p.codename}"
-            for p in self.group.permissions.all()
-        }
-        self.assertEqual(
-            granted,
-            {
-                "cars.add_car", "cars.change_car", "cars.delete_car", "cars.view_car",
-                "cars.add_carimage", "cars.change_carimage",
-                "cars.delete_carimage", "cars.view_carimage",
-                # Staff administration via the proxy, never via auth.User.
-                "cars.add_staffaccount", "cars.change_staffaccount",
-                "cars.view_staffaccount",
-                # Test drives: rules, dates, and the bookings themselves.
-                "cars.add_testdriveschedule", "cars.change_testdriveschedule",
-                "cars.delete_testdriveschedule", "cars.view_testdriveschedule",
-                "cars.add_testdriveslot", "cars.change_testdriveslot",
-                "cars.delete_testdriveslot", "cars.view_testdriveslot",
-                "cars.change_testdrivebooking", "cars.view_testdrivebooking",
-                "cars.view_customerprofile",
-                # Questions about a car. Delete is granted because a question is the
-                # one field on this site a stranger can type into.
-                "cars.add_carquestion", "cars.change_carquestion",
-                "cars.delete_carquestion", "cars.view_carquestion",
-            },
-        )
-
-    def test_group_cannot_read_anyone_s_notifications(self):
-        """A notification feed is one customer's private history.
-
-        Nothing grants it and the model is not registered in the admin, so the entry
-        cannot appear at all - but assert it, because a future `view_` grant added out
-        of habit would silently open somebody's inbox to every member of staff.
-        """
-        granted = {p.codename for p in self.group.permissions.all()}
-        for codename in ("add_notification", "change_notification",
-                         "delete_notification", "view_notification"):
-            self.assertNotIn(codename, granted)
-
-    def test_group_cannot_delete_bookings_or_edit_customer_details(self):
-        """A cancelled booking is history worth keeping, and customers own their own
-        contact details."""
-        granted = {p.codename for p in self.group.permissions.all()}
-        self.assertNotIn("delete_testdrivebooking", granted)
-        for codename in ("add_customerprofile", "change_customerprofile",
-                         "delete_customerprofile"):
-            self.assertNotIn(codename, granted)
-
-    def test_group_cannot_delete_staff_accounts(self):
-        """Removing someone means deactivating them, which is reversible."""
-        granted = {p.codename for p in self.group.permissions.all()}
-        self.assertNotIn("delete_staffaccount", granted)
-
-    def test_group_grants_nothing_outside_the_cars_app(self):
-        """Anything from auth or admin would let a member hand themselves more."""
-        labels = {p.content_type.app_label for p in self.group.permissions.all()}
-        self.assertEqual(labels, {"cars"})
-
-    def test_rerunning_strips_permissions_added_by_hand(self):
-        escalation = Permission.objects.get(
-            content_type__app_label="auth", codename="change_user"
-        )
-        self.group.permissions.add(escalation)
-
-        call_command("ensure_inventory_group", stdout=io.StringIO())
-
-        self.assertNotIn(escalation, self.group.permissions.all())
+# What StaffAdministrationTests was really protecting -- that nobody outside `owners`
+# may reach another person's account -- is in `tests_staff_accounts.py`, asserted
+# against Cognito groups. It is refused there before a page is reached at all, rather
+# than by a filtered queryset, a narrowed fieldset, a save_model hook and a permission
+# hook all agreeing with each other.
 
 
 def make_manager(username="manager", password="inventory-pw-12345"):
@@ -613,346 +500,9 @@ def make_manager(username="manager", password="inventory-pw-12345"):
     return user, password
 
 
-class InventoryManagerAccessTests(TestCase):
-    def setUp(self):
-        self.user, self.password = django_manager()
-        self.client.login(username=self.user.username, password=self.password)
 
-    def test_manager_is_staff_but_not_a_superuser(self):
-        self.assertTrue(self.user.is_staff)
-        self.assertFalse(self.user.is_superuser)
 
-    def test_manager_can_manage_cars(self):
-        """The role has to actually work, not just be safely locked down.
-
-        Inventory left the admin with the move to DynamoDB, so the page that has to
-        open is the staff one. The permission behind it is unchanged.
-        """
-        response = self.client.get("/api/staff/cars/")
-        self.assertEqual(response.status_code, 200)
-
-    def test_manager_cannot_reach_user_administration(self):
-        """Hiding the link is not the protection - the view checks too."""
-        response = self.client.get("/api/admin/auth/user/")
-        self.assertEqual(response.status_code, 403)
-
-    def test_manager_cannot_reach_group_administration(self):
-        response = self.client.get("/api/admin/auth/group/")
-        self.assertEqual(response.status_code, 403)
-
-    def test_admin_index_offers_no_user_management(self):
-        body = self.client.get("/api/admin/").content.decode()
-        self.assertNotIn("/api/admin/auth/user/", body)
-        self.assertNotIn("/api/admin/auth/group/", body)
-        # ...but the job they are here to do is reachable.
-        self.assertEqual(self.client.get("/api/staff/cars/").status_code, 200)
-
-    def test_manager_can_sign_uploads(self):
-        """Photo upload is gated on is_staff, so the role must clear it."""
-        response = self.client.post(
-            "/api/admin/uploads/sign/",
-            {"kind": "video", "content_type": "video/quicktime", "size": 1024},
-            content_type="application/json",
-        )
-        # 400 (not 403) proves authorisation passed and validation rejected the type.
-        self.assertEqual(response.status_code, 400)
-
-
-class CreateInventoryUserTests(TestCase):
-    def setUp(self):
-        call_command("ensure_inventory_group", stdout=io.StringIO())
-
-    def test_creates_a_staff_member_in_the_group(self):
-        with mock.patch.dict(os.environ, {"INVENTORY_USER_PASSWORD": "first-pw-12345"}):
-            call_command(
-                "create_inventory_user", username="newhire", email="a@b.com",
-                first_name="New", last_name="Hire", stdout=io.StringIO(),
-            )
-
-        user = get_user_model().objects.get(username="newhire")
-        self.assertTrue(user.is_staff)
-        self.assertFalse(user.is_superuser)
-        self.assertTrue(user.groups.filter(name=GROUP_NAME).exists())
-        self.assertTrue(user.check_password("first-pw-12345"))
-
-    def test_rerunning_does_not_reset_an_existing_password(self):
-        """Otherwise a redeploy would silently lock someone out of their own account."""
-        with mock.patch.dict(os.environ, {"INVENTORY_USER_PASSWORD": "first-pw-12345"}):
-            call_command("create_inventory_user", username="newhire", stdout=io.StringIO())
-        user = get_user_model().objects.get(username="newhire")
-        user.set_password("chosen-by-them-678")
-        user.save()
-
-        with mock.patch.dict(os.environ, {"INVENTORY_USER_PASSWORD": "different-pw-999"}):
-            call_command("create_inventory_user", username="newhire", stdout=io.StringIO())
-
-        user.refresh_from_db()
-        self.assertTrue(user.check_password("chosen-by-them-678"))
-
-    def test_details_can_come_from_the_environment(self):
-        """Zappa splits the command string on whitespace and ignores quotes, so any
-        name containing a space can only be passed this way."""
-        env = {
-            "INVENTORY_USER_PASSWORD": "env-pw-123456",
-            "INVENTORY_USER_USERNAME": "envhire",
-            "INVENTORY_USER_EMAIL": "env@example.com",
-            "INVENTORY_USER_FIRST_NAME": "Mohammad Mahsiul",
-            "INVENTORY_USER_LAST_NAME": "Islam",
-        }
-        with mock.patch.dict(os.environ, env):
-            call_command("create_inventory_user", stdout=io.StringIO())
-
-        user = get_user_model().objects.get(username="envhire")
-        self.assertEqual(user.first_name, "Mohammad Mahsiul")
-        self.assertEqual(user.last_name, "Islam")
-        self.assertTrue(user.groups.filter(name=GROUP_NAME).exists())
-
-    def test_requires_a_username_from_somewhere(self):
-        with mock.patch.dict(os.environ, {}, clear=True):
-            with self.assertRaises(CommandError):
-                call_command("create_inventory_user", stdout=io.StringIO())
-
-    def test_refuses_to_modify_a_superuser(self):
-        """A typo matching the owner's account must not quietly demote it."""
-        get_user_model().objects.create_superuser("boss", password="owner-pw-12345")
-
-        with self.assertRaises(CommandError):
-            call_command("create_inventory_user", username="boss", stdout=io.StringIO())
-
-        self.assertTrue(get_user_model().objects.get(username="boss").is_superuser)
-
-    def test_requires_a_password_for_a_new_account(self):
-        with mock.patch.dict(os.environ, {}, clear=True):
-            with self.assertRaises(CommandError):
-                call_command("create_inventory_user", username="nopw", stdout=io.StringIO())
-
-
-class StaffAdministrationTests(TestCase):
-    """Each test is an escalation a member could actually attempt from a browser."""
-
-    STAFF_URL = "/api/admin/cars/staffaccount/"
-
-    def setUp(self):
-        self.manager, self.password = django_manager()
-        self.owner = get_user_model().objects.create_superuser(
-            "owner", password="owner-pw-123456"
-        )
-        self.colleague, _ = django_manager("colleague", "colleague-pw-1234")
-        self.client.login(username=self.manager.username, password=self.password)
-
-    def change_url(self, user):
-        return f"{self.STAFF_URL}{user.pk}/change/"
-
-    def post_change(self, user, **overrides):
-        data = {
-            "username": user.username,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "email": user.email,
-            "is_active": "on",
-            "is_staff": "on",
-            "groups": [str(Group.objects.get(name=GROUP_NAME).pk)],
-        }
-        data.update(overrides)
-        return self.client.post(self.change_url(user), data)
-
-    # --- the role works ------------------------------------------------------------
-
-    def test_manager_can_list_staff(self):
-        self.assertEqual(self.client.get(self.STAFF_URL).status_code, 200)
-
-    def test_manager_can_edit_a_colleague(self):
-        self.post_change(self.colleague, first_name="Renamed")
-        self.colleague.refresh_from_db()
-        self.assertEqual(self.colleague.first_name, "Renamed")
-
-    def test_created_colleague_can_log_in_and_has_the_role(self):
-        self.client.post(
-            f"{self.STAFF_URL}add/",
-            {"username": "newmate", "password1": "brand-new-pw-77",
-             "password2": "brand-new-pw-77"},
-        )
-        created = get_user_model().objects.get(username="newmate")
-        self.assertTrue(created.is_staff)
-        self.assertTrue(created.is_active)
-        self.assertTrue(created.groups.filter(name=GROUP_NAME).exists())
-        self.assertFalse(created.is_superuser)
-
-    # --- the owner is out of reach --------------------------------------------------
-
-    def test_superuser_is_not_listed(self):
-        body = self.client.get(self.STAFF_URL).content.decode()
-        self.assertNotIn("owner", body)
-        self.assertIn("colleague", body)
-
-    def test_superuser_change_page_is_refused_by_direct_url(self):
-        """Filtering the list is not enough; a guessed pk must be refused too.
-
-        The refusal is a redirect rather than a 403: the filtered queryset means the
-        admin cannot find the object at all, so it bounces with "does not exist" before
-        the permission hook is consulted. Either way the page never renders.
-        """
-        response = self.client.get(self.change_url(self.owner))
-
-        self.assertIn(response.status_code, (302, 403))
-        self.assertNotEqual(response.status_code, 200)
-
-    def test_permission_hook_refuses_a_superuser_target_directly(self):
-        """The second line of defence, independent of the queryset filter."""
-        from .admin import StaffAccountAdmin
-
-        request = type("Req", (), {"user": self.manager})()
-        self.assertFalse(
-            StaffAccountAdmin.has_change_permission(
-                StaffAccountAdmin(StaffAccount, admin.site), request, self.owner
-            )
-        )
-
-    def test_cannot_take_over_the_owner_account(self):
-        self.post_change(self.owner, username="owner")
-        self.owner.refresh_from_db()
-        self.assertTrue(self.owner.is_superuser)
-        self.assertTrue(self.owner.check_password("owner-pw-123456"))
-
-    # --- escalation attempts --------------------------------------------------------
-
-    def test_cannot_make_themselves_a_superuser(self):
-        self.post_change(self.manager, is_superuser="on")
-
-        self.manager.refresh_from_db()
-        self.assertFalse(self.manager.is_superuser)
-
-    def test_cannot_promote_a_colleague_to_superuser(self):
-        self.post_change(self.colleague, is_superuser="on")
-
-        self.colleague.refresh_from_db()
-        self.assertFalse(self.colleague.is_superuser)
-
-    def test_cannot_grant_themselves_arbitrary_permissions(self):
-        escalation = Permission.objects.get(
-            content_type__app_label="auth", codename="change_user"
-        )
-
-        self.post_change(self.manager, user_permissions=[str(escalation.pk)])
-
-        self.manager.refresh_from_db()
-        self.assertEqual(self.manager.user_permissions.count(), 0)
-        self.assertFalse(self.manager.has_perm("auth.change_user"))
-
-    def test_cannot_join_a_group_outside_the_allowlist(self):
-        privileged = Group.objects.create(name="Owners")
-        privileged.permissions.add(
-            Permission.objects.get(
-                content_type__app_label="auth", codename="change_user"
-            )
-        )
-
-        self.post_change(self.manager, groups=[str(privileged.pk)])
-
-        self.manager.refresh_from_db()
-        self.assertFalse(self.manager.groups.filter(name="Owners").exists())
-        self.assertFalse(self.manager.has_perm("auth.change_user"))
-
-    def test_save_model_forces_is_superuser_false_even_if_set(self):
-        """Exercises the guard directly.
-
-        Posting is_superuser to the change view proves little on its own: the field is
-        not rendered, so Django would drop it regardless. This calls save_model with the
-        flag already set, which is what a leaked field or a future fieldset mistake
-        would look like.
-        """
-        from .admin import StaffAccountAdmin
-
-        model_admin = StaffAccountAdmin(StaffAccount, admin.site)
-        request = type("Req", (), {"user": self.manager})()
-        target = StaffAccount.objects.get(pk=self.colleague.pk)
-        target.is_superuser = True
-
-        model_admin.save_model(request, target, form=None, change=True)
-
-        target.refresh_from_db()
-        self.assertFalse(target.is_superuser)
-
-    def test_save_model_leaves_a_superuser_alone_for_the_owner(self):
-        """The same hook must not neuter the owner's own admin."""
-        from .admin import StaffAccountAdmin
-
-        model_admin = StaffAccountAdmin(StaffAccount, admin.site)
-        request = type("Req", (), {"user": self.owner})()
-        target = StaffAccount.objects.get(pk=self.colleague.pk)
-        target.is_superuser = True
-
-        model_admin.save_model(request, target, form=None, change=True)
-
-        target.refresh_from_db()
-        self.assertTrue(target.is_superuser)
-
-    def test_sandboxed_fieldsets_expose_no_escalation_fields(self):
-        body = self.client.get(self.change_url(self.colleague)).content.decode()
-
-        self.assertNotIn('name="is_superuser"', body)
-        self.assertNotIn('name="user_permissions"', body)
-        # The fields they legitimately need are present.
-        self.assertIn('name="is_active"', body)
-        self.assertIn('name="groups"', body)
-
-    def test_the_original_user_admin_is_still_out_of_bounds(self):
-        """The proxy exists precisely so this stays true."""
-        self.assertEqual(self.client.get("/api/admin/auth/user/").status_code, 403)
-        self.assertEqual(self.client.get("/api/admin/auth/group/").status_code, 403)
-
-    # --- deactivate, not delete -----------------------------------------------------
-
-    def test_deletion_is_refused(self):
-        response = self.client.post(f"{self.STAFF_URL}{self.colleague.pk}/delete/")
-
-        self.assertEqual(response.status_code, 403)
-        self.assertTrue(get_user_model().objects.filter(pk=self.colleague.pk).exists())
-
-    def test_bulk_delete_action_is_not_offered(self):
-        body = self.client.get(self.STAFF_URL).content.decode()
-        self.assertNotIn("delete_selected", body)
-
-    def test_deactivating_a_colleague_works(self):
-        self.post_change(self.colleague, is_active="")
-
-        self.colleague.refresh_from_db()
-        self.assertFalse(self.colleague.is_active)
-
-    # --- self-lockout ---------------------------------------------------------------
-
-    def test_cannot_deactivate_their_own_account(self):
-        self.post_change(self.manager, is_active="")
-
-        self.manager.refresh_from_db()
-        self.assertTrue(self.manager.is_active)
-
-    def test_cannot_remove_their_own_staff_access(self):
-        self.post_change(self.manager, is_staff="")
-
-        self.manager.refresh_from_db()
-        self.assertTrue(self.manager.is_staff)
-
-
-class SuperuserUnaffectedTests(TestCase):
-    def test_superuser_still_sees_every_account(self):
-        get_user_model().objects.create_superuser("owner", password="owner-pw-123456")
-        other, _ = django_manager("other", "other-pw-12345")
-        self.client.login(username="owner", password="owner-pw-123456")
-
-        body = self.client.get("/api/admin/cars/staffaccount/").content.decode()
-
-        self.assertIn("owner", body)
-        self.assertIn("other", body)
-
-    def test_superuser_keeps_the_real_user_admin(self):
-        get_user_model().objects.create_superuser("owner", password="owner-pw-123456")
-        self.client.login(username="owner", password="owner-pw-123456")
-
-        self.assertEqual(self.client.get("/api/admin/auth/user/").status_code, 200)
-
-
-class SlugTests(DynamoReset, TestCase):
+class SlugTests(DynamoReset, SimpleTestCase):
     def test_slug_is_built_from_the_words_a_buyer_would_search(self):
         car = make_car("SLUG-1", brand="Daihatsu", model_name="Tanto", grade="X",
                        manufacture_year=2008)
@@ -980,7 +530,7 @@ class SlugTests(DynamoReset, TestCase):
         self.assertEqual(car.slug, original)
 
 
-class DiscoveryFileTests(DynamoReset, TestCase):
+class DiscoveryFileTests(DynamoReset, SimpleTestCase):
     def test_robots_txt_is_served_and_points_at_the_sitemap(self):
         """It used to 403: the private bucket answered AccessDenied for a file that was
         never uploaded, and Lighthouse scored that "not applicable" rather than failing."""
@@ -989,7 +539,7 @@ class DiscoveryFileTests(DynamoReset, TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.content.decode()
         self.assertIn("Sitemap: https://dakkamotors.com/sitemap.xml", body)
-        self.assertIn("Disallow: /api/admin/", body)
+        self.assertIn("Disallow: /api/staff/", body)
 
     def test_sitemap_lists_available_cars_and_omits_sold_ones(self):
         available = make_car("SITE-1", manufacture_year=2019)
@@ -1014,7 +564,7 @@ class DiscoveryFileTests(DynamoReset, TestCase):
 
 
 @mock.patch("cars.pages.asset_tags", return_value="")
-class RenderedPageTests(DynamoReset, TestCase):
+class RenderedPageTests(DynamoReset, SimpleTestCase):
     def test_home_has_a_local_title_and_dealer_schema(self, _tags):
         body = self.client.get("/").content.decode()
 
@@ -1106,7 +656,7 @@ class RenderedPageTests(DynamoReset, TestCase):
         self.assertEqual(response["Location"], car.get_absolute_url())
 
 
-class SlugApiTests(DynamoReset, TestCase):
+class SlugApiTests(DynamoReset, SimpleTestCase):
     def test_api_resolves_a_car_by_slug(self):
         car = make_car("API-SLUG", brand="Daihatsu", model_name="Tanto",
                        manufacture_year=2008)
@@ -1217,7 +767,7 @@ def make_booking(customer, slot, car=None, car_label=None, now=None):
     return booking
 
 
-class SlotGenerationTests(DynamoReset, TestCase):
+class SlotGenerationTests(DynamoReset, SimpleTestCase):
     def test_generation_creates_one_slot_per_matching_day(self):
         schedule = make_schedule(capacity=2)
 
@@ -1275,7 +825,7 @@ class SlotGenerationTests(DynamoReset, TestCase):
         self.assertTrue(all(s.capacity == 2 for s in slots_in_store()))
 
 
-class BookingRuleTests(FakeCognito, DynamoReset, TestCase):
+class BookingRuleTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.user, _ = make_customer()
@@ -1421,7 +971,7 @@ class BookingRuleTests(FakeCognito, DynamoReset, TestCase):
         self.assertTrue(booking.is_active)
 
 
-class BookingApiTests(FakeCognito, DynamoReset, TestCase):
+class BookingApiTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.user, self.password = make_customer()
@@ -1515,7 +1065,7 @@ class BookingApiTests(FakeCognito, DynamoReset, TestCase):
         self.assertTrue(booking.is_active)
 
 
-class AccountPageTests(DynamoReset, TestCase):
+class AccountPageTests(DynamoReset, SimpleTestCase):
     def test_account_routes_render_but_are_not_indexable(self):
         for path in ("/account", "/account/login", "/account/register"):
             with self.subTest(path=path):
@@ -1545,7 +1095,7 @@ class AccountPageTests(DynamoReset, TestCase):
     MAIL_REPLY_TO="owner@example.com",
     STAFF_ALERT_EMAIL="staff@example.com",
 )
-class QueueEmailTests(TestCase):
+class QueueEmailTests(SimpleTestCase):
     """Django cannot send mail itself - no route out of the VPC - so 'sending' means
     writing one object to S3 for a Lambda outside the VPC to pick up."""
 
@@ -1577,7 +1127,7 @@ class QueueEmailTests(TestCase):
         self.assertFalse(queued)
 
 
-class UnconfiguredEmailTests(TestCase):
+class UnconfiguredEmailTests(SimpleTestCase):
     @override_settings(OUTBOX_BUCKET="", MAIL_FROM="")
     def test_nothing_is_sent_when_email_is_not_configured(self):
         """Local development must not be able to email a real customer by accident."""
@@ -1588,7 +1138,7 @@ class UnconfiguredEmailTests(TestCase):
         client.assert_not_called()
 
 
-class BookingApprovalTests(FakeCognito, DynamoReset, TestCase):
+class BookingApprovalTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.user, _ = make_customer()
@@ -1637,7 +1187,7 @@ class BookingApprovalTests(FakeCognito, DynamoReset, TestCase):
     MAIL_FROM="noreply@dakkamotors.com",
     STAFF_ALERT_EMAIL="staff@example.com",
 )
-class BookingEmailTests(FakeCognito, DynamoReset, TestCase):
+class BookingEmailTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.user, _ = make_customer(email="buyer@example.com")
@@ -1650,8 +1200,7 @@ class BookingEmailTests(FakeCognito, DynamoReset, TestCase):
         be captured explicitly - without this the emails would silently never be checked.
         """
         with mock.patch("cars.mail.boto3.client") as client:
-            with self.captureOnCommitCallbacks(execute=True):
-                fn()
+            fn()
             calls = client.return_value.put_object.call_args_list
         return [json.loads(call.kwargs["Body"].decode("utf-8")) for call in calls]
 
@@ -1736,12 +1285,7 @@ def register(client, email="new@example.com", password="simple", **extra):
     return client.post("/api/auth/register/", payload, content_type="application/json")
 
 
-def link_token(pending_email):
-    """The raw token only exists in the email, so read it back out of the outbox."""
-    return PendingRegistration.objects.get(email=pending_email)
-
-
-class PrimaryImageFallbackTests(DynamoReset, TestCase):
+class PrimaryImageFallbackTests(DynamoReset, SimpleTestCase):
     def test_falls_back_to_lowest_order_when_nothing_is_flagged(self):
         car = make_car("FALLBACK")
         attach_image(car, "third.gif", order=3)
@@ -1756,7 +1300,7 @@ class PrimaryImageFallbackTests(DynamoReset, TestCase):
         self.assertIsNone(make_car("EMPTY").primary_image)
 
 
-class EmailTemplateTests(FakeCognito, DynamoReset, TestCase):
+class EmailTemplateTests(FakeCognito, DynamoReset, SimpleTestCase):
     """The shell every message is rendered into.
 
     The point of these is that the logo survives the two things that usually break it:
@@ -1802,11 +1346,10 @@ class EmailTemplateTests(FakeCognito, DynamoReset, TestCase):
 
     def test_every_message_carries_a_plain_text_alternative(self):
         """A text part is what text-only clients show, and its absence scores as spam."""
-        pending = PendingRegistration.objects.create(
-            email="new@example.com", name="Yuki", phone="080-1234-5678",
-            password_hash="x", token_hash="y",
-            expires_at=timezone.now() + datetime.timedelta(days=3),
-        )
+        # Never saved: the renderer reads `name` and `language` off it and nothing else,
+        # and a stored item would need a Cognito user to go with it.
+        pending = StorePending(email="new@example.com", name="Yuki",
+                               phone="080-1234-5678", language="en")
         with override_settings(**MAIL_SETTINGS):
             with mock.patch("cars.mail.boto3.client") as client:
                 mail.send_verification_email(pending, "https://dakkamotors.com/v?token=abc")
@@ -1832,7 +1375,7 @@ class EmailTemplateTests(FakeCognito, DynamoReset, TestCase):
         self.assertIn("&lt;script&gt;", body["html"])
 
 
-class CarQuestionStorageTests(FakeCognito, DynamoReset, TestCase):
+class CarQuestionStorageTests(FakeCognito, DynamoReset, SimpleTestCase):
     """What survives of the schema-level guarantees.
 
     Two tests were deleted here rather than ported, because what they asserted no longer
@@ -1880,58 +1423,8 @@ class CarQuestionStorageTests(FakeCognito, DynamoReset, TestCase):
         self.assertEqual(question.state, "Published")
 
 
-class NotificationModelTests(TestCase):
-    def setUp(self):
-        self.user, _ = django_customer("bell@example.com")
-
-    def test_a_dedupe_key_can_only_be_used_once_per_customer(self):
-        Notification.objects.create(
-            customer=self.user, kind=NotificationKind.BOOKING_CONFIRMED,
-            dedupe_key="booking:1:confirmed",
-        )
-
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                Notification.objects.create(
-                    customer=self.user, kind=NotificationKind.BOOKING_CONFIRMED,
-                    dedupe_key="booking:1:confirmed",
-                )
-
-    def test_rows_without_a_dedupe_key_are_not_constrained(self):
-        """The unique constraint is conditional; blank keys must stay free."""
-        for _ in range(3):
-            Notification.objects.create(
-                customer=self.user, kind=NotificationKind.QUESTION_ANSWERED
-            )
-
-        self.assertEqual(Notification.objects.count(), 3)
-
-    def test_the_same_key_may_be_used_for_a_different_customer(self):
-        other, _ = django_customer("other@example.com")
-        Notification.objects.create(
-            customer=self.user, kind=NotificationKind.BOOKING_CONFIRMED,
-            dedupe_key="booking:1:confirmed",
-        )
-
-        Notification.objects.create(
-            customer=other, kind=NotificationKind.BOOKING_CONFIRMED,
-            dedupe_key="booking:1:confirmed",
-        )
-
-        self.assertEqual(Notification.objects.count(), 2)
-
-    def test_deleting_a_customer_takes_their_notifications(self):
-        Notification.objects.create(
-            customer=self.user, kind=NotificationKind.QUESTION_ANSWERED
-        )
-
-        self.user.delete()
-
-        self.assertEqual(Notification.objects.count(), 0)
-
-
 @override_settings(**MAIL_SETTINGS)
-class AskingTests(FakeCognito, DynamoReset, ClearsThrottleMixin, TestCase):
+class AskingTests(FakeCognito, DynamoReset, ClearsThrottleMixin, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.car = make_car("ASK-1", brand="Daihatsu", model_name="Tanto")
@@ -1941,9 +1434,8 @@ class AskingTests(FakeCognito, DynamoReset, ClearsThrottleMixin, TestCase):
         payload = {"car": self.car.slug, "question": "Has it had one owner?"}
         payload.update(extra)
         with mock.patch("cars.mail.boto3.client"):
-            with self.captureOnCommitCallbacks(execute=True):
-                return self.client.post("/api/questions/", payload,
-                                        content_type="application/json")
+            return self.client.post("/api/questions/", payload,
+                                    content_type="application/json")
 
     def test_a_signed_in_customer_can_ask(self):
         sign_in(self.client, self.user)
@@ -1967,10 +1459,9 @@ class AskingTests(FakeCognito, DynamoReset, ClearsThrottleMixin, TestCase):
         sign_in(self.client, self.user)
 
         with mock.patch("cars.mail.boto3.client") as client:
-            with self.captureOnCommitCallbacks(execute=True):
-                self.client.post("/api/questions/",
-                                 {"car": self.car.slug, "question": "Rust?"},
-                                 content_type="application/json")
+            self.client.post("/api/questions/",
+                             {"car": self.car.slug, "question": "Rust?"},
+                             content_type="application/json")
             calls = client.return_value.put_object.call_args_list
 
         sent = [json.loads(c.kwargs["Body"].decode("utf-8")) for c in calls]
@@ -2018,7 +1509,7 @@ class AskingTests(FakeCognito, DynamoReset, ClearsThrottleMixin, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class AnsweringTests(FakeCognito, DynamoReset, TestCase):
+class AnsweringTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.car = make_car("ANS-1", brand="Suzuki", model_name="Every")
@@ -2030,8 +1521,7 @@ class AnsweringTests(FakeCognito, DynamoReset, TestCase):
 
     def answer(self, text="Full history, stamped."):
         with mock.patch("cars.mail.boto3.client") as client:
-            with self.captureOnCommitCallbacks(execute=True):
-                qa.record_answer(self.question, answer=text, staff=self.staff)
+            qa.record_answer(self.question, answer=text, staff=self.staff)
             calls = client.return_value.put_object.call_args_list
         return [json.loads(c.kwargs["Body"].decode("utf-8")) for c in calls]
 
@@ -2062,8 +1552,7 @@ class AnsweringTests(FakeCognito, DynamoReset, TestCase):
         seeded = make_question(self.car, question="Do you take trade-ins?")
 
         with mock.patch("cars.mail.boto3.client") as client:
-            with self.captureOnCommitCallbacks(execute=True):
-                qa.record_answer(seeded, answer="Yes, bring it in.", staff=self.staff)
+            qa.record_answer(seeded, answer="Yes, bring it in.", staff=self.staff)
             calls = client.return_value.put_object.call_args_list
 
         self.assertEqual(calls, [])
@@ -2080,7 +1569,7 @@ class AnsweringTests(FakeCognito, DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class PublishingTests(FakeCognito, DynamoReset, TestCase):
+class PublishingTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.car = make_car("PUB-1", brand="Honda", model_name="N-Box")
@@ -2108,7 +1597,7 @@ class PublishingTests(FakeCognito, DynamoReset, TestCase):
         self.assertGreater(self.car.updated_at, before)
 
 
-class PublishedQuestionsAreAnonymousTests(FakeCognito, DynamoReset, TestCase):
+class PublishedQuestionsAreAnonymousTests(FakeCognito, DynamoReset, SimpleTestCase):
     """The published pair is public content; the person who asked is not."""
 
     def setUp(self):
@@ -2169,7 +1658,7 @@ class PublishedQuestionsAreAnonymousTests(FakeCognito, DynamoReset, TestCase):
                          ["Has it had one owner?"])
 
 
-class QuestionSeoTests(FakeCognito, DynamoReset, TestCase):
+class QuestionSeoTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.car = make_car("SEO-1", brand="Honda", model_name="N-Box")
@@ -2246,26 +1735,30 @@ class QuestionSeoTests(FakeCognito, DynamoReset, TestCase):
         ).content.decode("utf-8")
         return html.split('<div id="root">')[1].split("</div>")[0]
 
-    def test_the_page_costs_the_same_number_of_queries_however_many_pairs(self):
-        """Catches a .filter() defeating the Prefetch - invisible until it is not."""
+    def test_the_page_costs_the_same_number_of_reads_however_many_pairs(self):
+        """A per-question read in a loop is invisible until it is not.
+
+        This used to count SQL queries and catch a `.filter()` defeating a Prefetch. The
+        shape of the mistake is unchanged; only the store is. One partition holds the
+        car, its images and its published questions in `IMG# < META < Q#` order, so ten
+        pairs must cost exactly what one does.
+        """
         self.publish("One?", "Yes.")
-        baseline = self._queries_for_page()
+        baseline = self._reads_for_page()
 
         for i in range(9):
             self.publish(f"Question {i}?", "Yes.")
 
-        self.assertEqual(self._queries_for_page(), baseline)
+        self.assertEqual(self._reads_for_page(), baseline)
 
-    def _queries_for_page(self):
-        from django.test.utils import CaptureQueriesContext
-
-        with CaptureQueriesContext(connection) as captured:
+    def _reads_for_page(self):
+        with count_dynamo_calls() as calls:
             self.client.get(f"/cars/{self.car.slug}")
-        return len(captured)
+        return len(calls)
 
 
 @override_settings(**MAIL_SETTINGS)
-class NotificationApiTests(FakeCognito, DynamoReset, TestCase):
+class NotificationApiTests(FakeCognito, DynamoReset, SimpleTestCase):
     """A bell is one person's history. The isolation cases carry the weight."""
 
     def setUp(self):
@@ -2287,7 +1780,7 @@ class NotificationApiTests(FakeCognito, DynamoReset, TestCase):
         self.assertEqual(body["unread"], 1)
 
     def test_a_guest_gets_nothing(self):
-        self.client.logout()
+        sign_out(self.client)
 
         self.assertEqual(self.client.get("/api/notifications/").status_code, 403)
 
@@ -2352,7 +1845,7 @@ class NotificationApiTests(FakeCognito, DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class BookingNotificationTests(FakeCognito, DynamoReset, TestCase):
+class BookingNotificationTests(FakeCognito, DynamoReset, SimpleTestCase):
     """Booking events reach the bell without sending a second email."""
 
     def setUp(self):
@@ -2362,8 +1855,7 @@ class BookingNotificationTests(FakeCognito, DynamoReset, TestCase):
 
     def run_and_capture(self, fn):
         with mock.patch("cars.mail.boto3.client") as client:
-            with self.captureOnCommitCallbacks(execute=True):
-                fn()
+            fn()
             calls = client.return_value.put_object.call_args_list
         return [json.loads(c.kwargs["Body"].decode("utf-8")) for c in calls]
 

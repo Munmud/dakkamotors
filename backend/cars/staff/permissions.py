@@ -10,9 +10,6 @@ grant something. There is no UI that can grant a permission now, so drift is imp
 by construction: this module is the only place a role is defined, and changing one means
 changing code and passing review.
 
-(The CI step that re-asserted the old group still runs -- `.github/workflows/backend.yml`
-calls `ensure_inventory_group` on every deploy. It goes with `django.contrib.auth`, and
-until it does it is reconciling a group nothing reads.)
 """
 
 from ..cognito import INVENTORY_GROUP, OWNERS_GROUP

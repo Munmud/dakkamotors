@@ -3,7 +3,7 @@
 The tokens live in httpOnly cookies that Django sets, and **CSRF stays exactly as it
 was**. That surprises people, so it is worth stating plainly: `CsrfViewMiddleware` needs
 no database. With the default `CSRF_USE_SESSIONS = False` the token is a
-cookie-plus-secret construction, so `django.contrib.sessions` can leave while CSRF
+cookie-plus-secret construction, so `django.contrib.sessions` could leave while CSRF
 protection stays -- which is why `/api/auth/csrf/` survives unchanged and the twenty
 exported functions in `frontend/src/lib/auth.js` did not have to move.
 

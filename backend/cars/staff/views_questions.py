@@ -106,7 +106,7 @@ def _answer(request, question, here):
 
     text = form.cleaned_data["answer"]
     was_answered = question.is_answered
-    qa.record_answer(question, answer=text, staff=request.user, now=timezone.now())
+    qa.record_answer(question, answer=text, staff=request.staff, now=timezone.now())
 
     if not text.strip():
         # Deliberately not an error: clearing an answer is how staff undo a mistake

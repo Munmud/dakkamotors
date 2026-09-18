@@ -1,7 +1,7 @@
 """Signing a test in, with neither Cognito nor Django's auth tables.
 
-`force_login` is going away with `django.contrib.auth`, and most of the suite does not
-care how somebody signed in -- a booking test needs *a customer*, not a round trip
+`force_login` went with `django.contrib.auth`, and most of the suite does not care how
+somebody signed in -- a booking test needs *a customer*, not a round trip
 through a token endpoint. The high-fidelity path still exists and is still exercised:
 `tests_cognito.py` and `tests_staff_auth.py` mint real RS256 tokens against moto and
 verify them for real. That is where the signature, the `client_id` check and the group

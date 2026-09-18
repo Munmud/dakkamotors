@@ -15,7 +15,7 @@ import datetime as dt
 import json
 from unittest import mock
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -24,12 +24,12 @@ from .store import slots as slot_store
 from .tests import (
     DynamoReset, MAIL_SETTINGS, bell, future_slot, make_booking, make_customer,
 )
-from .tests_fake_cognito import FakeCognito, sign_in
+from .tests_fake_cognito import FakeCognito, sign_in, sign_out
 from .tests_staff import make_staff
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffBookingQueueTests(FakeCognito, DynamoReset, TestCase):
+class StaffBookingQueueTests(FakeCognito, DynamoReset, SimpleTestCase):
     """Soonest first, with the phone number on it.
 
     Until the confirmation emails existed this page was the only way anyone found out a
@@ -80,12 +80,12 @@ class StaffBookingQueueTests(FakeCognito, DynamoReset, TestCase):
         self.assertNotContains(response, "buyer@example.com")
 
     def test_a_guest_is_sent_to_sign_in(self):
-        self.client.logout()
+        sign_out(self.client, staff=True)
         self.assertEqual(self.client.get(self.url).status_code, 302)
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffBookingActionTests(FakeCognito, DynamoReset, TestCase):
+class StaffBookingActionTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.staff, _ = make_staff()
@@ -96,8 +96,7 @@ class StaffBookingActionTests(FakeCognito, DynamoReset, TestCase):
 
     def act(self, action):
         with mock.patch("cars.mail.boto3.client") as client:
-            with self.captureOnCommitCallbacks(execute=True):
-                response = self.client.post(self.url, {"action": action}, follow=True)
+            response = self.client.post(self.url, {"action": action}, follow=True)
             calls = client.return_value.put_object.call_args_list
         sent = [json.loads(c.kwargs["Body"].decode("utf-8")) for c in calls]
         return response, sent
@@ -182,7 +181,7 @@ class StaffBookingActionTests(FakeCognito, DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffSlotTests(FakeCognito, DynamoReset, TestCase):
+class StaffSlotTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.staff, _ = make_staff()
@@ -236,5 +235,5 @@ class StaffSlotTests(FakeCognito, DynamoReset, TestCase):
         self.assertEqual(len(response.context["slots"]), 1)
 
     def test_a_guest_is_sent_to_sign_in(self):
-        self.client.logout()
+        sign_out(self.client, staff=True)
         self.assertEqual(self.client.get(self.url).status_code, 302)

@@ -11,10 +11,6 @@ through `/api/auth/login/` like anybody else and be handed a customer token whos
 `cognito:groups` contains `staff`. These pages accept only tokens minted by the *staff*
 app client, which the customer client cannot produce. One string comparison, and
 everything rests on it.
-
-While both auth systems exist, a Django staff session is still accepted. That is what
-keeps the existing staff-page tests meaningful and lets the two land separately; it goes
-with `django.contrib.auth`.
 """
 
 import base64
@@ -46,42 +42,28 @@ STAFF_PATH = "/api/staff"
 def staff_user(request):
     """The signed-in staff member, or None.
 
-    Tries the Cognito cookie first, then a Django staff session. Both are cookie
-    credentials carrying the same weight; the second is transitional.
+    One credential: the `dm_st` cookie, minted by the staff app client through the
+    hosted UI. A Django staff session was accepted alongside it while both auth systems
+    existed; there is no session framework left to ask.
     """
     token = request.COOKIES.get(STAFF_COOKIE)
-    if token:
-        try:
-            claims = authentication.verify(token)
-        except Exception:  # noqa: BLE001 - an unreadable cookie is simply not signed in
-            return None
-        expected = settings.COGNITO_STAFF_CLIENT_ID
-        if expected and claims.get("client_id") != expected:
-            # A customer token, however genuine. Not a credential for these pages.
-            return None
-        user = cognito.CognitoUser.from_claims(claims)
-        return user if user.is_staff else None
-
-    django_user = getattr(request, "user", None)
-    if getattr(django_user, "is_authenticated", False) and django_user.is_staff:
-        return django_user
-    return None
+    if not token:
+        return None
+    try:
+        claims = authentication.verify(token)
+    except Exception:  # noqa: BLE001 - an unreadable cookie is simply not signed in
+        return None
+    expected = settings.COGNITO_STAFF_CLIENT_ID
+    if expected and claims.get("client_id") != expected:
+        # A customer token, however genuine. Not a credential for these pages.
+        return None
+    user = cognito.CognitoUser.from_claims(claims)
+    return user if user.is_staff else None
 
 
 def groups_of(user):
-    """The Cognito groups this person is in, mapped from Django's flags if need be."""
-    groups = getattr(user, "groups", None)
-    if isinstance(groups, (list, tuple)):
-        return set(groups)
-
-    # A Django user during the transition. Its group names are the same strings.
-    names = set(user.groups.values_list("name", flat=True)) if groups is not None else set()
-    mapped = set()
-    if getattr(user, "is_superuser", False):
-        mapped.add(cognito.OWNERS_GROUP)
-    if "Inventory Managers" in names:
-        mapped.add(cognito.INVENTORY_GROUP)
-    return mapped
+    """The Cognito groups this person is in."""
+    return set(getattr(user, "groups", ()) or ())
 
 
 # --------------------------------------------------------------------------------------
@@ -174,9 +156,9 @@ def read_state(state):
 
 def sign_in_url(next_path="/api/staff/"):
     if not _domain():
-        # No hosted UI configured yet. The Django admin login still works and is what
-        # the staff pages fall back to while both systems exist.
-        return "/api/admin/login/?next=" + urllib.parse.quote(next_path)
+        # No hosted UI on this deploy, and no second way in now that the Django admin's
+        # login form has gone. Say so rather than redirect somewhere that 404s.
+        return "/api/staff/auth/not-configured"
 
     query = urllib.parse.urlencode({
         "client_id": settings.COGNITO_STAFF_CLIENT_ID,
@@ -190,7 +172,7 @@ def sign_in_url(next_path="/api/staff/"):
 
 def sign_out_url():
     if not _domain():
-        return "/api/admin/logout/"
+        return "/api/staff/signed-out"
     query = urllib.parse.urlencode({
         "client_id": settings.COGNITO_STAFF_CLIENT_ID,
         "logout_uri": f"https://{settings.ALLOWED_HOSTS[0]}/api/staff/signed-out",

@@ -19,7 +19,7 @@ import tempfile
 import unittest
 
 import jwt
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 try:

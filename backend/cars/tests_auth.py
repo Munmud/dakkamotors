@@ -11,7 +11,7 @@ the moment the password changes.
 import json
 from unittest import mock
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 
 from . import cognito
 from .authentication import ACCESS_COOKIE, REFRESH_COOKIE
@@ -22,7 +22,7 @@ from .tests_cognito import CognitoBackend
 
 
 @override_settings(**MAIL_SETTINGS)
-class AuthFlowTestCase(CognitoBackend, DynamoReset, ClearsThrottleMixin, TestCase):
+class AuthFlowTestCase(CognitoBackend, DynamoReset, ClearsThrottleMixin, SimpleTestCase):
     """A local Cognito, a local DynamoDB, and the real HTTP endpoints in front of both.
 
     `ClearsThrottleMixin` is not optional here: these endpoints are rate limited at

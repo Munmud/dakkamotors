@@ -53,7 +53,6 @@ jobs:
       # job below installs requirements.txt alone, so none of it reaches the Lambda.
       - run: pip install -r requirements-dev.txt
 
-      # No DATABASE_URL, so the ORM half runs against SQLite and needs no cloud access.
       # The credentials are placeholders: DynamoDB Local validates the signature's shape
       # but not the key, and nothing here reaches real AWS.
       - name: Run tests
@@ -102,20 +101,17 @@ jobs:
       - name: Deploy to Lambda
         run: |
           . .venv/bin/activate
-          zappa update production || echo "::warning::Zappa's post-deploy probe failed; migrations run next"
+          zappa update production
 
-      - name: Apply database migrations
+      # There is no schema to migrate and no permission group to reconcile. Both steps
+      # existed because the ORM did: one applied migrations after Zappa's probe had
+      # already failed against the old schema, the other reconciled permissions that
+      # could be granted by hand in the admin. Neither has anything to act on now, and
+      # the smoke test below is what actually gates the deploy.
+      - name: Check the deployed settings
         run: |
           . .venv/bin/activate
-          zappa manage production migrate
-
-      # Re-asserted every deploy so ensure_inventory_group.py stays the source of
-      # truth: permissions granted by hand in the admin are reconciled away here.
-      # Creating accounts is deliberately not part of a deploy.
-      - name: Reconcile the Inventory Managers group
-        run: |
-          . .venv/bin/activate
-          zappa manage production ensure_inventory_group
+          zappa manage production "check --deploy"
 
       - name: Collect static files to S3
         run: |

@@ -6,12 +6,12 @@ visitors interact with, but the first response carries a real title, description
 canonical URL and structured data - so link previews, Bing and the answer engines see
 something other than an empty <div>. See `cars/pages.py` for why it works this way.
 
-The admin lives under /api/ because CloudFront routes that one prefix to the backend.
+The staff pages live under /api/ because CloudFront routes that one prefix to the
+backend with cookies forwarded and caching off.
 """
 
 from django.conf import settings
 from django.conf.urls.static import static
-from django.contrib import admin
 from django.shortcuts import redirect
 from django.urls import include, path
 
@@ -39,13 +39,13 @@ def legacy_car_redirect(request, pk):
 
 
 urlpatterns = [
-    # Declared before the admin so it is matched first; it is admin-only functionality
-    # and belongs under the same prefix, but is a DRF view rather than an admin page.
-    path("api/admin/uploads/sign/", SignUploadView.as_view(), name="sign-upload"),
-    path("api/admin/", admin.site.urls),
-    # Server-rendered staff pages, replacing the Django admin one entity at a time as
-    # each moves to DynamoDB. Under /api/ for the same reason the admin is: that is the
-    # one prefix CloudFront routes to the backend with cookies forwarded and caching off.
+    # A DRF view rather than a staff page, so it is declared here rather than in
+    # cars/staff/urls.py -- but it moved off /api/admin/ with everything else, so that
+    # prefix now 404s outright instead of half-working from a stale bookmark.
+    path("api/staff/uploads/sign/", SignUploadView.as_view(), name="sign-upload"),
+    # Server-rendered staff pages, replacing the Django admin. Under /api/ because that
+    # is the one prefix CloudFront routes to the backend with cookies forwarded and
+    # caching off.
     path("api/staff/", include("cars.staff.urls")),
     path("api/", include("cars.urls")),
     # Crawler-facing files. Previously 403s, because the private S3 bucket answered
@@ -71,6 +71,3 @@ urlpatterns = [
 if settings.DEBUG and not settings.AWS_STORAGE_BUCKET_NAME:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
-admin.site.site_header = "Dakka Motors"
-admin.site.site_title = "Dakka Motors"
-admin.site.index_title = "Inventory administration"

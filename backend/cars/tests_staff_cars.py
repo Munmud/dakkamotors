@@ -11,7 +11,7 @@ import io
 
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from PIL import Image
 
@@ -62,7 +62,7 @@ def image_formset_fields(total=0):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffCarAccessTests(FakeCognito, DynamoReset, TestCase):
+class StaffCarAccessTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.url = reverse("staff:car-list")
@@ -81,7 +81,7 @@ class StaffCarAccessTests(FakeCognito, DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffCarListTests(FakeCognito, DynamoReset, TestCase):
+class StaffCarListTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.staff, _ = make_staff()
@@ -113,7 +113,7 @@ class StaffCarListTests(FakeCognito, DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffCarEditTests(FakeCognito, DynamoReset, TestCase):
+class StaffCarEditTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.staff, _ = make_staff()
@@ -190,7 +190,7 @@ class StaffCarEditTests(FakeCognito, DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffCarPhotoTests(FakeCognito, DynamoReset, TestCase):
+class StaffCarPhotoTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.staff, _ = make_staff()
@@ -267,7 +267,7 @@ class StaffCarPhotoTests(FakeCognito, DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffCarDeleteTests(FakeCognito, DynamoReset, TestCase):
+class StaffCarDeleteTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         # Delete is owner-only in the permission map.

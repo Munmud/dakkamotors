@@ -90,8 +90,8 @@ class CsrfView(APIView):
 
     Survives the move to Cognito untouched, which surprises people: CSRF protection
     needs no database and no session. With `CSRF_USE_SESSIONS = False` the token is a
-    cookie-plus-secret construction, so it keeps working while `django.contrib.sessions`
-    leaves.
+    cookie-plus-secret construction, so it kept working when `django.contrib.sessions`
+    left.
 
     It cannot come from the rendered page: those are cached at the CDN for five minutes
     with cookies ignored, so a token set there would be handed to every visitor alike.

@@ -15,6 +15,7 @@ and point DYNAMODB_ENDPOINT_URL at it. Without one, the whole module skips rathe
 failing, so the suite still runs for someone who has not set it up.
 """
 
+import contextlib
 import datetime as dt
 import unittest
 
@@ -46,6 +47,35 @@ def _local_dynamo_available():
 
 
 AVAILABLE = _local_dynamo_available()
+
+
+@contextlib.contextmanager
+def count_dynamo_calls():
+    """How many round trips to DynamoDB a block costs.
+
+    The replacement for `assertNumQueries`, and worth more than it was: the car detail
+    page is deliberately a single Query over one partition -- images, the car and its
+    published questions all sort into `IMG# < META < Q#` -- and the thing that would
+    quietly undo that is a per-question read inside a loop. Counting operations is how
+    that stays caught.
+
+    Patches `Connection.dispatch` because every operation goes through it, so a new call
+    site cannot slip past by using a different model class.
+    """
+    from pynamodb.connection.base import Connection
+
+    seen = []
+    original = Connection.dispatch
+
+    def counting(self, operation_name, operation_kwargs):
+        seen.append(operation_name)
+        return original(self, operation_name, operation_kwargs)
+
+    Connection.dispatch = counting
+    try:
+        yield seen
+    finally:
+        Connection.dispatch = original
 
 
 def ensure_table():

@@ -5,9 +5,13 @@ Configuration comes from the environment (django-environ), read from a local `.e
 file during development and from Lambda environment variables (populated from SSM
 Parameter Store) in production.
 
-Two deliberate fallbacks keep local development free of cloud dependencies:
-  * no DATABASE_URL            -> SQLite
+There is no relational database at all: `cars/store/` reads and writes DynamoDB and
+`cars/cognito.py` owns identity. One deliberate fallback keeps local development free of
+cloud dependencies:
   * no AWS_STORAGE_BUCKET_NAME -> uploads on local disk
+
+`DYNAMODB_ENDPOINT_URL` points the store at DynamoDB Local, and `COGNITO_ENDPOINT_URL`
+does the same for a stand-in pool.
 """
 
 import sys
@@ -21,7 +25,6 @@ env = environ.Env(
     DEBUG=(bool, False),
     ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1"]),
     SECRET_KEY=(str, "dev-only-insecure-key-do-not-use-in-production"),
-    DATABASE_URL=(str, ""),
     AWS_STORAGE_BUCKET_NAME=(str, ""),
     AWS_S3_REGION_NAME=(str, "ap-northeast-1"),
     MEDIA_CUSTOM_DOMAIN=(str, ""),
@@ -89,11 +92,13 @@ if DEBUG:
 # Applications
 # --------------------------------------------------------------------------------------
 
+# No `auth`, `contenttypes`, `sessions` or `admin`. Cognito holds identity and the store
+# holds everything else, so there is no model layer for them to serve.
+#
+# `messages` stays and is database-free with CookieStorage, which is what lets every
+# `messages.success(...)` string from the admin pages carry over unchanged. `staticfiles`
+# needs no database either -- `collectstatic` still works.
 INSTALLED_APPS = [
-    "django.contrib.admin",
-    "django.contrib.auth",
-    "django.contrib.contenttypes",
-    "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
@@ -101,12 +106,14 @@ INSTALLED_APPS = [
     "cars",
 ]
 
+# CsrfViewMiddleware stays, and it is the piece people expect to go with sessions. With
+# CSRF_USE_SESSIONS = False the token is a cookie-plus-secret construction that touches no
+# database, so `/api/auth/csrf/` and all twenty exported functions in
+# `frontend/src/lib/auth.js` are unchanged by any of this.
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -122,7 +129,6 @@ TEMPLATES = [
         "OPTIONS": {
             "context_processors": [
                 "django.template.context_processors.request",
-                "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
             ],
         },
@@ -134,20 +140,20 @@ TEMPLATES = [
 # Database
 # --------------------------------------------------------------------------------------
 
-if env("DATABASE_URL"):
-    DATABASES = {"default": env.db("DATABASE_URL")}
-else:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-        }
-    }
+# Django's default message storage is FallbackStorage: cookies first, sessions when a
+# message will not fit. There is no session framework any more, so that fallback raises
+# rather than degrades. CookieStorage alone is database-free, and it is what lets every
+# `messages.success(...)` string from the admin pages carry over word for word.
+MESSAGE_STORAGE = "django.contrib.messages.storage.cookie.CookieStorage"
 
-# Connections must close at the end of each request. Aurora Serverless v2 cannot scale
-# down to zero while a connection is held open, and persistent connections are useless
-# in Lambda anyway.
-DATABASES["default"]["CONN_MAX_AGE"] = 0
+
+# There is no relational database. Django 5.2 accepts this, and every read and write
+# goes through `cars/store/` to DynamoDB or through `cars/cognito.py`.
+#
+# Anything that reaches for the ORM from here on fails loudly at the call rather than
+# quietly opening SQLite, which is the point of setting it empty rather than leaving a
+# default in place.
+DATABASES = {}
 
 
 # --------------------------------------------------------------------------------------
@@ -172,23 +178,17 @@ COGNITO_JWKS_PATH = env("COGNITO_JWKS_PATH")
 COGNITO_ENDPOINT_URL = env("COGNITO_ENDPOINT_URL")
 COGNITO_STAFF_CLIENT_SECRET = env("COGNITO_STAFF_CLIENT_SECRET")
 
-# Password hashing is deliberately slow, which is right in production and painful in a
-# suite that creates dozens of accounts - it took the staff-permission tests from a few
-# seconds to well over a minute. Only ever applied while running tests.
-if "test" in sys.argv:
-    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
-
-# Django defaults to three days. With customers allowed weak passwords, a reset link is
-# the strongest route into an account, so it should not stay usable for that long.
-PASSWORD_RESET_TIMEOUT = 60 * 60 * 24
-
-DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-
-AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
-    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
-    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+# Cognito enforces its own password policy, and the customer-lax/staff-strict split that
+# a single pool cannot express lives in `cars/auth_views.py`. Django validates no password
+# here because Django is never handed one: sign-up, sign-in and reset all go to Cognito.
+#
+# `PASSWORD_HASHERS` survives for exactly one reader -- `tests_user_migration.py` uses
+# `django.contrib.auth.hashers.make_password` to generate the pbkdf2_sha256 hashes the
+# UserMigration trigger must accept. That module works without the app installed, since
+# it reads only this setting.
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    "django.contrib.auth.hashers.MD5PasswordHasher",
 ]
 
 
@@ -268,12 +268,11 @@ REST_FRAMEWORK = {
     # is same-origin and sends a cookie.
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "cars.authentication.CognitoCookieAuthentication",
-        # Django's session auth, kept alongside while auth is mid-migration. Both are
-        # cookie credentials and both enforce CSRF, so nothing is weakened by having
-        # two - but this line goes when the ORM's auth tables do, and it is the last
-        # thing keeping `django.contrib.sessions` installed.
-        "rest_framework.authentication.SessionAuthentication",
     ],
+    # DRF's default is django.contrib.auth.models.AnonymousUser, which imports the auth
+    # models and through them contenttypes. Neither app is installed, so the import
+    # raises and every anonymous request 500s.
+    "UNAUTHENTICATED_USER": "cars.cognito.AnonymousCognitoUser",
     "DEFAULT_THROTTLE_CLASSES": [],
     "DEFAULT_THROTTLE_RATES": {
         # Applied to registration and login only. Without email verification an
@@ -301,11 +300,10 @@ if not DEBUG:
     # strips that segment via the origin path, so those links point at a path that does
     # not exist publicly -- and because the SPA router rewrites extensionless paths to
     # index.html, they return the React app with a 200 instead of an obvious 404. That
-    # silently breaks the admin: the login form posts to /production/api/admin/login/
-    # and lands in the frontend. Clearing the script name keeps generated URLs rooted.
+    # silently broke sign-in: the form posted to /production/api/staff/... and landed in
+    # the frontend. Clearing the script name keeps generated URLs rooted.
     FORCE_SCRIPT_NAME = ""
-    pass
-    SESSION_COOKIE_SECURE = True
+
     CSRF_COOKIE_SECURE = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = "DENY"

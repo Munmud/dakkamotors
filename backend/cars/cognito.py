@@ -177,6 +177,48 @@ class CognitoUser:
         )
 
 
+class AnonymousCognitoUser:
+    """What `request.user` is when nobody is signed in.
+
+    DRF's default for this is `django.contrib.auth.models.AnonymousUser`, which imports
+    `django.contrib.auth.models` and through it `contenttypes` -- neither of which is
+    installed any more, so the import raises and every anonymous request 500s. This
+    carries the same handful of attributes the permission and throttle classes read, and
+    nothing else.
+    """
+
+    is_anonymous = True
+    is_authenticated = False
+    is_active = False
+    is_staff = False
+    is_superuser = False
+    sub = None
+    pk = None
+    id = None
+    username = ""
+    email = ""
+    phone = ""
+    groups = ()
+
+    def get_full_name(self):
+        return ""
+
+    def get_short_name(self):
+        return ""
+
+    def has_perm(self, *args, **kwargs):
+        return False
+
+    def has_perms(self, *args, **kwargs):
+        return False
+
+    def has_module_perms(self, *args, **kwargs):
+        return False
+
+    def __str__(self):
+        return "AnonymousUser"
+
+
 # --------------------------------------------------------------------------------------
 # Sign-up and confirmation
 # --------------------------------------------------------------------------------------

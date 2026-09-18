@@ -6,7 +6,6 @@ django-environ==0.14.0
 django-storages==1.14.6
 boto3==1.43.90
 Pillow==12.3.0
-psycopg2-binary==2.9.12
 
 # The DynamoDB layer. `cars/store/` is the only data access path the application has, so
 # this is not optional in any environment -- a missing pynamodb is an ImportError at

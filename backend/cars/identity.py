@@ -1,31 +1,24 @@
-"""Who a customer is, during the move from Django auth to Cognito.
+"""Reading a person, safely, wherever one is handed in.
 
-The store keys everything on a Cognito `sub`. While the ORM is still present, the app
-hands the domain layer a Django `User`, whose identity is an integer primary key. This
-module is the single bridge between the two, so that every other module can simply ask
-for `sub_of(user)` and stop caring which world it is in.
+This began as a bridge between Django users and Cognito ones and was meant to be deleted
+with the ORM. Most of it earned its place instead: `is_reachable`, `email_of` and
+`full_name_of` are null-safe accessors used at twenty-nine call sites, and inlining
+`(getattr(user, "email", "") or "").strip()` at each of them would be worse code, not
+less of it. What went is the branching -- the integer-primary-key lookups and the
+`customer_profile` hop.
 
-It exists to be deleted. When Cognito lands, `sub_of` becomes `user.sub` and the
-migration importer will have written the same value into every stored item -- which is
-why the mapping has to be stable and defined in exactly one place rather than inlined at
-a dozen call sites.
+The one thing to keep in mind: a user may legitimately be `None`. A staff-seeded question
+has no asker and a closed account has no bell, and both are ordinary states rather than
+errors, which is why nothing here raises.
 """
 
 
 def sub_of(user):
-    """The store's identifier for a customer, or None if there is nobody.
-
-    A Cognito-backed user carries its own `sub`. A Django user does not, so its primary
-    key is used, stringified -- the migration importer writes the same value, so items
-    written before and after the cutover agree.
-    """
+    """The store's identifier for a customer, or None if there is nobody."""
     if user is None:
         return None
     sub = getattr(user, "sub", None)
-    if sub:
-        return str(sub)
-    pk = getattr(user, "pk", None)
-    return str(pk) if pk is not None else None
+    return str(sub) if sub else None
 
 
 def is_reachable(user):
@@ -42,16 +35,12 @@ def email_of(user):
 
 
 def phone_of(user):
-    """The phone number, wherever it currently lives.
+    """The phone number, or empty.
 
-    Django keeps it on a one-to-one CustomerProfile; Cognito will keep it as a custom
-    attribute read straight off the user. Both are handled so callers need not branch.
+    `custom:phone` on the Cognito user, not the standard `phone_number`: Cognito
+    validates that one as E.164 and customers here type `080-9282-3601`.
     """
-    phone = getattr(user, "phone", None)
-    if phone:
-        return phone
-    profile = getattr(user, "customer_profile", None)
-    return getattr(profile, "phone", "") if profile else ""
+    return getattr(user, "phone", "") or ""
 
 
 def full_name_of(user):
@@ -63,45 +52,26 @@ def full_name_of(user):
 
 
 def car_id_of(car):
-    """The store's identifier for a car, from either representation.
-
-    Same bridge as `sub_of`, for the same reason and with the same expiry date. A store
-    Car carries `car_id`; a Django Car has an integer primary key, and the migration
-    importer writes that same value as a string, so items written on either side of the
-    cutover agree.
-    """
+    """The store's identifier for a car, or None."""
     if car is None:
         return None
     car_id = getattr(car, "car_id", None)
-    if car_id:
-        return str(car_id)
-    pk = getattr(car, "pk", None)
-    return str(pk) if pk is not None else None
+    return str(car_id) if car_id else None
 
 
 def user_for_sub(sub):
     """Resolve a stored subject identifier back to a person, or None.
 
-    The other half of `sub_of`, and the other half of this module's expiry date. Today
-    that is a Django user lookup by primary key; with Cognito it becomes an
-    `AdminGetUser` call, and only this function changes.
+    The other half of `sub_of`, and one `AdminGetUser` call.
 
     Returns None rather than raising: a question outlives the account that asked it by
-    design (`CarQuestion.customer` was SET_NULL precisely so a closed account could not
-    silently delete published page content), so "nobody to tell" is an ordinary answer.
+    design -- it holds a subject identifier, not a foreign key, so a closed account
+    cannot take published page content with it -- and "nobody to tell" is an ordinary
+    answer rather than a failure.
     """
     if not sub:
         return None
 
-    # A Cognito sub is a UUID; a Django primary key is an integer. Which one a stored
-    # identifier is says which world it came from, so the shape is the lookup.
-    try:
-        pk = int(sub)
-    except (TypeError, ValueError):
-        from . import cognito
+    from . import cognito
 
-        return cognito.user_for(sub)
-
-    from django.contrib.auth import get_user_model
-
-    return get_user_model().objects.filter(pk=pk).first()
+    return cognito.user_for(sub)

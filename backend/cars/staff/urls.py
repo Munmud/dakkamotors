@@ -23,6 +23,8 @@ urlpatterns = [
     path("auth/callback/", views_auth.callback, name="auth-callback"),
     path("auth/sign-out/", views_auth.sign_out, name="sign-out"),
     path("signed-out", views_auth.signed_out, name="signed-out"),
+    path("auth/not-configured", views_auth.not_configured,
+         name="not-configured"),
     path("questions/", views_questions.question_list, name="question-list"),
     path("questions/<str:question_id>/", views_questions.question_detail,
          name="question-detail"),

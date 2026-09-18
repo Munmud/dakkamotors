@@ -20,8 +20,10 @@ def robots_txt(request):
     lines = [
         "User-agent: *",
         "Allow: /",
-        # Nothing here is useful to a crawler and the admin should never be indexed.
-        "Disallow: /api/admin/",
+        # Nothing here is useful to a crawler and the staff pages should never be
+        # indexed. `/api/` below covers it; this line is kept because the intent is
+        # worth stating where somebody reading robots.txt will see it.
+        "Disallow: /api/staff/",
         "Disallow: /api/",
         # Sign-in and booking screens: nothing to index, and every URL under them is
         # personal to one customer.

@@ -70,3 +70,16 @@ def signed_out(request):
     """Where Cognito returns after its logout endpoint."""
     return HttpResponse(
         "Signed out.", status=200, content_type="text/plain; charset=utf-8")
+
+
+def not_configured(request):
+    """No hosted UI, so there is no way to sign in.
+
+    This used to redirect to the Django admin's login form, which was a real fallback
+    while both auth systems existed. There is no second way in now, so saying so beats
+    a redirect to a URL that 404s -- and 503 is the honest code: the deploy is missing
+    a setting, not the visitor a permission.
+    """
+    return HttpResponse(
+        "Staff sign-in is not configured: COGNITO_DOMAIN is unset on this deploy.",
+        status=503, content_type="text/plain; charset=utf-8")
