@@ -1,0 +1,47 @@
+{% extends "staff/base.html" %}
+
+{% comment %}
+Read-only, as CustomerProfileAdmin was: customers manage their own details and staff
+only need to look one up while somebody is on the phone.
+{% endcomment %}
+
+{% block content %}
+  <h1>Customers</h1>
+
+  <div class="panel">
+    <form method="get" class="filters">
+      <div style="flex:1 1 18rem;">
+        <label for="q">Search by email</label>
+        <input type="text" id="q" name="q" value="{{ term }}">
+      </div>
+      <div><button type="submit">Search</button></div>
+    </form>
+  </div>
+
+  <div class="panel">
+    {% if customers %}
+      <table>
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Active bookings</th>
+            <th>Joined</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for customer in customers %}
+            <tr>
+              <td>{{ customer.email|default:"—" }}</td>
+              <td>{{ customer.active_bookings|default:"0" }}</td>
+              <td>{{ customer.created_at|date:"j M Y"|default:"—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">
+        {% if term %}Nobody matches “{{ term }}”.{% else %}No customers yet.{% endif %}
+      </p>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -18,6 +18,7 @@ from .store import keys
 from .tests import (
     DynamoReset, MAIL_SETTINGS, make_booking, make_customer, make_schedule,
 )
+from .tests_fake_cognito import FakeCognito, sign_in
 from .tests_staff import make_staff, make_staff_without_permissions
 
 
@@ -37,11 +38,11 @@ def rule_fields(**overrides):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffScheduleTests(DynamoReset, TestCase):
+class StaffScheduleTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.staff, _ = make_staff()
-        self.client.force_login(self.staff)
+        sign_in(self.client, self.staff, staff=True)
         self.url = reverse("staff:schedule-list")
 
     def test_a_guest_is_sent_to_sign_in(self):
@@ -49,7 +50,7 @@ class StaffScheduleTests(DynamoReset, TestCase):
         self.assertEqual(self.client.get(self.url).status_code, 302)
 
     def test_staff_without_the_permission_are_refused(self):
-        self.client.force_login(make_staff_without_permissions())
+        sign_in(self.client, make_staff_without_permissions(), staff=True)
         self.assertEqual(self.client.get(self.url).status_code, 403)
 
     def test_an_empty_list_says_no_times_are_on_offer(self):

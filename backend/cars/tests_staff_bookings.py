@@ -24,11 +24,12 @@ from .store import slots as slot_store
 from .tests import (
     DynamoReset, MAIL_SETTINGS, bell, future_slot, make_booking, make_customer,
 )
+from .tests_fake_cognito import FakeCognito, sign_in
 from .tests_staff import make_staff
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffBookingQueueTests(DynamoReset, TestCase):
+class StaffBookingQueueTests(FakeCognito, DynamoReset, TestCase):
     """Soonest first, with the phone number on it.
 
     Until the confirmation emails existed this page was the only way anyone found out a
@@ -38,7 +39,7 @@ class StaffBookingQueueTests(DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.staff, _ = make_staff()
-        self.client.force_login(self.staff)
+        sign_in(self.client, self.staff, staff=True)
         self.customer, _ = make_customer("buyer@example.com")
         self.url = reverse("staff:booking-list")
 
@@ -84,11 +85,11 @@ class StaffBookingQueueTests(DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffBookingActionTests(DynamoReset, TestCase):
+class StaffBookingActionTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.staff, _ = make_staff()
-        self.client.force_login(self.staff)
+        sign_in(self.client, self.staff, staff=True)
         self.customer, _ = make_customer("buyer@example.com")
         self.booking = make_booking(self.customer, future_slot(), car_label="Tanto")
         self.url = reverse("staff:booking-detail", args=[self.booking.booking_id])
@@ -181,11 +182,11 @@ class StaffBookingActionTests(DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffSlotTests(DynamoReset, TestCase):
+class StaffSlotTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.staff, _ = make_staff()
-        self.client.force_login(self.staff)
+        sign_in(self.client, self.staff, staff=True)
         self.url = reverse("staff:slot-list")
 
     def test_slots_are_listed_with_their_occupancy(self):

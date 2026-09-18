@@ -25,6 +25,7 @@ from PIL import Image
 
 from .management.commands.ensure_inventory_group import GROUP_NAME
 from . import booking as booking_rules
+from . import identity
 from . import email_theme
 from . import mail
 from . import notifications
@@ -55,6 +56,9 @@ from .store import notifications as notification_store
 from .store import questions as question_store
 from .store import schedules as schedule_store
 from .store import slots as slot_store
+from . import cognito
+from . import tests_fake_cognito as fake_cognito
+from .tests_fake_cognito import FakeCognito, sign_in
 from .tests_store import ensure_table, truncate_table
 from .uploads import UploadRejected, _validate
 
@@ -486,6 +490,39 @@ class SignUploadEndpointTests(TestCase):
         self.assertIn("MP4", response.json()["detail"])
 
 
+# --------------------------------------------------------------------------------------
+# Django-backed fixtures, for the four classes that test what is being removed
+# --------------------------------------------------------------------------------------
+#
+# `InventoryManagerAccessTests`, `StaffAdministrationTests`, `SuperuserUnaffectedTests`
+# and `NotificationModelTests` assert the behaviour of `django.contrib.admin` and of the
+# ORM `Notification` model. Both are on their way out, and neither has a Cognito shape to
+# be ported to -- the escalation those admin tests defend against is refused by
+# `OWNER_ONLY` before a page is reached at all, which is what `tests_staff_accounts.py`
+# asserts instead.
+#
+# Until they are deleted they need real Django users, because that is the thing they are
+# about. These two helpers exist so the rest of the suite can be on Cognito without
+# holding those four classes hostage. Delete them in the same commit.
+
+def django_manager(username="manager", password="inventory-pw-12345"):
+    call_command("ensure_inventory_group", stdout=io.StringIO())
+    user = get_user_model().objects.create_user(username=username, password=password)
+    user.is_staff = True
+    user.save()
+    user.groups.add(Group.objects.get(name=GROUP_NAME))
+    return user, password
+
+
+def django_customer(email="buyer@example.com", password="customer-pw-1234",
+                    phone="080-1111-2222"):
+    user = get_user_model().objects.create_user(
+        username=email, email=email, password=password,
+        first_name="Test", last_name="Buyer")
+    CustomerProfile.objects.create(user=user, phone=phone)
+    return user, password
+
+
 class InventoryGroupTests(TestCase):
     """The role is a security boundary, so the negative cases carry the weight."""
 
@@ -564,17 +601,21 @@ class InventoryGroupTests(TestCase):
 
 
 def make_manager(username="manager", password="inventory-pw-12345"):
-    call_command("ensure_inventory_group", stdout=io.StringIO())
-    user = get_user_model().objects.create_user(username=username, password=password)
-    user.is_staff = True
-    user.save()
-    user.groups.add(Group.objects.get(name=GROUP_NAME))
+    """Somebody in the inventory-managers group.
+
+    Still returns the password so the call sites that unpack two values keep working.
+    Nothing stores one any more -- Cognito holds it, and the fake holds nothing at all.
+    """
+    user = fake_cognito.make_user(
+        f"{username}@example.com", name="Inventory Manager",
+        groups=(cognito.STAFF_GROUP, cognito.INVENTORY_GROUP),
+    )
     return user, password
 
 
 class InventoryManagerAccessTests(TestCase):
     def setUp(self):
-        self.user, self.password = make_manager()
+        self.user, self.password = django_manager()
         self.client.login(username=self.user.username, password=self.password)
 
     def test_manager_is_staff_but_not_a_superuser(self):
@@ -692,11 +733,11 @@ class StaffAdministrationTests(TestCase):
     STAFF_URL = "/api/admin/cars/staffaccount/"
 
     def setUp(self):
-        self.manager, self.password = make_manager()
+        self.manager, self.password = django_manager()
         self.owner = get_user_model().objects.create_superuser(
             "owner", password="owner-pw-123456"
         )
-        self.colleague, _ = make_manager("colleague", "colleague-pw-1234")
+        self.colleague, _ = django_manager("colleague", "colleague-pw-1234")
         self.client.login(username=self.manager.username, password=self.password)
 
     def change_url(self, user):
@@ -896,7 +937,7 @@ class StaffAdministrationTests(TestCase):
 class SuperuserUnaffectedTests(TestCase):
     def test_superuser_still_sees_every_account(self):
         get_user_model().objects.create_superuser("owner", password="owner-pw-123456")
-        other, _ = make_manager("other", "other-pw-12345")
+        other, _ = django_manager("other", "other-pw-12345")
         self.client.login(username="owner", password="owner-pw-123456")
 
         body = self.client.get("/api/admin/cars/staffaccount/").content.decode()
@@ -1085,11 +1126,14 @@ class SlugApiTests(DynamoReset, TestCase):
         self.assertEqual(response.json()["id"], car.car_id)
 
 
-def make_customer(email="buyer@example.com", password="customer-pw-1234", phone="080-1111-2222"):
-    user = get_user_model().objects.create_user(
-        username=email, email=email, password=password, first_name="Test", last_name="Buyer"
-    )
-    CustomerProfile.objects.create(user=user, phone=phone)
+def make_customer(email="buyer@example.com", password="customer-pw-1234",
+                  phone="080-1111-2222", name="Test Buyer"):
+    """A customer, as the app sees one after a sign-in.
+
+    The password comes back unchanged for the tests that re-submit it to an endpoint;
+    it is no longer a credential anything here can check, because Cognito owns that.
+    """
+    user = fake_cognito.make_user(email, name=name, phone=phone)
     return user, password
 
 
@@ -1137,11 +1181,12 @@ class _CustomerRef:
     """What the store snapshots onto a booking. Mirrors booking._CustomerRef."""
 
     def __init__(self, user):
-        self.sub = str(user.pk)
-        self.email = user.email or ""
-        profile = getattr(user, "customer_profile", None)
-        self.phone = getattr(profile, "phone", "") if profile else ""
-        self._name = user.get_full_name() or user.username
+        # Through `identity` rather than by hand, so this fixture cannot drift from the
+        # snapshot the real booking path takes.
+        self.sub = identity.sub_of(user)
+        self.email = identity.email_of(user)
+        self.phone = identity.phone_of(user)
+        self._name = identity.full_name_of(user)
 
     def get_full_name(self):
         return self._name
@@ -1161,7 +1206,8 @@ def make_booking(customer, slot, car=None, car_label=None, now=None):
     are fixtures setting up a scenario, not exercising the cap.
     """
     now = now or timezone.now()
-    customer_store.ensure(sub=str(customer.pk), email=customer.email or "", now=now)
+    customer_store.ensure(sub=identity.sub_of(customer),
+                          email=identity.email_of(customer), now=now)
     booking = booking_store.create(
         customer=_CustomerRef(customer), slot=slot, car=car, now=now, max_active=99,
     )
@@ -1229,7 +1275,7 @@ class SlotGenerationTests(DynamoReset, TestCase):
         self.assertTrue(all(s.capacity == 2 for s in slots_in_store()))
 
 
-class BookingRuleTests(DynamoReset, TestCase):
+class BookingRuleTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.user, _ = make_customer()
@@ -1375,14 +1421,14 @@ class BookingRuleTests(DynamoReset, TestCase):
         self.assertTrue(booking.is_active)
 
 
-class BookingApiTests(DynamoReset, TestCase):
+class BookingApiTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.user, self.password = make_customer()
         self.car = make_car("API-BOOK", brand="Honda", model_name="N-Box")
 
     def login(self):
-        self.client.login(username=self.user.username, password=self.password)
+        sign_in(self.client, self.user)
 
     def test_anonymous_visitors_can_see_availability(self):
         """Making someone register before they can see if a time suits loses them."""
@@ -1542,7 +1588,7 @@ class UnconfiguredEmailTests(TestCase):
         client.assert_not_called()
 
 
-class BookingApprovalTests(DynamoReset, TestCase):
+class BookingApprovalTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.user, _ = make_customer()
@@ -1591,7 +1637,7 @@ class BookingApprovalTests(DynamoReset, TestCase):
     MAIL_FROM="noreply@dakkamotors.com",
     STAFF_ALERT_EMAIL="staff@example.com",
 )
-class BookingEmailTests(DynamoReset, TestCase):
+class BookingEmailTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.user, _ = make_customer(email="buyer@example.com")
@@ -1710,7 +1756,7 @@ class PrimaryImageFallbackTests(DynamoReset, TestCase):
         self.assertIsNone(make_car("EMPTY").primary_image)
 
 
-class EmailTemplateTests(DynamoReset, TestCase):
+class EmailTemplateTests(FakeCognito, DynamoReset, TestCase):
     """The shell every message is rendered into.
 
     The point of these is that the logo survives the two things that usually break it:
@@ -1772,9 +1818,8 @@ class EmailTemplateTests(DynamoReset, TestCase):
 
     def test_a_customer_name_cannot_inject_markup(self):
         """The staff alert interpolates a name the customer chose."""
-        user, _ = make_customer("sneaky@example.com")
-        user.first_name = "<script>alert(1)</script>"
-        user.save()
+        user, _ = make_customer("sneaky@example.com",
+                                name="<script>alert(1)</script>")
         slot = future_slot()
         booking = make_booking(user, slot, car_label="Tanto")
 
@@ -1787,7 +1832,7 @@ class EmailTemplateTests(DynamoReset, TestCase):
         self.assertIn("&lt;script&gt;", body["html"])
 
 
-class CarQuestionStorageTests(DynamoReset, TestCase):
+class CarQuestionStorageTests(FakeCognito, DynamoReset, TestCase):
     """What survives of the schema-level guarantees.
 
     Two tests were deleted here rather than ported, because what they asserted no longer
@@ -1815,7 +1860,7 @@ class CarQuestionStorageTests(DynamoReset, TestCase):
                                  question="Any service history?",
                                  answer="Full history.", published=True)
 
-        user.delete()
+        fake_cognito.close_account(user)
 
         question.refresh()
         self.assertTrue(question.is_published)
@@ -1837,7 +1882,7 @@ class CarQuestionStorageTests(DynamoReset, TestCase):
 
 class NotificationModelTests(TestCase):
     def setUp(self):
-        self.user, _ = make_customer("bell@example.com")
+        self.user, _ = django_customer("bell@example.com")
 
     def test_a_dedupe_key_can_only_be_used_once_per_customer(self):
         Notification.objects.create(
@@ -1862,7 +1907,7 @@ class NotificationModelTests(TestCase):
         self.assertEqual(Notification.objects.count(), 3)
 
     def test_the_same_key_may_be_used_for_a_different_customer(self):
-        other, _ = make_customer("other@example.com")
+        other, _ = django_customer("other@example.com")
         Notification.objects.create(
             customer=self.user, kind=NotificationKind.BOOKING_CONFIRMED,
             dedupe_key="booking:1:confirmed",
@@ -1886,7 +1931,7 @@ class NotificationModelTests(TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class AskingTests(DynamoReset, ClearsThrottleMixin, TestCase):
+class AskingTests(FakeCognito, DynamoReset, ClearsThrottleMixin, TestCase):
     def setUp(self):
         super().setUp()
         self.car = make_car("ASK-1", brand="Daihatsu", model_name="Tanto")
@@ -1901,7 +1946,7 @@ class AskingTests(DynamoReset, ClearsThrottleMixin, TestCase):
                                         content_type="application/json")
 
     def test_a_signed_in_customer_can_ask(self):
-        self.client.force_login(self.user)
+        sign_in(self.client, self.user)
 
         response = self.ask()
 
@@ -1919,7 +1964,7 @@ class AskingTests(DynamoReset, ClearsThrottleMixin, TestCase):
         self.assertEqual(questions_in_store(), [])
 
     def test_asking_alerts_the_shop_and_can_be_replied_to(self):
-        self.client.force_login(self.user)
+        sign_in(self.client, self.user)
 
         with mock.patch("cars.mail.boto3.client") as client:
             with self.captureOnCommitCallbacks(execute=True):
@@ -1934,17 +1979,17 @@ class AskingTests(DynamoReset, ClearsThrottleMixin, TestCase):
         self.assertEqual(sent[0]["replyTo"], "asker@example.com")
 
     def test_an_empty_question_is_refused(self):
-        self.client.force_login(self.user)
+        sign_in(self.client, self.user)
 
         self.assertEqual(self.ask(question="   ").status_code, 400)
 
     def test_an_unknown_car_is_refused(self):
-        self.client.force_login(self.user)
+        sign_in(self.client, self.user)
 
         self.assertEqual(self.ask(car="no-such-car").status_code, 400)
 
     def test_a_backlog_of_unanswered_questions_is_capped(self):
-        self.client.force_login(self.user)
+        sign_in(self.client, self.user)
         for _ in range(qa.MAX_OPEN_QUESTIONS):
             make_question(self.car, customer=self.user, question="?")
 
@@ -1954,7 +1999,7 @@ class AskingTests(DynamoReset, ClearsThrottleMixin, TestCase):
         self.assertIn(str(qa.MAX_OPEN_QUESTIONS), response.json()["detail"])
 
     def test_an_answered_question_does_not_count_towards_the_cap(self):
-        self.client.force_login(self.user)
+        sign_in(self.client, self.user)
         for _ in range(qa.MAX_OPEN_QUESTIONS):
             make_question(self.car, customer=self.user, question="?",
                           answer="Yes.", answered=True)
@@ -1965,7 +2010,7 @@ class AskingTests(DynamoReset, ClearsThrottleMixin, TestCase):
         other, _ = make_customer("other@example.com")
         make_question(self.car, customer=other, question="Theirs")
         make_question(self.car, customer=self.user, question="Mine")
-        self.client.force_login(self.user)
+        sign_in(self.client, self.user)
 
         results = self.client.get(f"/api/questions/?car={self.car.slug}").json()["results"]
 
@@ -1973,7 +2018,7 @@ class AskingTests(DynamoReset, ClearsThrottleMixin, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class AnsweringTests(DynamoReset, TestCase):
+class AnsweringTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.car = make_car("ANS-1", brand="Suzuki", model_name="Every")
@@ -2035,7 +2080,7 @@ class AnsweringTests(DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class PublishingTests(DynamoReset, TestCase):
+class PublishingTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.car = make_car("PUB-1", brand="Honda", model_name="N-Box")
@@ -2063,16 +2108,14 @@ class PublishingTests(DynamoReset, TestCase):
         self.assertGreater(self.car.updated_at, before)
 
 
-class PublishedQuestionsAreAnonymousTests(DynamoReset, TestCase):
+class PublishedQuestionsAreAnonymousTests(FakeCognito, DynamoReset, TestCase):
     """The published pair is public content; the person who asked is not."""
 
     def setUp(self):
         super().setUp()
         self.car = make_car("ANON-1", brand="Daihatsu", model_name="Tanto")
-        self.user, _ = make_customer("yuki.tanaka@example.com")
-        self.user.first_name = "Yuki"
-        self.user.last_name = "Tanaka"
-        self.user.save()
+        self.user, _ = make_customer("yuki.tanaka@example.com",
+                                     name="Yuki Tanaka")
         self.question = make_question(
             self.car, customer=self.user,
             question="Has it had one owner?", answer="Yes, one owner from new.",
@@ -2126,7 +2169,7 @@ class PublishedQuestionsAreAnonymousTests(DynamoReset, TestCase):
                          ["Has it had one owner?"])
 
 
-class QuestionSeoTests(DynamoReset, TestCase):
+class QuestionSeoTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.car = make_car("SEO-1", brand="Honda", model_name="N-Box")
@@ -2222,14 +2265,14 @@ class QuestionSeoTests(DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class NotificationApiTests(DynamoReset, TestCase):
+class NotificationApiTests(FakeCognito, DynamoReset, TestCase):
     """A bell is one person's history. The isolation cases carry the weight."""
 
     def setUp(self):
         super().setUp()
         self.user, _ = make_customer("mine@example.com")
         self.other, _ = make_customer("theirs@example.com")
-        self.client.force_login(self.user)
+        sign_in(self.client, self.user)
 
     def make(self, user=None, kind=NotificationKind.QUESTION_ANSWERED, **extra):
         return notifications.notify(user=user or self.user, kind=kind, **extra)
@@ -2309,7 +2352,7 @@ class NotificationApiTests(DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class BookingNotificationTests(DynamoReset, TestCase):
+class BookingNotificationTests(FakeCognito, DynamoReset, TestCase):
     """Booking events reach the bell without sending a second email."""
 
     def setUp(self):

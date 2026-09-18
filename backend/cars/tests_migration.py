@@ -38,10 +38,11 @@ from .store import schedules as schedule_store
 from .store import slots as slot_store
 from .store.models import ChassisGuard, LegacyCarPointer, Seat, SlugGuard
 from .tests import DynamoReset, MAIL_SETTINGS
+from .tests_fake_cognito import FakeCognito, sign_in
 
 
 @override_settings(**MAIL_SETTINGS)
-class MigrationRoundTripTests(DynamoReset, TestCase):
+class MigrationRoundTripTests(FakeCognito, DynamoReset, TestCase):
     """Build a small but complete Postgres state, export it, import it, check it."""
 
     def setUp(self):
@@ -285,7 +286,7 @@ class MigrationRoundTripTests(DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class ReconcileCountersTests(DynamoReset, TestCase):
+class ReconcileCountersTests(FakeCognito, DynamoReset, TestCase):
     """The repair for the two counters that replaced COUNT(*) under a lock."""
 
     def setUp(self):

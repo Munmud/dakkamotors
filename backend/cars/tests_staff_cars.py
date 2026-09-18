@@ -21,7 +21,8 @@ from .store.errors import NotFound
 from .store.models import ChassisGuard, SlugGuard
 from .store import keys
 from .tests import DynamoReset, MAIL_SETTINGS, attach_photo, make_car
-from .tests_staff import make_staff, make_staff_without_permissions
+from .tests_fake_cognito import FakeCognito, sign_in
+from .tests_staff import make_owner, make_staff, make_staff_without_permissions
 
 
 def a_jpeg(width=1000, height=750):
@@ -61,7 +62,7 @@ def image_formset_fields(total=0):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffCarAccessTests(DynamoReset, TestCase):
+class StaffCarAccessTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.url = reverse("staff:car-list")
@@ -70,21 +71,21 @@ class StaffCarAccessTests(DynamoReset, TestCase):
         self.assertEqual(self.client.get(self.url).status_code, 302)
 
     def test_staff_without_the_permission_are_refused(self):
-        self.client.force_login(make_staff_without_permissions())
+        sign_in(self.client, make_staff_without_permissions(), staff=True)
         self.assertEqual(self.client.get(self.url).status_code, 403)
 
     def test_an_inventory_manager_can_open_the_list(self):
         staff, _ = make_staff()
-        self.client.force_login(staff)
+        sign_in(self.client, staff, staff=True)
         self.assertEqual(self.client.get(self.url).status_code, 200)
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffCarListTests(DynamoReset, TestCase):
+class StaffCarListTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.staff, _ = make_staff()
-        self.client.force_login(self.staff)
+        sign_in(self.client, self.staff, staff=True)
         self.url = reverse("staff:car-list")
 
     def test_searching_by_partial_chassis_number_finds_the_car(self):
@@ -112,11 +113,11 @@ class StaffCarListTests(DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffCarEditTests(DynamoReset, TestCase):
+class StaffCarEditTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.staff, _ = make_staff()
-        self.client.force_login(self.staff)
+        sign_in(self.client, self.staff, staff=True)
 
     def test_adding_a_car_creates_it_with_a_slug(self):
         response = self.client.post(
@@ -189,11 +190,11 @@ class StaffCarEditTests(DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffCarPhotoTests(DynamoReset, TestCase):
+class StaffCarPhotoTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.staff, _ = make_staff()
-        self.client.force_login(self.staff)
+        sign_in(self.client, self.staff, staff=True)
         self.car = make_car("PHOTOS-1")
         self.url = reverse("staff:car-edit", args=[self.car.car_id])
 
@@ -266,13 +267,12 @@ class StaffCarPhotoTests(DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffCarDeleteTests(DynamoReset, TestCase):
+class StaffCarDeleteTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
-        self.staff, _ = make_staff()
-        self.staff.is_superuser = True  # delete is owner-only in the permission map
-        self.staff.save()
-        self.client.force_login(self.staff)
+        # Delete is owner-only in the permission map.
+        self.staff, _ = make_owner()
+        sign_in(self.client, self.staff, staff=True)
 
     def test_deleting_a_car_takes_its_guards_photos_and_files(self):
         car = make_car("DELETE-1")

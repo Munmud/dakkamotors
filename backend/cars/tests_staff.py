@@ -18,29 +18,40 @@ from .store import questions as question_store
 from .tests import (
     DynamoReset, MAIL_SETTINGS, make_car, make_customer, make_manager, make_question,
 )
+from . import cognito
+from . import tests_fake_cognito as fake_cognito
+from .tests_fake_cognito import FakeCognito, sign_in
 
 
 def make_staff(username="staffer"):
-    """An Inventory Manager, which is what the shop's staff actually are.
+    """An inventory manager, which is what the shop's staff actually are.
 
-    Reuses the same group the deploy reconciles, so these tests exercise the real
-    permission set rather than an invented one - and `@requires` in staff/auth.py maps
-    onto exactly those permissions while Django still holds them.
+    The groups are the real ones `permissions.py` reads, so these tests exercise the
+    actual permission set rather than an invented one.
     """
     return make_manager(username=username)
 
 
+def make_owner(username="owner"):
+    """An owner: everything, including what OWNER_ONLY holds back from a manager."""
+    user = fake_cognito.make_user(f"{username}@example.com", name="The Owner",
+                                  groups=(cognito.STAFF_GROUP, cognito.OWNERS_GROUP))
+    return user, "owner-pw-123456"
+
+
 def make_staff_without_permissions(username="newstarter"):
-    """is_staff, but in no group. The admin would show them an empty index."""
-    user = get_user_model().objects.create_user(username=username,
-                                                password="staff-pw-123456")
-    user.is_staff = True
-    user.save()
-    return user
+    """In `staff`, and in no other group.
+
+    The door and the rooms are separate: `staff` is what gets somebody past
+    `staff_required`, and a group is what decides which pages they may then read. This
+    is a new starter nobody has given a role to yet.
+    """
+    return fake_cognito.make_user(f"{username}@example.com", name="New Starter",
+                                  groups=(cognito.STAFF_GROUP,))
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffQuestionAccessTests(DynamoReset, TestCase):
+class StaffQuestionAccessTests(FakeCognito, DynamoReset, TestCase):
     """Who may reach the queue at all."""
 
     def setUp(self):
@@ -57,13 +68,13 @@ class StaffQuestionAccessTests(DynamoReset, TestCase):
         self.assertIn("/api/admin/login/", response["Location"])
 
     def test_a_signed_in_customer_is_not_staff(self):
-        self.client.force_login(self.customer)
+        sign_in(self.client, self.customer)
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 302)
 
     def test_a_staff_member_sees_the_queue(self):
         staff, _ = make_staff()
-        self.client.force_login(staff)
+        sign_in(self.client, staff, staff=True)
 
         response = self.client.get(self.url)
 
@@ -77,20 +88,20 @@ class StaffQuestionAccessTests(DynamoReset, TestCase):
         A new starter in no group sees nothing, exactly as the admin index would be
         empty for them.
         """
-        self.client.force_login(make_staff_without_permissions())
+        sign_in(self.client, make_staff_without_permissions(), staff=True)
 
         self.assertEqual(self.client.get(self.url).status_code, 403)
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffQuestionQueueTests(DynamoReset, TestCase):
+class StaffQuestionQueueTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.car = make_car("STAFF-2", brand="Daihatsu", model_name="Tanto")
         self.other = make_car("STAFF-3", brand="Suzuki", model_name="Alto")
         self.customer, _ = make_customer("asker@example.com")
         self.staff, _ = make_staff()
-        self.client.force_login(self.staff)
+        sign_in(self.client, self.staff, staff=True)
         self.url = reverse("staff:question-list")
 
     def test_searching_narrows_the_queue(self):
@@ -134,7 +145,7 @@ class StaffQuestionQueueTests(DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffAnsweringTests(DynamoReset, TestCase):
+class StaffAnsweringTests(FakeCognito, DynamoReset, TestCase):
     """The page must not be able to skip what the domain layer promises."""
 
     def setUp(self):
@@ -142,7 +153,7 @@ class StaffAnsweringTests(DynamoReset, TestCase):
         self.car = make_car("STAFF-4", brand="Honda", model_name="N-Box")
         self.customer, _ = make_customer("asker@example.com")
         self.staff, _ = make_staff()
-        self.client.force_login(self.staff)
+        sign_in(self.client, self.staff, staff=True)
         self.question = make_question(self.car, customer=self.customer,
                                       question="Any service history?")
         self.url = reverse("staff:question-detail", args=[self.question.question_id])
@@ -201,13 +212,13 @@ class StaffAnsweringTests(DynamoReset, TestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
-class StaffPublishingTests(DynamoReset, TestCase):
+class StaffPublishingTests(FakeCognito, DynamoReset, TestCase):
     def setUp(self):
         super().setUp()
         self.car = make_car("STAFF-5", brand="Honda", model_name="N-Box")
         self.customer, _ = make_customer("asker@example.com")
         self.staff, _ = make_staff()
-        self.client.force_login(self.staff)
+        sign_in(self.client, self.staff, staff=True)
 
     def detail_url(self, question):
         return reverse("staff:question-detail", args=[question.question_id])

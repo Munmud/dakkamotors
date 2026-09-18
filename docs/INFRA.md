@@ -153,27 +153,84 @@ re-entering by hand. Keep the window short.
 
 ### After it has held, over days
 
-Only once the cutover has run and been quiet for a week:
+Only once the cutover has run and been quiet for a week. Nothing below is reversible in
+the way the cutover is, so the order matters more than the speed.
 
-1. Empty `vpc_config`'s lists in `zappa_settings.json` -- **do not delete the key**,
-   Zappa only sends `VpcConfig` when it is present, so removing it leaves the function
-   attached to the old subnets. Verify with
-   `aws lambda get-function-configuration --function-name dakkamotors-production`.
-2. Detach `AWSLambdaVPCAccessExecutionRole` from the Lambda role once the ENIs release.
-   That takes 20-40 minutes and the subnets cannot be deleted until it does.
-3. Delete the ORM models, `django.contrib.auth`, `django.contrib.sessions` and the
-   Django admin, and set `DATABASES = {}`. The staff pages' Django fallback in
-   `cars/staff/auth.py` goes at the same time.
-4. Delete the Aurora cluster (its `DeletionPolicy: Snapshot` leaves a final snapshot,
-   which is the second net) and remove the VPC, subnets, security groups and
-   `DBSubnetGroup` from `infra/network-db.yaml`. The buckets stay.
-5. Retire `remote_env` in favour of reading SSM at settings import -- the VPC was the
-   only reason the values had to be hand-copied into `config/env.json`, and that dance
-   is the most error-prone procedure in this repo.
-6. Move derivative generation to a real asynchronous invoke and delete the inline time
-   budget in `cars/tasks.py`. Its opening docstring stops being true the moment the
-   function leaves the VPC.
-7. Delete the `LEGACYPW#` items at 90 days (the TTL does it; check that it did).
+**The code side is already done** and is on the branch: the ORM models, the Django admin,
+`django.contrib.auth`, `django.contrib.sessions` and the transitional bridges are gone,
+`DATABASES` is `{}`, and `infra/network-db.yaml` no longer describes a VPC or a database.
+What is left is the AWS side, which has to be done by hand with credentials this repo
+deliberately does not hold.
+
+1. **Leave the VPC.** Empty both lists in `zappa_settings.json` -- **do not delete the
+   `vpc_config` key**, Zappa only sends `VpcConfig` when it is present, so removing it
+   leaves the function attached to the old subnets. Then:
+
+   ```bash
+   zappa update production
+   aws lambda get-function-configuration      --function-name dakkamotors-production      --query 'VpcConfig' --region ap-northeast-1
+   ```
+
+   Expect empty `SubnetIds` and `SecurityGroupIds`. If they are not empty, stop -- every
+   step below will hang.
+
+2. **Detach the VPC execution policy**, then wait for the ENIs to release. That takes
+   20-40 minutes and the subnets cannot be deleted until it has happened.
+
+   ```bash
+   aws iam detach-role-policy      --role-name dakkamotors-production-ZappaLambdaExecutionRole      --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+
+   # Poll until this returns nothing.
+   aws ec2 describe-network-interfaces --region ap-northeast-1      --filters Name=vpc-id,Values=vpc-07b008c32ab530661      --query 'NetworkInterfaces[].NetworkInterfaceId'
+   ```
+
+3. **Take a final Aurora snapshot by hand**, before anything deletes anything. `DBCluster`
+   carries `DeletionPolicy: Snapshot`, so CloudFormation will take one too -- this is the
+   one you control the name of, and it is the only copy of the pre-cutover data that is
+   not on somebody's laptop.
+
+   ```bash
+   aws rds create-db-cluster-snapshot --region ap-northeast-1      --db-cluster-identifier dakkamotors-core-dbcluster-xaurpfprbqso      --db-cluster-snapshot-identifier dakkamotors-final-pre-dynamo
+   aws rds wait db-cluster-snapshot-available --region ap-northeast-1      --db-cluster-snapshot-identifier dakkamotors-final-pre-dynamo
+   ```
+
+4. **Update the core stack.** This is the destructive step, and it is an **update, not a
+   delete**: `dakkamotors-core` holds the VPC, Aurora *and both S3 buckets*
+   (`infra/network-db.yaml`). `delete-stack` would take the site and every photo with it.
+
+   ```bash
+   aws cloudformation deploy --region ap-northeast-1      --template-file infra/network-db.yaml      --stack-name dakkamotors-core      --parameter-overrides        FrontendBucketName=<frontend-bucket> MediaBucketName=<media-bucket>
+   ```
+
+   The new template has no `DBPassword` parameter, so drop it from the overrides. Watch
+   the events: the eleven VPC and Aurora resources go, the buckets and their policies
+   stay, and the four outputs `infra/edge.yaml` consumes keep their names.
+
+   ```bash
+   aws cloudformation describe-stack-events --region ap-northeast-1      --stack-name dakkamotors-core --max-items 40      --query 'StackEvents[].[LogicalResourceId,ResourceStatus]' --output table
+   ```
+
+5. **Confirm the buckets survived**, because this is the failure that is silent until
+   somebody loads the site:
+
+   ```bash
+   aws s3 ls | grep dakkamotors
+   curl -sI https://dakkamotors.com/ | head -1
+   ```
+
+6. **Trim the deploy role.** `infra/github-oidc.yaml` grants `ec2:DescribeSubnets`,
+   `ec2:DescribeSecurityGroups` and `ec2:DescribeVpcs` purely for Zappa's VPC lookup.
+   Redeploy that stack without them.
+
+7. **Retire `remote_env`** in favour of reading SSM at settings import. SSM is reachable
+   now, and the VPC was the only reason the values ever had to be hand-copied into
+   `config/env.json` -- the most error-prone procedure in this repo.
+
+8. **Move derivative generation to a real asynchronous invoke** and delete the inline
+   time budget in `cars/tasks.py`. Its opening docstring stopped being true the moment
+   the function left the VPC.
+
+9. **Delete the `LEGACYPW#` items at 90 days.** The TTL does it; check that it did.
 
 Once the VPC is gone, **the section below about what it can and cannot reach no longer
 applies** -- SSM, SES, SQS and `lambda:InvokeFunction` all become reachable, which is

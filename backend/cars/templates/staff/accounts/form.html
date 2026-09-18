@@ -1,0 +1,51 @@
+{% extends "staff/base.html" %}
+
+{% block content %}
+  <h1>{{ title }}</h1>
+
+  {% if person and not person.is_active %}
+    <div class="panel">
+      <p class="help">
+        This account is deactivated. It keeps its history and every booking and question
+        that points at it still resolves; only the sign-in is stopped.
+      </p>
+    </div>
+  {% endif %}
+
+  <div class="panel">
+    <form method="post">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <ul class="messages">
+          {% for error in form.non_field_errors %}<li class="error">{{ error }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      {% for field in form %}
+        <div style="margin-bottom:.9rem;">
+          <label for="{{ field.id_for_label }}"
+                 style="display:block;font-size:.78rem;color:var(--muted);margin-bottom:.2rem;">
+            {{ field.label }}
+          </label>
+          {{ field }}
+          {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
+          {% for error in field.errors %}
+            <p class="help" style="color:var(--bad);">{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endfor %}
+      <div class="actions">
+        <button type="submit">Save</button>
+        <a href="{% url 'staff:staff-list' %}"><button type="button" class="secondary">Cancel</button></a>
+      </div>
+    </form>
+  </div>
+
+  {% if person %}
+    <div class="panel">
+      <p class="help">
+        There is no delete. Deactivating is the reversible verb, and a removed account
+        would orphan every booking, question and notification that names this person.
+      </p>
+    </div>
+  {% endif %}
+{% endblock %}

@@ -86,8 +86,9 @@ every page under time pressure.
       <a href="{% url 'staff:slot-list' %}">Slots</a>
       <a href="{% url 'staff:schedule-list' %}">Availability</a>
       <a href="{% url 'staff:question-list' %}">Questions</a>
-      {# Inventory and the weekly rules are still on the Django admin until they move. #}
-      <a href="/api/admin/">Admin</a>
+      <a href="{% url 'staff:customer-list' %}">Customers</a>
+      {# Owners only. A manager following this link gets a 403, not a broken page. #}
+      <a href="{% url 'staff:staff-list' %}">Staff</a>
     </nav>
   </header>
 

@@ -355,6 +355,57 @@ def users_in_group(group):
             return out
 
 
+# --------------------------------------------------------------------------------------
+# Staff administration
+# --------------------------------------------------------------------------------------
+
+def create_staff(*, email, name="", temporary_password):
+    """Create a staff account. Nothing is emailed.
+
+    `MessageAction="SUPPRESS"` because this pool has no email configuration at all -- see
+    the module docstring -- so Cognito has nothing to send with and would fail trying.
+    The temporary password goes back to the owner to pass on out of band, exactly as
+    `create_inventory_user` used to print it, and Cognito forces a change at first
+    sign-in.
+
+    Membership of `staff` is added here rather than left to the caller: an account that
+    exists but is in no group can sign in to the hosted UI and reach nothing, which
+    looks like a broken page rather than a half-finished setup.
+    """
+    first, _, last = (name or "").partition(" ")
+    attributes = [
+        {"Name": "email", "Value": email},
+        {"Name": "email_verified", "Value": "true"},
+    ]
+    if first:
+        attributes.append({"Name": "given_name", "Value": first[:150]})
+    if last:
+        attributes.append({"Name": "family_name", "Value": last[:150]})
+
+    try:
+        client().admin_create_user(
+            UserPoolId=_pool(), Username=email, UserAttributes=attributes,
+            TemporaryPassword=temporary_password, MessageAction="SUPPRESS",
+        )
+    except client().exceptions.UsernameExistsException as exc:
+        raise CognitoError("Somebody already has that address.") from exc
+    except client().exceptions.InvalidPasswordException as exc:
+        raise CognitoError(_password_message(exc)) from exc
+
+    add_to_group(email, STAFF_GROUP)
+
+
+def set_enabled(email, enabled):
+    """Enable or disable an account.
+
+    Deactivate, never delete. A disabled account keeps its sub, so every booking,
+    question and notification pointing at it still resolves to a person -- the same
+    reason the page this replaces refused deletion outright.
+    """
+    call = client().admin_enable_user if enabled else client().admin_disable_user
+    call(UserPoolId=_pool(), Username=email)
+
+
 def user_for(username):
     """Rebuild a CognitoUser from either a subject identifier or an email address.
 
