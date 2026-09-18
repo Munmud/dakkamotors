@@ -63,9 +63,11 @@ is not in a VPC, so nothing about it needs a Lambda.
 at the call rather than quietly opening SQLite. `cars/store/` and `cars/cognito.py` are
 the only ways in.
 
-**The cutover has not run yet.** `main` is still the pre-migration code against Aurora, so
-this branch is not deployable until `infra/data.yaml` exists in AWS and the export/import
-has been rehearsed. `docs/INFRA.md` has the order.
+**The cutover has run** (2026-09-18). `main` is deployed, the Lambda is out of the VPC,
+and the site serves from DynamoDB and Cognito. The Aurora cluster is stopped but not yet
+deleted -- that is the last outstanding step, and `docs/INFRA.md` has the command. A
+stopped cluster restarts itself after seven days, so it has a deadline rather than being
+free forever.
 
 `backend/cars/store/` is the data layer: PynamoDB 6.1, one table, single-table design with
 a discriminator. Cognito holds identity; DynamoDB holds only what Cognito has nowhere to
