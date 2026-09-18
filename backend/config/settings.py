@@ -1,9 +1,9 @@
 """
 Django settings for the Dakka Motors backend.
 
-Configuration comes from the environment (django-environ), read from a local `.env`
-file during development and from Lambda environment variables (populated from SSM
-Parameter Store) in production.
+Configuration comes from the environment (django-environ): a local `.env` during
+development, and on Lambda the variables in `zappa_settings.json` plus the secrets
+`config/ssm.py` pulls from Parameter Store at import.
 
 There is no relational database at all: `cars/store/` reads and writes DynamoDB and
 `cars/cognito.py` owns identity. One deliberate fallback keeps local development free of
@@ -19,7 +19,14 @@ from pathlib import Path
 
 import environ
 
+from . import ssm
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Secrets first, before anything below reads the environment. On Lambda this is one
+# SSM call per container; everywhere else it is a no-op, so tests and local development
+# make no network call and a real environment variable always wins.
+ssm.load()
 
 env = environ.Env(
     DEBUG=(bool, False),

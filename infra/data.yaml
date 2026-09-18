@@ -158,6 +158,20 @@ Resources:
               - cognito-idp:ListGroups
             Resource: !GetAtt UserPool.Arn
 
+          # Secrets at settings import, replacing Zappa's remote_env. The VPC was the
+          # only reason those values ever had to be hand-copied into an S3 object, and
+          # keeping a secret in two places is how the two drift.
+          #
+          # kms:Decrypt is not optional: WithDecryption on a SecureString is a KMS call,
+          # and without it the read fails with an AccessDenied that names KMS while the
+          # thing you were doing was SSM.
+          - Effect: Allow
+            Action: [ssm:GetParametersByPath, ssm:GetParameter, ssm:GetParameters]
+            Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/dakkamotors/*
+          - Effect: Allow
+            Action: kms:Decrypt
+            Resource: !Sub arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/aws/ssm
+
   # --------------------------------------------------- password carry-over ---
   #
   # Django stores `pbkdf2_sha256$<iters>$<salt>$<hash>`. Cognito will not accept a hash

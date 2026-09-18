@@ -31,10 +31,11 @@
             "SecurityGroupIds": []
         },
         "_comment_env": [
-            "Pool and client ids are not secrets, so they live here rather than in the",
-            "remote env file. Only COGNITO_STAFF_CLIENT_SECRET and DJANGO_SECRET_KEY",
-            "are, and those still come through remote_env from SSM by hand. Fill these",
-            "in from the dakkamotors-data stack outputs before the first deploy."
+            "Everything here is non-secret and therefore in git, where it is reviewable.",
+            "The two secrets the backend needs -- SECRET_KEY and COGNITO_STAFF_CLIENT_SECRET --",
+            "come from SSM at settings import via config/ssm.py. remote_env is gone: it existed",
+            "only because the VPC put the SSM API out of reach, and it meant every secret had to",
+            "live in two places and be kept in step by hand."
         ],
         "environment_variables": {
             "DDB_TABLE": "dakkamotors",
@@ -42,9 +43,19 @@
             "COGNITO_CUSTOMER_CLIENT_ID": "61o4ucujbcoknsqtnt4pd68lmr",
             "COGNITO_STAFF_CLIENT_ID": "kti6vuj2t4e927pav3rq3cst0",
             "COGNITO_DOMAIN": "dakkamotors-staff.auth.ap-northeast-1.amazoncognito.com",
-            "COGNITO_JWKS_PATH": "config/cognito_jwks.json"
+            "COGNITO_JWKS_PATH": "config/cognito_jwks.json",
+            "DEBUG": "False",
+            "ALLOWED_HOSTS": "dakkamotors.com,www.dakkamotors.com,.execute-api.ap-northeast-1.amazonaws.com",
+            "CSRF_TRUSTED_ORIGINS": "https://dakkamotors.com,https://www.dakkamotors.com,https://q0zvyay9pa.execute-api.ap-northeast-1.amazonaws.com",
+            "AWS_S3_REGION_NAME": "ap-northeast-1",
+            "AWS_STORAGE_BUCKET_NAME": "dakkamotors-backend-media",
+            "MEDIA_CUSTOM_DOMAIN": "dakkamotors.com",
+            "OUTBOX_BUCKET": "dakkamotors-outbox",
+            "MAIL_FROM": "noreply@dakkamotors.com",
+            "MAIL_FROM_NAME": "Dakka Motors",
+            "MAIL_REPLY_TO": "moontasir042@gmail.com",
+            "STAFF_ALERT_EMAIL": "moontasir042@gmail.com"
         },
-        "remote_env": "s3://dakkamotors-backend-media/config/env.json",
         "keep_warm": false,
         "_comment_roles": [
             "Zappa rewrites its execution role's inline policy on every deploy, which",
