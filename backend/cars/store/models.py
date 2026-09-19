@@ -112,9 +112,6 @@ class Car(BaseItem, discriminator="car"):
     description_en = UnicodeAttribute(null=True)
     description_ja = UnicodeAttribute(null=True)
 
-    video_name = UnicodeAttribute(null=True)
-    video_uploaded_at = UTCDateTimeAttribute(null=True)
-
     slug = UnicodeAttribute(null=True)
 
     # Denormalised so the listing page is ONE query rather than one per card. Kept in

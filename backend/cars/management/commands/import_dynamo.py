@@ -27,8 +27,8 @@ from cars.store import images as image_store
 from cars.store import keys
 from cars.store import slots as slot_store
 from cars.store.models import (
-    Booking, Car, CarImage, CarQuestion, ChassisGuard, Customer, LegacyCarPointer,
-    Notification, Seat, SlugGuard,
+    Booking, Car, CarImage, CarQuestion, CarVideo, ChassisGuard, Customer,
+    LegacyCarPointer, Notification, Seat, SlugGuard,
 )
 
 
@@ -159,14 +159,21 @@ class Command(BaseCommand):
                 price_jpy=row["price_jpy"], status=row["status"],
                 description_en=row["description_en"],
                 description_ja=row["description_ja"],
-                video_name=row["video_name"] or None,
-                video_uploaded_at=_dt(row["video_uploaded_at"]),
                 slug=row["slug"], created_at=created, updated_at=updated,
                 gsi1pk=keys.car_status_gsi1pk(row["status"]),
                 gsi1sk=keys.car_gsi1sk(created, car_id),
             )
             car.search_blob = car.build_search_blob()
             car.save()
+            # The export predates the gallery: Aurora held one video as a column on the
+            # car. It becomes the first row of the collection rather than being dropped,
+            # because this command is the only thing that can still read that column.
+            if row.get("video_name"):
+                CarVideo(
+                    pk=keys.car_pk(car_id), sk=keys.video_sk(keys.new_id()),
+                    car_id=car_id, video_name=row["video_name"], order=0,
+                    created_at=_dt(row["video_uploaded_at"]) or created,
+                ).save()
             SlugGuard(pk=keys.slug_pk(row["slug"]), sk="SLUG", car_id=car_id).save()
             if row["chassis_number"]:
                 ChassisGuard(pk=keys.chassis_guard_pk(row["chassis_number"]),

@@ -130,12 +130,8 @@ class CarDetailSerializer(serializers.Serializer):
         which asks for `car.video` and knows nothing of `media` -- until its cache turns
         over. Delete it, and `detail.video` from both locale files, after that.
         """
-        from django.core.files.storage import default_storage
-
         clips = getattr(obj, "videos", None) or []
-        if clips:
-            return clips[0].url
-        return default_storage.url(obj.video_name) if obj.video_name else None
+        return clips[0].url if clips else None
 
     def get_questions(self, obj):
         """Published pairs, anonymously.

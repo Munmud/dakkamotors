@@ -55,7 +55,9 @@ class CarForm(DirectUploadMixin, forms.Form):
     the storage change is no reason to make them re-learn the page.
     """
 
-    direct_upload_fields = {"video": "video_key"}
+    # Nothing on this form uploads any more: the car's video moved to `CarVideoForm`,
+    # a row in the gallery formset, when one video per car became many.
+    direct_upload_fields = {}
 
     brand = forms.CharField(max_length=60)
     model_name = forms.CharField(max_length=80, label="Model")
@@ -74,15 +76,6 @@ class CarForm(DirectUploadMixin, forms.Form):
     )
     status = forms.ChoiceField(choices=CarStatus.choices, initial=CarStatus.AVAILABLE)
 
-    video = forms.FileField(
-        required=False,
-        help_text=(
-            "Optional MP4 walkaround. Nothing downloads until a visitor presses play, "
-            "so it costs nothing on page load. MP4 only - iPhone 'High Efficiency' "
-            "clips are HEVC/.mov and will not play in Chrome or Firefox."
-        ),
-    )
-
     description_en = forms.CharField(
         required=False, widget=forms.Textarea(attrs={"rows": 6}),
         label="Description (English)",
@@ -100,7 +93,6 @@ class CarForm(DirectUploadMixin, forms.Form):
                      "manufacture_year"]),
         ("Specification", ["fuel_type", "seat_capacity", "color"]),
         ("Listing", ["price_jpy", "status"]),
-        ("Video", ["video"]),
         ("Description", ["description_en", "description_ja"]),
     )
 
@@ -132,6 +124,38 @@ class CarImageForm(DirectUploadMixin, forms.Form):
     def _is_filled_in(cleaned):
         """True when the row carries intent, so blank extra rows stay ignorable."""
         return bool(cleaned.get("is_primary")) or bool(cleaned.get("order"))
+
+
+class CarVideoForm(DirectUploadMixin, forms.Form):
+    """One video row, deliberately shaped like `CarImageForm`.
+
+    The field is named `video` for a reason beyond symmetry: `direct-upload.js` decides
+    the upload limit from the input's name, testing `/video/` before `/image/`, and
+    derives the hidden field by replacing a trailing `video` with `video_key`. A formset
+    prefixed `videos` therefore produces `videos-0-video`, which the existing script
+    already signs at the 200 MB video cap with no change to it at all.
+
+    No `is_primary` twin: a video can never be the listing card photo, which is the
+    invariant `store/videos.py` exists to make structural.
+    """
+
+    direct_upload_fields = {"video": "video_key"}
+
+    video = forms.FileField(
+        required=False,
+        help_text=(
+            "MP4 only - iPhone 'High Efficiency' clips are HEVC/.mov and will not play "
+            "in Chrome or Firefox. Nothing downloads until a visitor presses play."
+        ),
+    )
+    order = forms.IntegerField(required=False, initial=0, min_value=0)
+
+    def clean(self):
+        cleaned = super().clean()
+        if not cleaned.get("video") and not self.uploaded_name("video"):
+            if cleaned.get("order"):
+                self.add_error("video", "Choose a video, or clear this row.")
+        return cleaned
 
 
 class CarFilterForm(forms.Form):

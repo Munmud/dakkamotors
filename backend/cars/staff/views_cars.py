@@ -19,11 +19,13 @@ from django.urls import reverse
 from django.utils import timezone
 
 from ..choices import DERIVATIVE_WIDTHS
-from ..forms import CarFilterForm, CarForm, CarImageForm
+from ..forms import CarFilterForm, CarForm, CarImageForm, CarVideoForm
 from ..images import build_derivatives
 from ..tasks import build_derivatives_task
 from ..store import cars as car_store
 from ..store import images as image_store
+from ..store import media as media_store
+from ..store import videos as video_store
 from ..store import keys
 from ..store import search
 from ..store.errors import ConditionFailed, NotFound
@@ -31,6 +33,9 @@ from ..store.models import Car
 from .auth import requires, staff_required
 
 ImageFormSet = formset_factory(CarImageForm, extra=3, can_delete=True)
+#: One extra row, not three: a video is a rare addition next to a batch of photos, and
+#: three empty file inputs for it made the panel read as though videos were expected.
+VideoFormSet = formset_factory(CarVideoForm, extra=1, can_delete=True)
 
 #: Fields the form owns. Kept explicit so a new form field cannot silently start
 #: writing something the store did not expect.
@@ -76,7 +81,9 @@ def car_add(request):
         "form": form,
         "car": None,
         "images": [],
+        "gallery": [],
         "image_formset": ImageFormSet(prefix="images"),
+        "video_formset": VideoFormSet(prefix="videos"),
     })
 
 
@@ -84,11 +91,6 @@ def _create(request, form):
     car = Car(car_id=keys.new_id())
     for name in EDITABLE:
         setattr(car, name, form.cleaned_data.get(name))
-    video = form.uploaded_name("video") or _store_upload(form.cleaned_data.get("video"),
-                                                         "cars/video/")
-    if video:
-        car.video_name = video
-        car.video_uploaded_at = timezone.now()
 
     try:
         car = car_store.create(car, now=timezone.now())
@@ -96,7 +98,9 @@ def _create(request, form):
         form.add_error("chassis_number", str(exc))
         return render(request, "staff/cars/form.html", {
             "title": "Add a car", "form": form, "car": None, "images": [],
+            "gallery": [],
             "image_formset": ImageFormSet(prefix="images"),
+            "video_formset": VideoFormSet(prefix="videos"),
         })
 
     messages.success(request, f"Added {car.seo_title_plain}. Now add its photos.")
@@ -124,7 +128,9 @@ def car_edit(request, car_id):
         "form": CarForm(initial=_initial(car)),
         "car": car,
         "images": car.images,
+        "gallery": car.media,
         "image_formset": ImageFormSet(prefix="images"),
+        "video_formset": VideoFormSet(prefix="videos"),
     })
 
 
@@ -136,36 +142,37 @@ def _initial(car):
 def _save(request, car):
     form = CarForm(request.POST, request.FILES)
     formset = ImageFormSet(request.POST, request.FILES, prefix="images")
+    videoset = VideoFormSet(request.POST, request.FILES, prefix="videos")
 
-    if not (form.is_valid() and formset.is_valid()):
+    def invalid():
         return render(request, "staff/cars/form.html", {
             "title": car.seo_title_plain, "form": form, "car": car,
-            "images": car.images, "image_formset": formset,
+            "images": car.images, "gallery": car.media,
+            "image_formset": formset, "video_formset": videoset,
         })
+
+    if not (form.is_valid() and formset.is_valid() and videoset.is_valid()):
+        return invalid()
 
     now = timezone.now()
     fields = {name: form.cleaned_data.get(name) for name in EDITABLE}
-
-    video = form.uploaded_name("video") or _store_upload(form.cleaned_data.get("video"),
-                                                         "cars/video/")
-    if video:
-        fields["video_name"] = video
-        # Stamped only when the file actually changes, matching the old save_model.
-        fields["video_uploaded_at"] = now
 
     try:
         car_store.update(car, now=now, **fields)
     except ConditionFailed as exc:
         form.add_error("chassis_number", str(exc))
-        return render(request, "staff/cars/form.html", {
-            "title": car.seo_title_plain, "form": form, "car": car,
-            "images": car.images, "image_formset": formset,
-        })
+        return invalid()
 
     added = _apply_images(car, formset, now)
-    _apply_existing_images(request, car)
+    clips = _apply_videos(car, videoset, now)
+    _apply_existing_media(request, car)
 
-    messages.success(request, "Saved." + (f" Added {added} photo(s)." if added else ""))
+    parts = ["Saved."]
+    if added:
+        parts.append(f"Added {added} photo(s).")
+    if clips:
+        parts.append(f"Added {clips} video(s).")
+    messages.success(request, " ".join(parts))
     return redirect(reverse("staff:car-edit", args=[car.car_id]))
 
 
@@ -194,24 +201,68 @@ def _apply_images(car, formset, now):
     return added
 
 
-def _apply_existing_images(request, car):
-    """Reorder, re-flag and delete the photos already attached.
+def _apply_videos(car, formset, now):
+    """Create whatever new video rows the formset carries.
 
-    Sent as `image-<id>-order` / `image-<id>-delete` / `primary` rather than through a
-    second formset: these rows are edited in place next to their thumbnails, and a
-    formset would put the fields somewhere else on the page.
+    No `build_derivatives_task` twin, because nothing resizes or transcodes a video --
+    which is why this is shorter than `_apply_images` rather than a copy of it.
     """
-    primary = request.POST.get("primary") or ""
+    added = 0
+    for form in formset:
+        if form in formset.deleted_forms:
+            continue
+        name = form.uploaded_name("video") or _store_upload(
+            form.cleaned_data.get("video"), "cars/video/")
+        if not name:
+            continue
+        video_store.create(
+            car_id=car.car_id,
+            video_name=name,
+            order=form.cleaned_data.get("order") or 0,
+            now=now,
+        )
+        added += 1
+    return added
+
+
+#: `image-<id>-*` and `video-<id>-*`, matching the kind names `media.py` uses.
+_FIELD_PREFIX = {media_store.PHOTO: "image", media_store.VIDEO: "video"}
+
+
+def _apply_existing_media(request, car):
+    """Reorder and delete the photos and videos already attached, and set the card photo.
+
+    Sent as `<kind>-<id>-order` / `<kind>-<id>-delete` / `primary` rather than through
+    more formsets: these rows are edited in place next to their thumbnails, and a
+    formset would put the fields somewhere else on the page. The photo field names are
+    unchanged from when this handled photos alone.
+
+    Deletions run first and ordering second, over what survives. The other way round
+    renumbers rows that are about to disappear, which leaves gaps in the sequence --
+    harmless to sorting, confusing in the boxes staff see on the next page load.
+    """
     for image in image_store.for_car(car.car_id):
         if request.POST.get(f"image-{image.image_id}-delete"):
             image_store.delete(car.car_id, image.image_id)
-            continue
-        raw = request.POST.get(f"image-{image.image_id}-order")
-        if raw is not None and str(raw).strip().isdigit():
-            new_order = int(raw)
-            if new_order != int(image.order or 0):
-                image.update(actions=[type(image).order.set(new_order)])
+    for video in video_store.for_car(car.car_id):
+        if request.POST.get(f"video-{video.video_id}-delete"):
+            video_store.delete(car.car_id, video.video_id)
 
+    # Ordering goes through `media.set_order` rather than writing each row, because one
+    # position may now move a photo past a video. The current sequence is the tiebreak,
+    # so a row whose box was left blank keeps its place instead of jumping to the front
+    # the way treating a missing number as zero would send it.
+    current = media_store.gallery(car.car_id)
+    keyed = []
+    for index, (kind, item) in enumerate(current):
+        item_id = item.video_id if kind == media_store.VIDEO else item.image_id
+        raw = request.POST.get(f"{_FIELD_PREFIX[kind]}-{item_id}-order")
+        posted = int(raw) if raw is not None and str(raw).strip().isdigit() else index
+        keyed.append(((posted, index), (kind, item_id)))
+    keyed.sort(key=lambda pair: pair[0])
+    media_store.set_order(car.car_id, [entry for _, entry in keyed])
+
+    primary = request.POST.get("primary") or ""
     if primary:
         try:
             image_store.set_primary(car.car_id, primary)
@@ -263,11 +314,8 @@ def _delete(request, car):
     label = car.seo_title_plain
     for image in image_store.for_car(car.car_id):
         image_store.delete(car.car_id, image.image_id)
-    if car.video_name:
-        try:
-            default_storage.delete(car.video_name)
-        except Exception:  # noqa: BLE001 - cleanup must not break the delete
-            pass
+    for video in video_store.for_car(car.car_id):
+        video_store.delete(car.car_id, video.video_id)
 
     car_store.delete(car)
     messages.success(request, f"Deleted {label}.")

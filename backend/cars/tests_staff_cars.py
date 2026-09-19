@@ -17,10 +17,12 @@ from PIL import Image
 
 from .store import cars as car_store
 from .store import images as image_store
+from .store import media as media_store
+from .store import videos as video_store
 from .store.errors import NotFound
 from .store.models import ChassisGuard, SlugGuard
 from .store import keys
-from .tests import DynamoReset, MAIL_SETTINGS, attach_photo, make_car
+from .tests import DynamoReset, MAIL_SETTINGS, attach_photo, attach_video, make_car
 from .tests_fake_cognito import FakeCognito, sign_in
 from .tests_staff import make_owner, make_staff, make_staff_without_permissions
 
@@ -30,6 +32,12 @@ def a_jpeg(width=1000, height=750):
     Image.new("RGB", (width, height), (120, 130, 140)).save(buffer, "JPEG")
     return SimpleUploadedFile("photo.jpg", buffer.getvalue(),
                               content_type="image/jpeg")
+
+
+def an_mp4(name="walkaround.mp4"):
+    """Bytes, not a real container. Nothing here decodes one -- that is the point."""
+    return SimpleUploadedFile(name, b"\x00\x00\x00\x18ftypmp42",
+                              content_type="video/mp4")
 
 
 def car_fields(**overrides):
@@ -51,13 +59,22 @@ def car_fields(**overrides):
     return fields
 
 
-def image_formset_fields(total=0):
-    """The management form a plain formset needs, with no rows filled in."""
+def formset_fields(images=0, videos=0):
+    """The management forms both gallery formsets need, with no rows filled in.
+
+    Both, always. A POST missing `videos-TOTAL_FORMS` raises a `ManagementForm` error
+    rather than a validation error, so leaving it out fails every posting test at once
+    with a message about the formset instead of about the car.
+    """
     return {
-        "images-TOTAL_FORMS": str(max(total, 3)),
+        "images-TOTAL_FORMS": str(max(images, 3)),
         "images-INITIAL_FORMS": "0",
         "images-MIN_NUM_FORMS": "0",
         "images-MAX_NUM_FORMS": "1000",
+        "videos-TOTAL_FORMS": str(max(videos, 1)),
+        "videos-INITIAL_FORMS": "0",
+        "videos-MIN_NUM_FORMS": "0",
+        "videos-MAX_NUM_FORMS": "1000",
     }
 
 
@@ -156,7 +173,7 @@ class StaffCarEditTests(FakeCognito, DynamoReset, SimpleTestCase):
 
         self.client.post(reverse("staff:car-edit", args=[car.car_id]),
                          {**car_fields(chassis_number="SLUG-1", grade="Corrected"),
-                          **image_formset_fields()}, follow=True)
+                          **formset_fields()}, follow=True)
 
         self.assertEqual(car_store.get(car.car_id).slug, before)
         self.assertEqual(car_store.get(car.car_id).grade, "Corrected")
@@ -166,7 +183,7 @@ class StaffCarEditTests(FakeCognito, DynamoReset, SimpleTestCase):
 
         self.client.post(reverse("staff:car-edit", args=[car.car_id]),
                          {**car_fields(chassis_number="STATUS-1", status="sold"),
-                          **image_formset_fields()}, follow=True)
+                          **formset_fields()}, follow=True)
 
         self.assertEqual(car_store.list_by_status("available"), [])
         self.assertEqual(len(car_store.list_by_status("sold")), 1)
@@ -176,7 +193,7 @@ class StaffCarEditTests(FakeCognito, DynamoReset, SimpleTestCase):
 
         self.client.post(reverse("staff:car-edit", args=[car.car_id]),
                          {**car_fields(chassis_number="NEW-9"),
-                          **image_formset_fields()}, follow=True)
+                          **formset_fields()}, follow=True)
 
         self.assertEqual(
             ChassisGuard.get(keys.chassis_guard_pk("NEW-9"), keys.GUARD).car_id,
@@ -199,7 +216,7 @@ class StaffCarPhotoTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.url = reverse("staff:car-edit", args=[self.car.car_id])
 
     def post(self, extra=None, images=None):
-        data = {**car_fields(chassis_number="PHOTOS-1"), **image_formset_fields()}
+        data = {**car_fields(chassis_number="PHOTOS-1"), **formset_fields()}
         data.update(extra or {})
         return self.client.post(self.url, {**data, **(images or {})}, follow=True)
 
@@ -267,12 +284,120 @@ class StaffCarPhotoTests(FakeCognito, DynamoReset, SimpleTestCase):
 
 
 @override_settings(**MAIL_SETTINGS)
+class StaffCarVideoTests(FakeCognito, DynamoReset, SimpleTestCase):
+    """Adding, ordering and removing videos -- none of which was possible before.
+
+    A car held one video in a column on itself, with no way to replace it with nothing.
+    The assertions worth having are therefore the ones about *many* and about *none*.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.staff, _ = make_staff()
+        sign_in(self.client, self.staff, staff=True)
+        self.car = make_car("VIDEOS-1")
+        self.url = reverse("staff:car-edit", args=[self.car.car_id])
+
+    def post(self, extra=None, files=None, videos=1):
+        data = {**car_fields(chassis_number="VIDEOS-1"), **formset_fields(videos=videos)}
+        data.update(extra or {})
+        return self.client.post(self.url, {**data, **(files or {})}, follow=True)
+
+    def test_uploading_a_video_attaches_it(self):
+        response = self.post(files={"videos-0-video": an_mp4()})
+
+        self.assertContains(response, "Added 1 video")
+        self.assertEqual(len(video_store.for_car(self.car.car_id)), 1)
+
+    def test_a_car_can_hold_several_videos(self):
+        """The feature, stated plainly: the old column could hold exactly one."""
+        self.post(files={"videos-0-video": an_mp4("a.mp4"),
+                         "videos-1-video": an_mp4("b.mp4")}, videos=2)
+
+        self.assertEqual(len(video_store.for_car(self.car.car_id)), 2)
+
+    def test_a_video_never_becomes_the_listing_card(self):
+        attach_photo(self.car, 900, 600)
+        self.post(files={"videos-0-video": an_mp4()},
+                  extra={"videos-0-order": "0"})
+
+        card = car_store.get(self.car.car_id).primary_image
+
+        self.assertIsNotNone(card)
+        self.assertTrue(card.sk.startswith("IMG#"))
+
+    def test_removing_a_video_deletes_its_file(self):
+        """Removal is new. The old field had no way to go back to having no video."""
+        clip = attach_video(self.car, "gone.mp4")
+        self.assertTrue(default_storage.exists(clip.video_name))
+
+        self.post(extra={f"video-{clip.video_id}-delete": "on"})
+
+        self.assertEqual(video_store.for_car(self.car.car_id), [])
+        self.assertFalse(default_storage.exists(clip.video_name))
+
+    def test_a_video_can_be_ordered_ahead_of_a_photo(self):
+        photo = attach_photo(self.car, 900, 600)
+        clip = attach_video(self.car, "lead.mp4", order=9)
+
+        self.post(extra={
+            f"video-{clip.video_id}-order": "0",
+            f"image-{photo.image_id}-order": "1",
+        })
+
+        gallery = media_store.gallery(self.car.car_id)
+        self.assertEqual([kind for kind, _ in gallery], ["video", "photo"])
+
+    def test_leading_with_a_video_leaves_the_card_a_photo(self):
+        """The invariant the whole design is arranged around, through the real view."""
+        photo = attach_photo(self.car, 900, 600)
+        clip = attach_video(self.car, "lead.mp4")
+
+        self.post(extra={
+            f"video-{clip.video_id}-order": "0",
+            f"image-{photo.image_id}-order": "1",
+        })
+
+        self.assertEqual(car_store.get(self.car.car_id).primary_image.image_id,
+                         photo.image_id)
+
+    def test_a_blank_video_row_is_ignored(self):
+        """Every save posts an empty row, so a blank one must not be an error."""
+        response = self.post()
+
+        self.assertContains(response, "Saved.")
+        self.assertNotContains(response, "Added 1 video")
+        self.assertEqual(video_store.for_car(self.car.car_id), [])
+
+    def test_the_edit_page_lists_photos_and_videos_together(self):
+        attach_photo(self.car, 900, 600)
+        attach_video(self.car, "shown.mp4")
+
+        page = self.client.get(self.url)
+
+        self.assertContains(page, "Gallery")
+        self.assertContains(page, "videos-0-video")
+        self.assertContains(page, "images-0-image")
+
+
+@override_settings(**MAIL_SETTINGS)
 class StaffCarDeleteTests(FakeCognito, DynamoReset, SimpleTestCase):
     def setUp(self):
         super().setUp()
         # Delete is owner-only in the permission map.
         self.staff, _ = make_owner()
         sign_in(self.client, self.staff, staff=True)
+
+    def test_deleting_a_car_takes_its_videos_too(self):
+        """A video row lives in the car's partition and would outlive it silently."""
+        car = make_car("DELETE-VIDEO")
+        clip = attach_video(car, "doomed.mp4")
+
+        self.client.post(reverse("staff:car-edit", args=[car.car_id]),
+                         {"action": "delete"}, follow=True)
+
+        self.assertEqual(video_store.for_car(car.car_id), [])
+        self.assertFalse(default_storage.exists(clip.video_name))
 
     def test_deleting_a_car_takes_its_guards_photos_and_files(self):
         car = make_car("DELETE-1")

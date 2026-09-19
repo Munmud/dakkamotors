@@ -1,13 +1,20 @@
 {% extends "staff/base.html" %}
 
 {% comment %}
-Add or edit one car, with its photos.
+Add or edit one car, with its gallery of photos and videos.
+
+Photos and videos share one table and one order column because they share one number
+space in the store -- two tables would suggest two sequences, and there is only one.
+Only photos get a "card photo" radio: a video can never be the listing card, and that is
+a property of the item type rather than a rule this page enforces.
 
 `direct-upload.js` sends the bytes to S3 before the form submits and writes the storage
-name into a hidden field next to each file input, which is how a 12 MB walkaround gets
-past Lambda's ~4.5 MB request ceiling. It is progressive enhancement: the file inputs
-stay ordinary file inputs, so if the script fails the form still works through Django's
-normal upload path.
+name into a hidden field next to each file input, which is how a 200 MB walkaround gets
+past Lambda's ~4.5 MB request ceiling. It picks the size limit from the input's name, so
+the video formset's `videos-0-video` needs no change to the script. It is progressive
+enhancement: the file inputs stay ordinary file inputs, so if the script fails the form
+still works through Django's normal upload path -- for a photo. A video large enough to
+matter will not fit through it, which is the whole reason the direct path exists.
 {% endcomment %}
 
 {% block content %}
@@ -52,44 +59,69 @@ normal upload path.
 
     {% if car %}
       <div class="panel">
-        <h2 style="font-size:1rem;margin-top:0;">Photos</h2>
-        {% if images %}
+        <h2 style="font-size:1rem;margin-top:0;">Gallery</h2>
+        {% if gallery %}
           <table>
             <thead>
-              <tr><th></th><th>Order</th><th>Card photo</th><th>Remove</th></tr>
+              <tr><th></th><th></th><th>Order</th><th>Card photo</th><th>Remove</th></tr>
             </thead>
             <tbody>
-              {% for image in images %}
-                <tr>
-                  <td style="width:6rem;">
-                    <img src="{{ image.url }}" alt=""
-                         style="height:56px;border-radius:4px;">
-                    {% if not image.derivatives_ready %}
-                      <span class="pill waiting">optimising…</span>
-                    {% endif %}
-                  </td>
-                  <td style="width:6rem;">
-                    <input type="number" min="0"
-                           name="image-{{ image.image_id }}-order"
-                           value="{{ image.order }}">
-                  </td>
-                  <td style="width:7rem;">
-                    <input type="radio" name="primary" value="{{ image.image_id }}"
-                           {% if image.is_primary %}checked{% endif %}>
-                  </td>
-                  <td style="width:6rem;">
-                    <input type="checkbox" name="image-{{ image.image_id }}-delete">
-                  </td>
-                </tr>
+              {% for kind, item in gallery %}
+                {% if kind == "video" %}
+                  <tr>
+                    <td style="width:6rem;">
+                      <video src="{{ item.url }}" preload="none" muted
+                             style="height:56px;border-radius:4px;background:#000;"></video>
+                    </td>
+                    <td><span class="pill">Video</span></td>
+                    <td style="width:6rem;">
+                      <input type="number" min="0"
+                             name="video-{{ item.video_id }}-order"
+                             value="{{ item.order }}">
+                    </td>
+                    <td style="width:7rem;">
+                      <span class="help">&mdash;</span>
+                    </td>
+                    <td style="width:6rem;">
+                      <input type="checkbox" name="video-{{ item.video_id }}-delete">
+                    </td>
+                  </tr>
+                {% else %}
+                  <tr>
+                    <td style="width:6rem;">
+                      <img src="{{ item.url }}" alt=""
+                           style="height:56px;border-radius:4px;">
+                    </td>
+                    <td>
+                      {% if not item.derivatives_ready %}
+                        <span class="pill waiting">optimising…</span>
+                      {% endif %}
+                    </td>
+                    <td style="width:6rem;">
+                      <input type="number" min="0"
+                             name="image-{{ item.image_id }}-order"
+                             value="{{ item.order }}">
+                    </td>
+                    <td style="width:7rem;">
+                      <input type="radio" name="primary" value="{{ item.image_id }}"
+                             {% if item.is_primary %}checked{% endif %}>
+                    </td>
+                    <td style="width:6rem;">
+                      <input type="checkbox" name="image-{{ item.image_id }}-delete">
+                    </td>
+                  </tr>
+                {% endif %}
               {% endfor %}
             </tbody>
           </table>
           <p class="help">
-            Only the photo marked as the card photo appears on the listing. Removing one
-            deletes the original and its resized copies from the bucket.
+            One order for the whole gallery, so a video can come first. The card photo is
+            always a photo: it is what the listing page shows, and a listing card cannot
+            play. Removing a row deletes the file behind it, and a photo's resized copies
+            with it.
           </p>
         {% else %}
-          <p class="empty">No photos yet.</p>
+          <p class="empty">Nothing in the gallery yet.</p>
         {% endif %}
 
         <h3 style="font-size:.9rem;margin-bottom:.4rem;">Add photos</h3>
@@ -111,6 +143,28 @@ normal upload path.
             {% endfor %}
           </tbody>
         </table>
+
+        <h3 style="font-size:.9rem;margin-bottom:.4rem;">Add videos</h3>
+        {{ video_formset.management_form }}
+        <table>
+          <thead><tr><th>Video</th><th>Order</th></tr></thead>
+          <tbody>
+            {% for subform in video_formset %}
+              <tr>
+                <td>
+                  {{ subform.video }}{{ subform.video_key }}
+                  {% if forloop.first %}
+                    <p class="help">{{ subform.video.help_text }}</p>
+                  {% endif %}
+                  {% for error in subform.video.errors %}
+                    <p class="help" style="color:var(--bad);">{{ error }}</p>
+                  {% endfor %}
+                </td>
+                <td style="width:7rem;">{{ subform.order }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
     {% endif %}
 
@@ -127,11 +181,12 @@ normal upload path.
     <div class="panel" style="margin-top:1.2rem;">
       <h2 style="font-size:1rem;margin-top:0;">Delete</h2>
       <p class="help">
-        Removes the car, its photos and the files behind them. A booking that pointed at
-        it keeps the car's name, so the appointment still makes sense afterwards.
+        Removes the car, its whole gallery and the files behind it. A booking that
+        pointed at it keeps the car's name, so the appointment still makes sense
+        afterwards.
       </p>
       <form method="post"
-            onsubmit="return confirm('Delete this car and all its photos?');">
+            onsubmit="return confirm('Delete this car and its whole gallery?');">
         {% csrf_token %}
         <input type="hidden" name="action" value="delete">
         <div class="actions">
