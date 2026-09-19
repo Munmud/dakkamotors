@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import { fetchCar } from "../api/client";
 import CallButton from "../components/CallButton";
 import CarQuestions from "../components/CarQuestions";
-import CarVideo from "../components/CarVideo";
 import Gallery from "../components/Gallery";
 import SpecTable from "../components/SpecTable";
 import { ErrorState, LoadingState } from "../components/States";
@@ -13,11 +12,14 @@ import { carTitle, formatPrice, hasPhone, pickDescription } from "../lib/format"
 import { takeInitialData } from "../lib/initialData";
 
 /**
- * Poster frame for the video player.
+ * Poster frame for every video in the gallery, and the image behind their thumbnails.
  *
  * Deliberately a resized copy rather than `image`: the original is the full-resolution
  * upload, several megabytes of it, and using it here would download the whole thing on
  * every visit to a car that has a video - undoing the point of preload="none".
+ *
+ * Read from `images`, which is photos only, so this cannot accidentally be handed a
+ * video and produce a poster that is the clip itself.
  */
 function videoPoster(car) {
   const primary = car.images?.find((image) => image.is_primary) ?? car.images?.[0];
@@ -81,7 +83,12 @@ export default function CarDetail() {
       </Link>
 
       <div className="detail">
-        <Gallery images={car.images} title={title} />
+        <Gallery
+          media={car.media}
+          images={car.images}
+          poster={videoPoster(car)}
+          title={title}
+        />
 
         <div className="summary">
           <div>
@@ -119,12 +126,6 @@ export default function CarDetail() {
           </div>
         </div>
       </div>
-
-      <CarVideo
-        src={car.video}
-        poster={videoPoster(car)}
-        title={title}
-      />
 
       <section className="section">
         <h2 className="section__title">{t("spec.heading")}</h2>
