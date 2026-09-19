@@ -37,7 +37,7 @@ DYNAMODB_ENDPOINT_URL=http://localhost:8123 DDB_TABLE=dakkamotors_test \
 
 # Frontend
 cd frontend && npm ci && npm run dev
-npm run check-i18n                     # every key present in both en and ja
+npm run check-i18n                     # en/ja parity, plus a warning for unused keys
 ```
 
 Deploys are automatic: push to `main`, path-filtered GitHub Actions workflows deploy the
@@ -176,6 +176,10 @@ customer's booking must never fail -- or wait 600ms -- because of an email.
 
 **The frontend is bilingual.** Every user-visible string goes through `react-i18next`
 with keys in both `en.json` and `ja.json`. `npm run check-i18n` fails the build otherwise.
+It also warns about keys no component references -- comparing the two files only against
+each other cannot catch a key both of them have and nothing reads, which is how seven
+accumulated. That half warns rather than fails, because `t(`status.${x}`)` cannot be
+resolved statically and a check that cries wolf gets disabled.
 
 ## Things that will bite
 
