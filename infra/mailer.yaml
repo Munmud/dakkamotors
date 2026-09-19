@@ -1,20 +1,24 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Dakka Motors - outbound email via Brevo (ap-northeast-1).
+  Dakka Motors - outbound email via Brevo (ap-northeast-1). Django writes a message to
+  S3; the object-created event invokes this function, which calls api.brevo.com. Cost is
+  one PUT and one short invocation per email. See the comments below for why the split
+  exists and why it is now a choice rather than a constraint.
 
-  The Django Lambda runs in a private subnet with no NAT gateway and only an S3 gateway
-  endpoint: it has NO route to the internet, so it cannot reach api.brevo.com at all - a
-  call would simply hang until the function times out. A NAT gateway would fix that for
-  roughly $32/month, several times what this whole site costs to run.
-
-  So Django writes a message to S3, which it *can* reach, and the object-created event
-  pushes an invocation to this function. This one is deliberately NOT attached to the
-  VPC, which is the entire reason it works: outside the VPC it has ordinary internet
-  access. Cost is one PUT and one short invocation per email.
-
-  Its own bucket rather than the media bucket: a notification config is a property of
-  the bucket, so sharing would put the Lambda ARN in the core stack and the bucket ARN
-  here, which is circular.
+# **The split is now a choice, not a constraint.** It began as one: the Django Lambda ran
+# in a private subnet with no NAT gateway and only an S3 gateway endpoint, so it had no
+# route to api.brevo.com at all -- a call did not fail fast, it hung until the function
+# timed out. A NAT gateway would have fixed that for roughly $32/month, several times
+# what the whole site costs to run. That VPC was deleted with Aurora in September 2026.
+#
+# It is kept because it is the right shape anyway: sending is fire-and-forget, and a
+# customer's booking must never fail -- or wait 600ms on a third party -- because of an
+# email. Anyone is free to collapse it back into the request path; nothing prevents that
+# any more.
+#
+# Its own bucket rather than the media bucket: a notification config is a property of the
+# bucket, so sharing would put the Lambda ARN in the core stack and the bucket ARN here,
+# which is circular.
 
 Parameters:
   ApiKeyParameter:
@@ -102,8 +106,8 @@ Resources:
       Role: !GetAtt MailerRole.Arn
       Timeout: 30
       MemorySize: 256
-      # No VpcConfig on purpose. Attaching this to the VPC would take away the internet
-      # access that is the whole reason this function exists.
+      # No VpcConfig, and nothing to attach to: the VPC this deliberately stayed out of
+      # was deleted with Aurora.
       Environment:
         Variables:
           API_KEY_PARAM: !Ref ApiKeyParameter

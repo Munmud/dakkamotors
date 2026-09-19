@@ -7,15 +7,17 @@ import { useAuth } from "./AuthContext";
  * The customer's bell.
  *
  * **This deliberately does not poll, and deliberately never fetches for a visitor who is
- * not signed in.** Aurora is configured to scale to zero, and an anonymous car page is
- * served entirely from CloudFront without waking it. A `useEffect` that fetched on mount
- * for everyone would turn all of that cached traffic into origin requests and keep the
- * database warm around the clock — for a shop that takes a handful of bookings a week,
- * it would be the single most expensive line of code in the project.
+ * not signed in.** An anonymous car page is served entirely from CloudFront and never
+ * reaches the origin. A `useEffect` that fetched on mount for everyone would turn all of
+ * that cached traffic into origin requests — for a shop that takes a handful of bookings
+ * a week, it would be the single most expensive line of code in the project.
+ *
+ * The original reason was sharper still: Aurora scaled to zero, and polling would have
+ * kept it awake around the clock. Aurora is gone and DynamoDB would not care, but the
+ * argument about turning cached traffic into origin requests stands on its own.
  *
  * So: one fetch when a signed-in session is confirmed, and another after anything the
- * customer does that could have created a notification. A signed-in visitor already hits
- * the uncached `/api/auth/me/` on every load, so the database is awake for them anyway.
+ * customer does that could have created a notification.
  *
  * The cost is that something arriving while a tab sits open is not seen until the next
  * navigation. For this site that is the right trade.

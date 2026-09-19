@@ -202,7 +202,17 @@ def visible_in(questions, language):
 
 
 def sweep_unanswered(older_than_days=180, now=None):
-    """Housekeeping for the management command, never on a timer."""
+    """Delete unanswered, unpublished questions older than a cutoff.
+
+    Nothing calls this: the management command its docstring used to name was never
+    written, and **it must not go on a timer** -- "nothing runs on a timer" is a
+    deliberate property of this codebase, and a sweeper that silently deletes customer
+    questions is the last thing that should acquire one.
+
+    Kept because the rule it encodes is the considered one (unanswered *and* unpublished,
+    never a published pair, which is indexed page content) and rewriting that under time
+    pressure is how a published answer gets deleted by accident.
+    """
     now = now or timezone.now()
     cutoff = now - dt.timedelta(days=older_than_days)
     doomed = [q for q in store.unanswered_before(cutoff) if not q.is_published]

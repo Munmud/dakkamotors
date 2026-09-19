@@ -268,8 +268,10 @@ def delete(car):
     there succeeds, so this needs no condition.
 
     Orphaned children are invisible -- nothing queries a deleted car's partition -- and
-    the batch below is best-effort rather than guaranteed. S3 cleanup is the caller's job
-    now that there is no `post_delete` signal to hang it on.
+    the batch below is best-effort rather than guaranteed, so a car with more than a
+    page of children can leave some behind. There is no sweeper; if that ever matters,
+    the fix is to page the query rather than to add a scheduled job. S3 cleanup is the
+    caller's job now that there is no `post_delete` signal to hang it on.
     """
     from .base import BaseItem
 

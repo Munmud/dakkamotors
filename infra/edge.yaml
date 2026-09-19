@@ -52,8 +52,9 @@ Resources:
         SigningBehavior: always
         SigningProtocol: sigv4
 
-  # Short TTL on the public car endpoints. This is what keeps Aurora asleep: repeat
-  # visitors are served from the edge and never reach the database.
+  # Short TTL on the public car endpoints, so repeat visitors are served from the edge
+  # and never reach Lambda. This began as the thing that kept Aurora asleep; with
+  # DynamoDB it is ordinary latency and cost saving.
   ApiCachePolicy:
     Type: AWS::CloudFront::CachePolicy
     Properties:
@@ -74,9 +75,9 @@ Resources:
             QueryStringBehavior: all
 
   # HTML is cached for five minutes. Long enough that crawlers and repeat visitors
-  # rarely reach Lambda (and so Aurora keeps scaling to zero), short enough that a car
-  # added in the admin shows up without an invalidation. Language is part of the cache
-  # key because ?lang= changes the whole document.
+  # rarely reach Lambda, short enough that a car added on the staff pages shows up
+  # without an invalidation. Language is part of the cache key because ?lang= changes the
+  # whole document.
   PageCachePolicy:
     Type: AWS::CloudFront::CachePolicy
     Properties:
@@ -138,7 +139,7 @@ Resources:
         # gives every URL its own title, description and structured data - a static
         # index.html can only ever carry one set, so link previews and answer engines
         # saw the same generic page for every car. Cached at the edge so the origin is
-        # hit rarely and the database stays asleep.
+        # hit rarely.
         DefaultCacheBehavior:
           TargetOriginId: api
           ViewerProtocolPolicy: redirect-to-https
@@ -149,7 +150,7 @@ Resources:
           OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
 
         CacheBehaviors:
-          # Listing endpoints: cacheable, and the reason the database can stay paused.
+          # Listing endpoints: cacheable, and the bulk of the traffic.
           - PathPattern: /api/cars*
             TargetOriginId: api
             ViewerProtocolPolicy: redirect-to-https
@@ -159,7 +160,7 @@ Resources:
             # Managed-AllViewerExceptHostHeader
             OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
 
-          # Everything else under /api/ includes the admin: never cache it.
+          # Everything else under /api/ is per-customer or staff-only: never cache it.
           - PathPattern: /api/*
             TargetOriginId: api
             ViewerProtocolPolicy: redirect-to-https

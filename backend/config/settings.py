@@ -39,9 +39,9 @@ env = environ.Env(
         list,
         ["https://dakkamotors.com", "https://www.dakkamotors.com"],
     ),
-    # Email. Django cannot send directly - the Lambda has no route to the internet -
-    # so messages are written to this bucket and a function outside the VPC sends them.
-    # See cars/mail.py and infra/mailer.yaml.
+    # Email. Nothing is sent inline: messages are written to this bucket and a second
+    # Lambda sends them via Brevo. Fire-and-forget by design -- a booking must not fail,
+    # or wait on a third party, because of an email. See cars/mail.py, infra/mailer.yaml.
     OUTBOX_BUCKET=(str, ""),
     MAIL_FROM=(str, ""),
     MAIL_FROM_NAME=(str, "Dakka Motors"),
@@ -167,8 +167,8 @@ DATABASES = {}
 # DynamoDB
 # --------------------------------------------------------------------------------------
 
-# Read by cars/store/base.py. Aurora is on its way out; while both exist, nothing in
-# the store package touches DATABASES and nothing in the ORM touches these.
+# Read by cars/store/base.py. The endpoint override is empty everywhere except local
+# development and CI, where it points at DynamoDB Local. Never set it in production.
 DDB_TABLE = env("DDB_TABLE")
 DYNAMODB_ENDPOINT_URL = env("DYNAMODB_ENDPOINT_URL")
 

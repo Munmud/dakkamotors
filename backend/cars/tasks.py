@@ -1,22 +1,25 @@
 """Derivative generation scheduling.
 
-Why this is not a background job
---------------------------------
-The obvious design is to hand resizing to an asynchronous Lambda invocation. It cannot
-work here: the function runs in a private subnet with no NAT gateway and only an S3
-*gateway* endpoint, so it has no network path to the Lambda API and a self-invoke hangs
-until the function times out. Giving it one means an interface VPC endpoint at roughly
-$10/month across two AZs - more than the entire site costs to run.
+Why this is inline, and what should change
+------------------------------------------
+Resizing happens inline, bounded by a time budget. API Gateway gives up at 29 seconds,
+and a save that dies there is far worse than a photo briefly served at full size.
+Anything unfinished is left pending and picked up by the next save, the staff action, or
+`manage.py rebuild_derivatives`. Until then the API serves the original, so the only cost
+of falling behind is bytes.
 
-A scheduled sweeper is out for a different reason: every run would query the database,
-and Aurora Serverless v2 only scales to zero after ten idle minutes. Polling would keep
-it awake permanently and quietly undo the thing that makes the database nearly free.
+**This design is a leftover, and moving it is the last outstanding item from the DynamoDB
+cutover.** The original reason was that the function ran in a private subnet with no NAT
+gateway and only an S3 *gateway* endpoint: it had no network path to the Lambda API, so a
+self-invoke did not fail fast -- it hung until the function timed out and surfaced as a
+504. Buying a path meant an interface VPC endpoint at roughly $10/month across two AZs,
+more than the entire site cost to run. A scheduled sweeper was out for a second reason:
+every run would have queried Aurora, which only scaled to zero after ten idle minutes, so
+polling would have kept it awake around the clock.
 
-So resizing happens inline, bounded by a time budget. API Gateway gives up at 29
-seconds, and a save that dies there is far worse than a photo that is briefly served at
-full size. Anything not finished inside the budget is left pending and picked up by the
-next save, the admin action, or `manage.py rebuild_derivatives`. Until then the API
-serves the original, so the only cost of falling behind is bytes.
+Both reasons are gone. There is no VPC and no Aurora, `lambda:InvokeFunction` is
+reachable, and the budget and its `threading.local` deadline exist only to work around a
+constraint that no longer applies. See `docs/INFRA.md`.
 """
 
 import logging
@@ -88,8 +91,8 @@ def build_derivatives_task(car_image_id):
 def process_pending(limit=10):
     """Catch up on photos left behind, while the budget lasts.
 
-    Called opportunistically from admin saves, where the database is already awake, so
-    it costs nothing extra in Aurora time.
+    Called opportunistically from staff saves, so a backlog clears itself without anybody
+    running the management command.
     """
     from .store import images as image_store
 

@@ -1,11 +1,11 @@
-"""Enumerations shared by the ORM models and the DynamoDB store.
+"""Enumerations, shared by everything that needs them.
 
-Extracted here during the DynamoDB migration so the two layers cannot drift apart while
-both exist. `TextChoices` needs no database -- it is an enum with labels -- so this
-module is safe to import from anywhere, including code that runs with `DATABASES = {}`.
+Extracted during the DynamoDB migration so the ORM models and the store could not drift
+apart while both existed. The ORM is gone; this is simply where the enums live now, read
+by `cars/store/`, `cars/staff/forms.py` and the management commands.
 
-Each definition keeps its original home's re-export, so existing imports such as
-`from .models import FuelType` continue to work untouched.
+`TextChoices` needs no database -- it is an enum with labels -- which is what makes it
+safe to import from anywhere, including code running with `DATABASES = {}`.
 """
 
 from django.db import models

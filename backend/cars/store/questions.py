@@ -28,9 +28,10 @@ def create(*, car_id, car_brand, car_model_name, car_slug, car_label,
            language=QuestionLanguage.EN, now):
     """Record a question.
 
-    Takes the car's fields rather than a car object on purpose: while the migration is
-    in flight the caller may hold a Django Car or a store Car, and this module should
-    not have to know or care which.
+    Takes the car's fields rather than a car object on purpose. It began as a bridge --
+    during the migration a caller might hold a Django Car or a store Car -- and it stays
+    because the snapshot is the point: a question keeps the car's name as it was when
+    asked, so a later rename does not rewrite history on a published page.
     """
     question_id = keys.new_id()
     row = CarQuestion(

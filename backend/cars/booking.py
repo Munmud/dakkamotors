@@ -194,9 +194,9 @@ def create_booking(*, user, slot_id, car=None, now=None):
     except Exception as exc:  # noqa: BLE001 - re-raised by _explain
         _explain(exc, now)
 
-    # Queued, not sent: the write goes to S3 and a Lambda outside the VPC does the
-    # sending. Failures are swallowed there - losing a notification must never cost the
-    # customer their booking.
+    # Queued, not sent: the write goes to S3 and a second Lambda does the sending.
+    # Failures are swallowed there - losing a notification must never cost the customer
+    # their booking, nor make them wait on Brevo for it.
     mail.notify_staff_of_booking(booking, user)
     return booking
 
@@ -205,8 +205,8 @@ class _CustomerRef:
     """What the store needs to snapshot onto a booking and its seat.
 
     A narrow shim rather than passing the user straight through, so the store never
-    learns what a Django user looks like - and so the same call works unchanged once
-    Cognito supplies the identity.
+    learns what an identity provider looks like. It was written to survive the swap from
+    Django auth to Cognito without the store changing, and it did.
     """
 
     def __init__(self, user, sub):

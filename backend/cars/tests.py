@@ -1096,8 +1096,8 @@ class AccountPageTests(DynamoReset, SimpleTestCase):
     STAFF_ALERT_EMAIL="staff@example.com",
 )
 class QueueEmailTests(SimpleTestCase):
-    """Django cannot send mail itself - no route out of the VPC - so 'sending' means
-    writing one object to S3 for a Lambda outside the VPC to pick up."""
+    """Nothing is sent from the request path, so 'sending' means writing one object to
+    S3 for the mailer Lambda to pick up. Fire-and-forget by design."""
 
     def test_a_message_is_written_to_the_outbox(self):
         with mock.patch("cars.mail.boto3.client") as client:

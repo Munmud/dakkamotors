@@ -1,10 +1,11 @@
 """Outbound email.
 
-Django cannot send it directly. The function runs in a private subnet with no NAT and
-only an S3 gateway endpoint, so it has no route to Brevo - or anywhere else on the
-internet - and an attempt would hang until the request timed out. What it *can* reach is
-S3, so a message is written there and a Lambda outside the VPC picks it up and sends it.
-See `infra/mailer.yaml`.
+Nothing is sent from the request path. A message is written to S3 and a second Lambda
+picks it up and calls Brevo. See `infra/mailer.yaml`.
+
+That split began as a necessity -- the function was in a private subnet with no NAT and
+could not reach Brevo at all -- and survives as a choice now the VPC is gone, for the
+reason below.
 
 Queuing is fire-and-forget on purpose. A customer's booking must never fail because an
 email could not be written; a lost notification is a smaller problem than a lost sale.
@@ -416,9 +417,8 @@ def send_password_reset_email(user, link, language="en"):
 def notify_staff_of_question(question, customer=None):
     """Someone has asked something about a car and is waiting on an answer.
 
-    The customer is passed in rather than read off the question: questions now live in
-    DynamoDB and carry only a subject identifier, while the person's name and address
-    come from whatever owns identity - Django auth today, Cognito shortly.
+    The customer is passed in rather than read off the question: a question carries only
+    a subject identifier, and the person's name and address come from Cognito.
     """
     recipients = _config("STAFF_ALERT_EMAIL")
     if not recipients:

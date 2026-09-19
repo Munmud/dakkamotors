@@ -62,7 +62,13 @@ def connection():
 
 
 def reset_connection():
-    """Drop the cached connection. Used by tests that re-point the endpoint."""
+    """Drop the cached connection, so the next call rebuilds it from settings.
+
+    Nothing calls this. It is the counterpart of `cognito.reset_client` and
+    `authentication.reset_keys`, which tests do use when they re-point an endpoint --
+    kept so a test that ever needs to move DYNAMODB_ENDPOINT_URL mid-run has the handle,
+    rather than discovering the connection is memoised the hard way.
+    """
     global _connection
     _connection = None
 

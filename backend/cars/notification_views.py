@@ -3,10 +3,12 @@
 Under `/api/*`, so caching is disabled and cookies are forwarded - both required, since
 every response here is specific to one signed-in person.
 
-Nothing polls these. Aurora is set to scale to zero, and a bell checking every thirty
-seconds would keep it awake around the clock for a site that gets a handful of bookings a
-week. The client fetches once when a signed-in session starts, and again after anything
-that could have created a notification.
+Nothing polls these. The original reason was Aurora: a bell checking every thirty
+seconds would have kept a database that scaled to zero awake around the clock. Aurora is
+gone and DynamoDB would not care, but the design survives on its own merits -- polling a
+handful of bookings a week is a lot of requests to learn nothing. The client fetches once
+when a signed-in session starts, and again after anything that could have created a
+notification.
 """
 
 from rest_framework import serializers, status

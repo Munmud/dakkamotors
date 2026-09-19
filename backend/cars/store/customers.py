@@ -85,7 +85,16 @@ def all_customers(limit=None):
 
 
 def recount(sub, active_bookings):
-    """Used by reconcile_counters, never on a request path."""
+    """Set a customer's active-booking counter to a known value.
+
+    For repair after a restore or a partial import, never on a request path -- the
+    counter is maintained transactionally by `bookings.py`, and setting it outside a
+    transaction is exactly the race that design avoids.
+
+    Nothing calls this today: `manage.py reconcile_counters` writes the attribute
+    directly. Kept because a counter you cannot reset by hand is worse than an unused
+    function, and because the next repair script should use this rather than reinvent it.
+    """
     customer = get(sub)
     customer.update(actions=[Customer.active_bookings.set(int(active_bookings))])
     return customer
