@@ -357,7 +357,16 @@ Resources:
           RequireLowercase: false
           RequireNumbers: false
           RequireSymbols: false
-          TemporaryPasswordValidityDays: 1
+          # Seven days, not one. The pool sends no email, so a temporary password travels
+          # by hand -- read down a phone line or handed over in person -- and one day is
+          # not long enough for that to survive a weekend. It expired unused once already,
+          # which costs an owner round-trip to reissue and teaches nobody anything.
+          #
+          # The window is short for a reason worth keeping in mind: this password can
+          # grant owner access, and Cognito forces a change on first use, so its real
+          # lifetime is one sign-in. Seven days bounds the unused case without making the
+          # used case awkward.
+          TemporaryPasswordValidityDays: 7
 
       # WARNING: Schema is effectively immutable. CloudFormation fails rather than
       # replaces on most edits, and Cognito has no API to remove a custom attribute -

@@ -152,6 +152,15 @@ done
 asked. The same command is how the **first** owner is made on a fresh pool, which is
 otherwise a chicken-and-egg -- the page that creates accounts needs an owner signed in.
 
+A temporary password lasts **seven days** and Cognito forces a change on first use, so
+its real lifetime is one sign-in. If one expires unused, reissue rather than creating a
+second account -- the address is the username, so a second `admin-create-user` fails with
+`UsernameExistsException`:
+
+```bash
+aws cognito-idp admin-set-user-password --region ap-northeast-1 --user-pool-id $POOL   --username "$EMAIL" --password '<strong>' --no-permanent
+```
+
 ### Signing a test in
 
 `tests_fake_cognito.py`. Both cookie flows resolve `cars.authentication.verify` at call
