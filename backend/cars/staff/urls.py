@@ -19,8 +19,14 @@ from . import views_staff
 app_name = "staff"
 
 urlpatterns = [
+    # The bare prefix. It is `sign_in_url`'s default `next` and the callback's
+    # fallback destination, so without it a successful sign-in ended on a 404.
+    path("", views_auth.index, name="index"),
     path("auth/sign-in/", views_auth.sign_in, name="sign-in"),
-    path("auth/callback/", views_auth.callback, name="auth-callback"),
+    # No trailing slash: this is what Cognito is configured to call, and letting
+    # APPEND_SLASH 301 it added a hop that carried the authorization code through
+    # a redirect for no reason. Registered on the app client as the same string.
+    path("auth/callback", views_auth.callback, name="auth-callback"),
     path("auth/sign-out/", views_auth.sign_out, name="sign-out"),
     path("signed-out", views_auth.signed_out, name="signed-out"),
     path("auth/not-configured", views_auth.not_configured,

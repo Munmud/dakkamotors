@@ -150,6 +150,25 @@ def read_state(state):
     return nxt[:200]
 
 
+#: The callback URL, in exactly one place.
+#:
+#: OAuth2 requires the `redirect_uri` sent to /oauth2/token to be **byte-identical** to
+#: the one sent to /oauth2/authorize, and to match what is registered on the app client.
+#: Deriving it from the incoming request instead looks equivalent and is not: Cognito
+#: calls this path without a trailing slash, Django's APPEND_SLASH 301s that to the
+#: slashed form, and `request.build_absolute_uri(request.path)` in the callback then
+#: reports the *redirected* path. The exchange fails with a bare HTTP 400, the callback
+#: sends the browser back to sign in, and the browser loops until it gives up.
+#:
+#: No trailing slash: that is what is registered on the client, and changing it here
+#: means changing it there too.
+CALLBACK_PATH = "/api/staff/auth/callback"
+
+
+def redirect_uri():
+    return f"https://{settings.ALLOWED_HOSTS[0]}{CALLBACK_PATH}"
+
+
 def sign_in_url(next_path="/api/staff/"):
     if not _domain():
         # No hosted UI on this deploy, and no second way in now that the Django admin's
@@ -160,7 +179,7 @@ def sign_in_url(next_path="/api/staff/"):
         "client_id": settings.COGNITO_STAFF_CLIENT_ID,
         "response_type": "code",
         "scope": "openid email profile",
-        "redirect_uri": f"https://{settings.ALLOWED_HOSTS[0]}/api/staff/auth/callback",
+        "redirect_uri": redirect_uri(),
         "state": sign_state(next_path),
     })
     return f"https://{_domain()}/oauth2/authorize?{query}"

@@ -150,6 +150,45 @@ class CallbackTests(StaffAuthTestCase):
                 {"code": "an-authorization-code",
                  "state": state or staff_auth.sign_state("/api/staff/cars/")})
 
+    def test_the_exchange_uses_the_registered_redirect_uri(self):
+        """OAuth2 requires it byte-identical to the authorize call; this shipped wrong.
+
+        Cognito calls the callback without a trailing slash. The view used to derive the
+        value from `request.build_absolute_uri(request.path)`, so if anything rewrote the
+        path -- APPEND_SLASH did -- the exchange sent the rewritten one, Cognito answered
+        400, and the callback bounced the browser back to sign in. The browser looped
+        until it gave up: "redirected you too many times", with nothing in the UI naming
+        a redirect_uri.
+        """
+        seen = {}
+
+        def capture(code, uri):
+            seen["uri"] = uri
+            return {"access_token": self.staff_token(), "expires_in": 1800}
+
+        with mock.patch("cars.staff.views_auth.exchange_code", side_effect=capture):
+            self.client.get(reverse("staff:auth-callback"),
+                            {"code": "an-authorization-code",
+                             "state": staff_auth.sign_state("/api/staff/cars/")})
+
+        self.assertEqual(seen["uri"], staff_auth.redirect_uri())
+        self.assertFalse(staff_auth.redirect_uri().endswith("/"))
+
+        # And the authorize leg must send the very same string.
+        import urllib.parse
+
+        with override_settings(COGNITO_DOMAIN="example.auth.ap-northeast-1.amazoncognito.com"):
+            query = urllib.parse.parse_qs(
+                urllib.parse.urlparse(staff_auth.sign_in_url()).query)
+        self.assertEqual(query["redirect_uri"], [staff_auth.redirect_uri()])
+
+    def test_the_callback_route_needs_no_append_slash_redirect(self):
+        """Cognito is registered against the slashless path; serving only the slashed one
+        made Django 301 the authorization code through an extra hop."""
+        response = self.client.get("/api/staff/auth/callback", {"code": ""})
+
+        self.assertNotEqual(response.status_code, 301)
+
     def test_a_staff_token_sets_the_cookie_and_goes_where_state_said(self):
         response = self.callback({"access_token": self.staff_token(),
                                   "expires_in": 1800})

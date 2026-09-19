@@ -84,6 +84,43 @@ class ManagerIsLockedOutTests(StaffAccountTestCase):
             self.client.get(reverse("staff:customer-list")).status_code, 200)
 
 
+class StaffIndexTests(StaffAccountTestCase):
+    """`/api/staff/` had no route, and it is where sign-in lands by default."""
+
+    def test_an_owner_lands_on_the_car_list(self):
+        self.sign_in_as_owner()
+
+        response = self.client.get(reverse("staff:index"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("staff:car-list"))
+
+    def test_a_manager_lands_on_the_car_list_too(self):
+        self.sign_in_as_manager()
+
+        response = self.client.get(reverse("staff:index"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("staff:car-list"))
+
+    def test_somebody_with_no_role_is_told_so_rather_than_403d(self):
+        """A 403 here is indistinguishable from a failed login, which is the thing the
+        person is most likely to assume."""
+        token = self.staff_token(email="newstarter@example.com",
+                                 groups=(cognito.STAFF_GROUP,))
+        self.client.cookies[staff_auth.STAFF_COOKIE] = token
+
+        response = self.client.get(reverse("staff:index"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"no role yet", response.content)
+
+    def test_a_guest_is_sent_to_sign_in(self):
+        response = self.client.get(reverse("staff:index"))
+
+        self.assertEqual(response.status_code, 302)
+
+
 class RosterTests(StaffAccountTestCase):
     def test_an_owner_sees_the_roster(self):
         self.make_colleague()
