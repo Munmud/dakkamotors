@@ -118,8 +118,8 @@ class Car(BaseItem, discriminator="car"):
     slug = UnicodeAttribute(null=True)
 
     # Denormalised so the listing page is ONE query rather than one per card. Kept in
-    # step by store.images._refresh_primary() on create / update / delete / reorder /
-    # derivatives-ready -- all five paths, or a card goes stale.
+    # step by store.images.refresh_primary(); store/images.py lists every path that has
+    # to call it. Miss one and a card goes stale.
     primary_image_ref = JSONAttribute(null=True)
 
     # Lowercased haystack for the staff substring search, written at save time. See
@@ -132,9 +132,11 @@ class Car(BaseItem, discriminator="car"):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Populated by store.cars.detail(); not a stored attribute.
+        # Populated by store.cars.detail(); not stored attributes.
         self.images = []
         self.questions = []
+        self.videos = []
+        self.media = []
 
     def __str__(self):
         return f"{self.manufacture_year} {self.brand} {self.model_name}".strip()

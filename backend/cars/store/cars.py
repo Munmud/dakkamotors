@@ -19,7 +19,7 @@ import itertools
 from . import keys
 from .errors import ConditionFailed, NotFound
 from .models import (
-    Car, CarImage, CarQuestion, ChassisGuard, LegacyCarPointer, SlugGuard,
+    Car, CarImage, CarQuestion, CarVideo, ChassisGuard, LegacyCarPointer, SlugGuard,
 )
 from .txn import Txn, failed
 
@@ -138,12 +138,18 @@ def detail(car_id):
     crawlers and link previews on a possibly-cold Lambda, so collapsing three sequential
     round trips into one is the latency that actually matters.
 
-    The sort keys guarantee the order IMG# < META < Q#, so the partition arrives already
-    grouped and nothing needs sorting afterwards.
+    Videos come out of the same Query for exactly this reason: they are a second item
+    type in a partition that is already being read whole, so the gallery costs nothing
+    extra. Asking `videos.for_car` from the serializer instead would turn the page's one
+    Query into two, which is the thing `tests_store.count_dynamo_calls` exists to catch.
+
+    The sort keys guarantee IMG# < META < Q# < VID#, so the partition arrives grouped;
+    the sorting below is within a group, on `order`, which no key can express.
     """
     from .base import BaseItem
+    from . import media
 
-    car, images, questions = None, [], []
+    car, images, questions, videos = None, [], [], []
     for item in BaseItem.query(keys.car_pk(car_id)):
         if isinstance(item, Car):
             car = item
@@ -151,13 +157,18 @@ def detail(car_id):
             images.append(item)
         elif isinstance(item, CarQuestion):
             questions.append(item)
+        elif isinstance(item, CarVideo):
+            videos.append(item)
 
     if car is None:
         raise NotFound(f"no car {car_id!r}")
 
-    images.sort(key=lambda i: (int(i.order or 0), i.image_id or ""))
+    images.sort(key=lambda i: (int(i.order or 0), i.sk or ""))
+    videos.sort(key=lambda v: (int(v.order or 0), v.sk or ""))
     car.images = images
     car.questions = questions
+    car.videos = videos
+    car.media = media.merge(images, videos)
     return car
 
 

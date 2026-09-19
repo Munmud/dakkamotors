@@ -6,9 +6,14 @@ the N+1 that `prefetch_related("images")` used to absorb, and which has no equiv
 here.
 
 The cost of that denormalisation is an invariant: **every path that could change which
-photo is primary must call `refresh_primary`.** There are five -- create, update, delete,
-reorder, and derivatives becoming ready -- and all five go through this module, which is
-the only reason the invariant is keepable.
+photo is primary must call `refresh_primary`.** There are seven: create, delete, reorder,
+flagging one primary, replacing a photo's file, derivatives becoming ready, and
+`media.set_order`. (The docstring said five for as long as there were six; it is written
+out one per line now so the next one added is visibly a change to this list.)
+
+Six of the seven are in this module, which is the only reason the invariant is keepable.
+The seventh is in `media.py` and cannot move here, because it reorders photos and videos
+together and this module deliberately cannot see a video.
 """
 
 from django.core.files.storage import default_storage
@@ -31,9 +36,15 @@ def _ref(image):
 
 
 def for_car(car_id):
+    """Every photo on a car, in display order. Photos only: a `VID#` row cannot match.
+
+    Sorted on `(order, sk)` rather than `(order, image_id)` so this list composes with the
+    video list in `media.merge`. For a photo the two are the same ordering -- `IMG#` is a
+    constant prefix -- which is what made the change safe to make under existing tests.
+    """
     rows = list(CarImage.query(keys.car_pk(car_id),
                                range_key_condition=CarImage.sk.startswith("IMG#")))
-    rows.sort(key=lambda i: (int(i.order or 0), i.image_id or ""))
+    rows.sort(key=lambda i: (int(i.order or 0), i.sk or ""))
     return rows
 
 
