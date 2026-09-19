@@ -14,7 +14,6 @@ cloud dependencies:
 does the same for a stand-in pool.
 """
 
-import sys
 from pathlib import Path
 
 import environ
@@ -185,18 +184,15 @@ COGNITO_JWKS_PATH = env("COGNITO_JWKS_PATH")
 COGNITO_ENDPOINT_URL = env("COGNITO_ENDPOINT_URL")
 COGNITO_STAFF_CLIENT_SECRET = env("COGNITO_STAFF_CLIENT_SECRET")
 
-# Cognito enforces its own password policy, and the customer-lax/staff-strict split that
-# a single pool cannot express lives in `cars/auth_views.py`. Django validates no password
-# here because Django is never handed one: sign-up, sign-in and reset all go to Cognito.
+# No password settings at all. Cognito enforces its own policy, and the
+# customer-lax/staff-strict split a single pool cannot express lives in
+# `cars/auth_views.py`. Django is never handed a password: sign-up, sign-in and reset all
+# go to Cognito.
 #
-# `PASSWORD_HASHERS` survives for exactly one reader -- `tests_user_migration.py` uses
-# `django.contrib.auth.hashers.make_password` to generate the pbkdf2_sha256 hashes the
-# UserMigration trigger must accept. That module works without the app installed, since
-# it reads only this setting.
-PASSWORD_HASHERS = [
-    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
-    "django.contrib.auth.hashers.MD5PasswordHasher",
-]
+# `PASSWORD_HASHERS` used to be set here "for tests_user_migration.py". It was not needed:
+# every `make_password` call in that module wraps itself in `override_settings`, because
+# the hash it wants is a specific one and inheriting a global would make the test depend
+# on a setting rather than state it.
 
 
 # --------------------------------------------------------------------------------------
@@ -266,8 +262,9 @@ else:
 # --------------------------------------------------------------------------------------
 
 REST_FRAMEWORK = {
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 12,
+    # No pagination settings: every view here is a plain APIView, and DRF only reads
+    # DEFAULT_PAGINATION_CLASS from a generic view or a ViewSet. `CarListView` pages by
+    # hand because a DynamoDB Query has no offset -- see cars/views.py.
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     # Cookie credentials only. DRF's default also enables BasicAuthentication, which

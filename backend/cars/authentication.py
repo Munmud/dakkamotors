@@ -174,9 +174,11 @@ def _user_from(claims):
     return cognito.CognitoUser.from_claims(claims)
 
 
-class StaffCookieAuthentication(CognitoCookieAuthentication):
-    expected_client = "COGNITO_STAFF_CLIENT_ID"
-    cookie = STAFF_COOKIE
+# There is deliberately no StaffCookieAuthentication. The staff pages are server-rendered
+# Django views guarded by `staff.auth.staff_required`, not DRF ones -- a DRF class here
+# would imply otherwise and be the first thing somebody wired up by mistake. The staff
+# cookie is verified in `staff/auth.py`, which reads STAFF_COOKIE and calls `verify`
+# directly.
 
 
 def set_session_cookies(response, tokens, *, secure=True):

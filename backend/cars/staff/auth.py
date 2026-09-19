@@ -115,10 +115,6 @@ def _domain():
     return settings.COGNITO_DOMAIN
 
 
-def _redirect_uri(request):
-    return request.build_absolute_uri("/api/staff/auth/callback")
-
-
 def sign_state(next_path):
     """A signed `state`, carrying where to go afterwards.
 

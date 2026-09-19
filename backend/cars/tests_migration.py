@@ -9,16 +9,11 @@ The export/import round trip that used to live here reads Django models and ther
 only runs at the `pre-dynamo` tag. See the note below.
 """
 
-import datetime as dt
 import io
-import json
-import tempfile
 
 from django.core.management import call_command
 from django.test import SimpleTestCase, override_settings
-from django.utils import timezone
 
-from .store import bookings as booking_store
 from .store import customers as customer_store
 from .store import slots as slot_store
 from .tests import DynamoReset, MAIL_SETTINGS

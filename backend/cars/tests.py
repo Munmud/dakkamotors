@@ -1,20 +1,14 @@
 import datetime
-import hashlib
 import itertools
 import io
 import json
-import os
 import re
-import unittest
 from unittest import mock
 
 from django.core.cache import cache
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.management import call_command
-from django.core.management.base import CommandError
 from django.utils import timezone
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db import IntegrityError, connection, transaction
 from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from PIL import Image

@@ -16,7 +16,6 @@ longer a constraint and no longer needs solving in Python.
 import datetime as dt
 
 from . import keys
-from .errors import NotFound
 from .models import DedupeGuard, Notification
 from .txn import Txn, failed
 

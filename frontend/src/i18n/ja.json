@@ -2,7 +2,6 @@
   "brand": "ダッカモータース",
   "tagline": "日本の中古車販売。実車のご確認も、お電話でのお問い合わせも歓迎します。",
   "nav": {
-    "allCars": "在庫一覧",
     "back": "在庫一覧",
     "admin": "管理"
   },
@@ -13,7 +12,6 @@
   },
   "call": {
     "action": "{{phone}} に電話する",
-    "short": "電話する",
     "hours": "お電話でのお問い合わせはいつでもどうぞ。"
   },
   "list": {
@@ -90,7 +88,6 @@
     "resetSent": "アカウントが存在する場合、リンクをお送りしました。",
     "newPassword": "新しいパスワード",
     "setPassword": "パスワードを設定する",
-    "resetDone": "パスワードを変更しました。ログイン済みです。",
     "backToSignIn": "ログインに戻る"
   },
   "booking": {
@@ -106,19 +103,15 @@
     "myBookings": "予約中の試乗",
     "none": "ご予約中の試乗はありません。",
     "cancel": "キャンセル",
-    "cancelling": "キャンセル中…",
     "reschedule": "時間を変更",
     "keepTime": "この時間のままにする",
-    "booked": "予約済み",
     "confirmCancel": "この試乗をキャンセルしますか？",
-    "success": "試乗のご予約を承りました。お会いできるのを楽しみにしております。",
     "callNote": "お車をご用意してお待ちしております。ご変更は {{phone}} までご連絡ください。",
     "requested": "ご希望を承りました。確認後にご連絡いたします。",
     "requestedNote": "確定しましたらメールでお知らせします。お急ぎの場合は {{phone}} までお電話ください。",
     "awaiting": "確認待ち",
     "confirmed": "確定済み",
     "chooseDate": "日付を選んでください",
-    "changeDate": "‹ 日付を変更",
     "timesAvailable_one": "残り{{count}}枚",
     "timesAvailable_other": "残り{{count}}枚",
     "dateGone": "この日の最後の枠がちょうど埋まりました。別の日を選んでください。",

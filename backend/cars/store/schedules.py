@@ -9,7 +9,6 @@ would then change its identity, and a slot's id embeds its schedule's, so every 
 slot would be orphaned by a time correction.
 """
 
-from pynamodb.exceptions import PutError
 
 from . import keys
 from .errors import ConditionFailed, NotFound

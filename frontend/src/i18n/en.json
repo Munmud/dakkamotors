@@ -2,7 +2,6 @@
   "brand": "Dakka Motors",
   "tagline": "Used cars in Japan. Come and see them, or call and ask.",
   "nav": {
-    "allCars": "All cars",
     "back": "All cars",
     "admin": "Admin"
   },
@@ -13,7 +12,6 @@
   },
   "call": {
     "action": "Call {{phone}}",
-    "short": "Call us",
     "hours": "Phone enquiries welcome any day."
   },
   "list": {
@@ -90,7 +88,6 @@
     "resetSent": "If we have an account for that address, we have sent a link.",
     "newPassword": "New password",
     "setPassword": "Set new password",
-    "resetDone": "Password changed. You are signed in.",
     "backToSignIn": "Back to sign in"
   },
   "booking": {
@@ -106,19 +103,15 @@
     "myBookings": "My test drives",
     "none": "You have no test drives booked.",
     "cancel": "Cancel",
-    "cancelling": "Cancelling…",
     "reschedule": "Change time",
     "keepTime": "Keep this time",
-    "booked": "Booked",
     "confirmCancel": "Cancel this test drive?",
-    "success": "Your test drive is booked. We look forward to seeing you.",
     "callNote": "We will have the car ready. If anything changes, call us on {{phone}}.",
     "requested": "Request sent. We will confirm it shortly.",
     "requestedNote": "You will get an email once we confirm the time. If it is urgent, call us on {{phone}}.",
     "awaiting": "Awaiting confirmation",
     "confirmed": "Confirmed",
     "chooseDate": "Choose a date",
-    "changeDate": "‹ Change date",
     "timesAvailable_one": "{{count}} time",
     "timesAvailable_other": "{{count}} times",
     "dateGone": "The last place on that date has just gone. Please pick another.",

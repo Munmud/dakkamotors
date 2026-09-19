@@ -21,22 +21,6 @@ export function formatSlotDay(iso, language) {
   }).format(new Date(iso));
 }
 
-/** "Sat" / "土" — the weekday alone, for a compact date tile. */
-export function formatSlotWeekday(iso, language) {
-  return new Intl.DateTimeFormat(locale(language), {
-    weekday: "short",
-    timeZone: TIMEZONE,
-  }).format(new Date(iso));
-}
-
-/** "13" — the day of the month alone, so the tile can size it like a number. */
-export function formatSlotDayNumber(iso, language) {
-  return new Intl.DateTimeFormat(locale(language), {
-    day: "numeric",
-    timeZone: TIMEZONE,
-  }).format(new Date(iso));
-}
-
 export function formatSlotTime(iso, language) {
   return new Intl.DateTimeFormat(locale(language), {
     hour: "2-digit",

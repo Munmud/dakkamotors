@@ -23,10 +23,8 @@ from django.core.management.base import BaseCommand, CommandError
 from cars.choices import ACTIVE_STATUSES
 from cars.store import auth as auth_store
 from cars.store import cars as car_store
-from cars.store import customers as customer_store
 from cars.store import images as image_store
 from cars.store import keys
-from cars.store import schedules as schedule_store
 from cars.store import slots as slot_store
 from cars.store.models import (
     Booking, Car, CarImage, CarQuestion, ChassisGuard, Customer, LegacyCarPointer,

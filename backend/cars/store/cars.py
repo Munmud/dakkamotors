@@ -295,10 +295,5 @@ def delete(car):
     return removed
 
 
-def forget_slug(slug):
-    """Drop a memoised slug. Only needed when a slug is deliberately changed."""
-    _slug_cache.pop(slug, None)
-
-
 def clear_slug_cache():
     _slug_cache.clear()

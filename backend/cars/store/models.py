@@ -305,11 +305,6 @@ class Slot(BaseItem, discriminator="slot"):
     def seats_left(self):
         return max(int(self.capacity) - int(self.booked_count), 0)
 
-    @property
-    def is_bookable(self):
-        """Cheap display check. The write path re-checks atomically in a condition."""
-        return self.is_open and self.seats_left > 0 and self.starts_at > timezone.now()
-
 
 class Seat(BaseItem, discriminator="seat"):
     """The live-booking guard: `one_live_booking_per_customer_per_slot`.

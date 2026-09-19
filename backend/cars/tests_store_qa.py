@@ -6,10 +6,10 @@ import re
 
 from django.test import SimpleTestCase
 
-from .choices import NotificationKind, QuestionLanguage
+from .choices import NotificationKind
 from .store import cars, customers, keys, notifications, questions, search
 from .store.errors import ConditionFailed
-from .store.models import CarQuestion, DedupeGuard, Notification
+from .store.models import DedupeGuard
 from .tests_store import DynamoTestCase
 from .tests_store_cars import make_car
 

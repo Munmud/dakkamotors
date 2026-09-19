@@ -16,7 +16,7 @@ from unittest import mock
 from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 
-from . import authentication, cognito
+from . import cognito
 from .staff import auth as staff_auth
 from .staff.permissions import ASSIGNABLE_GROUPS, GROUP_ACTIONS, may
 from .tests import DynamoReset, MAIL_SETTINGS

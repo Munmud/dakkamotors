@@ -10,7 +10,7 @@ import datetime as dt
 from .choices import BookingStatus
 from .store import bookings, keys, slots
 from .store.errors import AlreadyBooked, LimitReached, NotActive, SlotUnavailable
-from .store.models import Booking, Customer, Seat, Slot
+from .store.models import Booking, Customer
 from .tests_store import DynamoTestCase
 
 UTC = dt.timezone.utc
