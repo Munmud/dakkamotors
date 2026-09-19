@@ -8,7 +8,11 @@
 # available here.
 #
 #   docker compose up -d dynamodb
-#   cd backend && DYNAMODB_ENDPOINT_URL=http://localhost:8123 python manage.py test
+#   cd backend && DYNAMODB_ENDPOINT_URL=http://localhost:8123 DDB_TABLE=dakkamotors_test #     AWS_ACCESS_KEY_ID=local AWS_SECRET_ACCESS_KEY=local python manage.py test
+#
+# DDB_TABLE matters even locally. It defaults to the production name, so the one time
+# somebody runs the suite with real credentials and no endpoint override, that is the
+# table the truncation between tests would empty.
 #
 # -inMemory means state is dropped on restart, which is what we want: the test base class
 # truncates between tests and nothing should ever depend on a previous run.

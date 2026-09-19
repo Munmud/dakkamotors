@@ -7,9 +7,15 @@
         "aws_region": "ap-northeast-1",
         "s3_bucket": "dakkamotors-backend-media",
         "_comment_sizing": [
-            "Lambda CPU scales with memory, so 1024MB roughly halves image resize time",
-            "at near-identical cost. The 120s timeout only benefits the asynchronous",
-            "derivative task - HTTP requests are still capped at 29s by API Gateway."
+            "Lambda CPU scales with memory, so 1024MB roughly halves image resize time at",
+            "near-identical cost.",
+            "",
+            "The 120s timeout is currently unreachable: every path into this function is an",
+            "HTTP request, and API Gateway gives up at 29s. It was sized for an asynchronous",
+            "derivative task that was never built - cars/tasks.py resizes inline against a 15s",
+            "budget instead, because a self-invoke could not work from inside the VPC. Leave it",
+            "until that task exists; a lower timeout would only change which of the two limits",
+            "you hit."
         ],
         "timeout_seconds": 120,
         "memory_size": 1024,
@@ -71,7 +77,6 @@
         ],
         "exclude": [
             ".venv/*",
-            "db.sqlite3",
             "mediafiles/*",
             "*.pyc",
             ".env"

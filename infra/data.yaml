@@ -490,19 +490,20 @@ Resources:
       # three people's sign-in page.
       Domain: !Ref CognitoDomainPrefix
 
+# Outputs, deliberately without Exports. Nothing in this repo uses !ImportValue -- the
+# backend gets these through zappa_settings.json and config/ssm.py, not through a stack
+# reference. An unused Export is not free: while one exists CloudFormation refuses to
+# delete or rename the output, and refuses to delete the stack, on the grounds that
+# something might import it. Add one only alongside the template that imports it.
 Outputs:
   TableName:
     Value: !Ref Table
-    Export: { Name: dakkamotors-table-name }
   TableArn:
     Value: !GetAtt Table.Arn
-    Export: { Name: dakkamotors-table-arn }
   TableStreamArn:
     Value: !GetAtt Table.StreamArn
   UserPoolId:
     Value: !Ref UserPool
-    Export:
-      Name: dakkamotors-user-pool-id
   CustomerClientId:
     Value: !Ref CustomerClient
   StaffClientId:

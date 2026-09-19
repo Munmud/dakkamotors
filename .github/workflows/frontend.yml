@@ -37,8 +37,15 @@ jobs:
 
       - run: npm ci
 
+      # oxlint, .oxlintrc.json and a `lint` script all existed and nothing ran them.
+      # It currently reports warnings and no errors, so it exits 0 and does not gate the
+      # deploy -- surfacing them beats a linter nobody sees. Tighten to --deny-warnings
+      # once the existing ones are dealt with.
+      - run: npm run lint
+
       # fallbackLng silently serves English for a key missing from ja.json, so drift
       # between the two files is invisible at runtime rather than an error. Catch it here.
+      # The second pass also warns about keys no component references.
       - run: npm run check-i18n
 
       # Reads .env.production: API at /api (same origin) and the contact number.
