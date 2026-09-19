@@ -52,8 +52,8 @@ python manage.py import_dynamo --from ./migration/<date>/  # on the new code
 python manage.py reconcile_counters [--fix]                # after a restore, or on doubt
 ```
 
-Run the import from a laptop with SSO credentials, not through `zappa manage`: DynamoDB
-is not in a VPC, so nothing about it needs a Lambda.
+Run the import from a laptop with SSO credentials rather than through `zappa manage` --
+it is an ops script, and nothing about it needs a Lambda.
 
 ## The data layer: DynamoDB and Cognito
 
@@ -99,6 +99,11 @@ wanting distinct slots at the same instant need distinct rules.
 * **`store/questions.py` is the only permitted writer of `is_published`.** That
   exclusivity replaces the `CheckConstraint` DynamoDB cannot express, and a test enforces
   it mechanically.
+* **Deleting a car must clear its `CARID#` pointer too.** It lives in its own partition,
+  so neither the car's partition sweep nor the guards touch it -- `store.cars.delete`
+  does it explicitly. A pointer outliving its car makes `config/urls.py` **301** an old
+  numeric URL to a slug that no longer resolves, and a cached 301 to a 404 is worse than
+  the 404 because nothing asks again. This shipped broken once; there is a test.
 * **Test truncation drops to the raw client** (`tests_store.truncate_table`), for the same
   discriminator reason. `tests_store.ensure_table` creates the table, and **both** entry
   points call it -- Django orders tests by module, so `tests.py` runs before
@@ -118,6 +123,34 @@ templates never learn how somebody signed in. **`staff/permissions.py` is the wh
 policy.** `OWNER_ONLY` keeps staff administration to owners, which is stricter than the
 sandbox it replaces: whoever can edit staff accounts can open the owner's, so the
 escalation is refused before a page is reached rather than by four guards agreeing.
+
+### Getting a staff account
+
+**Nobody registers as staff.** Self sign-up exists, but it is the customer path and
+produces an account in no groups. Two independent things stop that becoming staff access:
+the staff pages accept only tokens minted by the *staff* app client, which has no
+password auth flow at all, and group membership is admin-only.
+
+An owner adds people at `/api/staff/accounts/add/`. **The pool sends no email**, so the
+page shows the temporary password once, in the response to the request that created it --
+pass it on there and then. Cognito forces a change at first sign-in.
+
+The form offers `ASSIGNABLE_GROUPS`, which is `inventory-managers` only. `owners` is
+deliberately absent, so a POST carrying it fails validation rather than being quietly
+dropped -- which means **a second owner can only be made from the CLI**:
+
+```bash
+POOL=ap-northeast-1_czNqEUiq5
+aws cognito-idp admin-create-user --region ap-northeast-1 --user-pool-id $POOL   --username "$EMAIL"   --user-attributes Name=email,Value="$EMAIL" Name=email_verified,Value=true   --temporary-password '<strong>' --message-action SUPPRESS
+for g in staff owners; do
+  aws cognito-idp admin-add-user-to-group --region ap-northeast-1     --user-pool-id $POOL --username "$EMAIL" --group-name $g
+done
+```
+
+`--message-action SUPPRESS` is required, not tidiness: the pool has no
+`EmailConfiguration`, so Cognito has nothing to send an invitation with and errors if
+asked. The same command is how the **first** owner is made on a fresh pool, which is
+otherwise a chicken-and-egg -- the page that creates accounts needs an owner signed in.
 
 ### Signing a test in
 
@@ -189,11 +222,13 @@ resolved statically and a check that cries wolf gets disabled.
 * **`/api/cars/*` is a separate CloudFront behaviour** that allows only GET/HEAD/OPTIONS
   and strips cookies. A POST there is refused by the CDN with no Django log line. New
   authenticated endpoints must not live under that prefix.
-* **The Lambda is no longer in a VPC**, which retired three workarounds: the inline
-  image-resize budget in `tasks.py`, the S3 outbox as a *necessity*, and the hand-copy of
-  secrets into `config/env.json`. `vpc_config` in `zappa_settings.json` holds empty lists
-  and **the key must stay** -- Zappa only sends `VpcConfig` when it is present, so
-  deleting the key leaves a deployed function attached to subnets nothing mentions.
+* **The Lambda is no longer in a VPC.** That retired the hand-copy of secrets into
+  `config/env.json` and demoted the S3 outbox from necessity to choice. It has **not**
+  yet retired the inline image-resize budget in `tasks.py` -- `lambda:InvokeFunction` is
+  reachable now, so that can become a real async invoke, and it is the last outstanding
+  item from the cutover. `vpc_config` in `zappa_settings.json` holds empty lists and
+  **the key must stay**: Zappa only sends `VpcConfig` when it is present, so deleting the
+  key leaves a deployed function attached to subnets nothing mentions.
 * **DynamoDB reserved keywords** include `capacity`, `status`, `order`, `year` and
   `name`, all of which appear in this schema. PynamoDB aliases them automatically; raw
   boto3 does not.
@@ -203,8 +238,9 @@ resolved statically and a check that cries wolf gets disabled.
 * **An access token's `username` claim is the sub, not the email**, because the pool uses
   email as the username attribute. Deriving an address from it would look right and be a
   UUID.
-* **`dakkamotors-core` holds both S3 buckets** as well as, until the cutover, the VPC and
-  Aurora. Removing the database is a stack **update**, never `delete-stack` -- that would
-  take the site and every photo with it. `infra/network-db.yaml` keeps its filename for
-  the same reason: CloudFormation identifies a stack by name, and a renamed file invites
-  somebody to create a second one.
+* **`dakkamotors-core` holds both S3 buckets.** It also held the VPC and Aurora until
+  September 2026, and removing those was a stack **update**, never `delete-stack` -- that
+  would have taken the site and every photo with it. The same applies to anything removed
+  from it in future. `infra/network-db.yaml` keeps its filename for a related reason:
+  CloudFormation identifies a stack by name, and a renamed file invites somebody to
+  create a second one.
