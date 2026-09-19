@@ -1,6 +1,6 @@
 # Dakka Motors — v1 Launch TODO
 
-Goal: a minimal, live site at **dakkamotors.com** where anyone can browse used cars from a home page, open a car's detail page, and call to inquire. Admin manages inventory via Django admin. Stack: **Django (API) + React (UI)**, hosted on AWS as cheaply and serverlessly as possible, with CI/CD. Bilingual: **English + Japanese**. Currency: **JPY**.
+Goal: a minimal, live site at **dakkamotors.com** where anyone can browse used cars from a home page, open a car's detail page, and call to inquire. Staff manage inventory through server-rendered pages behind Cognito. Stack: **Django (API) + React (UI)**, hosted on AWS as cheaply and serverlessly as possible, with CI/CD. Bilingual: **English + Japanese**. Currency: **JPY**.
 
 Future features are out of scope for v1 — not listed here on purpose.
 
@@ -140,30 +140,32 @@ The only unticked item left is **announce / start marketing**, which is yours to
 
 ### Managing inventory
 
-Admin: **https://dakkamotors.com/api/admin/** · username `admin`. The password lives in
-SSM, never in this repo:
+Staff pages: **https://dakkamotors.com/api/staff/cars/**. Sign in through Cognito's
+hosted UI -- there is no password in SSM and no `admin` user; the Django admin and its
+credentials went with the DynamoDB cutover. Accounts are managed at
+`/api/staff/accounts/`, owners only.
 
-```bash
-MSYS_NO_PATHCONV=1 aws ssm get-parameter --name "/dakkamotors/ADMIN_PASSWORD"   --with-decryption --query Parameter.Value --output text
-```
-
-Add a car under **Inventory > Cars**. Photos attach inline on the same page; tick
-`is_primary` on the one that should appear on the listing card. Leave `price_jpy` blank
-to show "Call for price". Only `available` cars appear on the home page, but a direct
-link to a reserved or sold car keeps working.
+Add a car under **Cars > Add**. Photos attach on the same page and upload straight to S3.
+Tick `is_primary` on the one that should appear on the listing card. Leave `price_jpy`
+blank to show "Call for price". Only `available` cars appear on the home page, but a
+direct link to a reserved or sold car keeps working.
 
 ### Leftover from the previous build
 
 CloudFormation stack `dakkamotors-dev` (the earlier SAM + Cognito version, deleted
-2026-09-09) is stuck in `DELETE_FAILED` with one undeleted `CognitoEmailRole`. It is
-unrelated to this project and costs nothing, but it is why the domain had stopped
-resolving: its Route53 hosted zone went away with it, leaving the old delegation
-pointing at nameservers that no longer answered. Left untouched.
+2026-09-09) was stuck in `DELETE_FAILED` with one undeleted `CognitoEmailRole`. It is why
+the domain had stopped resolving: its Route53 hosted zone went away with it, leaving the
+old delegation pointing at nameservers that no longer answered.
+
+**It is gone**, along with everything else in the account that was not this project --
+removed 2026-09-19. The lesson it taught is in `docs/INFRA.md`: never put anything
+DNS-related in a stack with anything else.
 
 ### One thing still to change
 
-A demo Daihatsu Tanto (chassis `DEMO-0001`, no photos, "Call for price") is seeded so
-the site is not empty. Delete it from the admin once real stock is loaded.
+A demo Daihatsu Tanto (chassis `DEMO-0001`, no photos, "Call for price") is seeded by
+`manage.py seed_demo_car` so the site is not empty. Delete it from
+`/api/staff/cars/` once real stock is loaded.
 
 The contact number is real: `080-9282-3601`, dialled as `+818092823601` so it works
 from outside Japan too.

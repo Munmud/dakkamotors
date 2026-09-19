@@ -250,16 +250,26 @@ def bump_updated_at(car_id, now):
 
 
 def delete(car):
-    """Remove a car, its guards, and its children.
+    """Remove a car, its guards, its legacy pointer, and its children.
 
     Deliberately in two steps. The guarded core goes atomically, because a car whose
     slug guard outlived it would permanently reserve that URL. The children then go as
     a best-effort batch: `TransactWriteItems` caps at 100 items and a car with many
     photos and a long question thread could exceed it.
 
-    Orphaned children are invisible -- nothing queries a deleted car's partition -- but
-    they are real, so `sweep_orphans` exists. S3 cleanup is the caller's job now that
-    there is no `post_delete` signal to hang it on.
+    The legacy pointer is in the atomic half for the same reason as the slug guard, and
+    it is the one that bites hardest if forgotten: `config/urls.py` reads it to turn an
+    old numeric URL into a **301**. A pointer outliving its car sends every visitor and
+    crawler permanently to a slug that no longer resolves -- and a cached 301 to a 404 is
+    worse than the 404, because nothing asks again. Falling through to `/` is the
+    intended behaviour once the car is gone.
+
+    Cars created after the migration have no pointer; `DeleteItem` on a key that is not
+    there succeeds, so this needs no condition.
+
+    Orphaned children are invisible -- nothing queries a deleted car's partition -- and
+    the batch below is best-effort rather than guaranteed. S3 cleanup is the caller's job
+    now that there is no `post_delete` signal to hang it on.
     """
     from .base import BaseItem
 
@@ -270,6 +280,8 @@ def delete(car):
     if car.chassis_number:
         tx.delete(CHASSIS, ChassisGuard(pk=keys.chassis_guard_pk(car.chassis_number),
                                         sk=keys.GUARD))
+    tx.delete(LEGACY, LegacyCarPointer(pk=keys.legacy_car_pk(car.car_id),
+                                       sk=keys.META))
     tx.commit()
     _slug_cache.pop(car.slug, None)
 

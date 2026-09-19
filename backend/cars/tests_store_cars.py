@@ -9,7 +9,9 @@ import datetime as dt
 
 from .store import cars, images, keys
 from .store.errors import ConditionFailed, NotFound
-from .store.models import Car, CarQuestion, ChassisGuard, SlugGuard
+from .store.models import (
+    Car, CarQuestion, ChassisGuard, LegacyCarPointer, SlugGuard,
+)
 from .tests_store import DynamoTestCase
 
 UTC = dt.timezone.utc
@@ -127,6 +129,33 @@ class CarStoreTests(DynamoTestCase):
         with self.assertRaises(SlugGuard.DoesNotExist):
             SlugGuard.get(keys.slug_pk(car.slug), "SLUG")
         self.assertEqual(images.for_car("1"), [])
+
+    def test_deleting_a_car_takes_its_legacy_pointer(self):
+        """Otherwise an old numeric URL 301s permanently to a dead slug.
+
+        `config/urls.py` reads this pointer to redirect `/cars/34` to the slug. A 301 is
+        cached by crawlers and browsers, so one left pointing at a deleted car is worse
+        than a 404 -- nothing ever asks again. Once the car is gone the redirect is meant
+        to fall through to `/`.
+        """
+        car = cars.create(make_car("34"), now=self.now)
+        LegacyCarPointer(pk=keys.legacy_car_pk("34"), sk=keys.META,
+                         slug=car.slug, car_id="34").save()
+        self.assertEqual(cars.slug_for_legacy_id("34"), car.slug)
+
+        cars.delete(car)
+
+        self.assertIsNone(cars.slug_for_legacy_id("34"))
+
+    def test_deleting_a_car_that_never_had_a_pointer_is_fine(self):
+        """Cars created after the migration have none, and DeleteItem on a missing key
+        succeeds -- which is why the delete carries no condition."""
+        car = cars.create(make_car("2"), now=self.now)
+
+        cars.delete(car)
+
+        with self.assertRaises(NotFound):
+            cars.get("2")
 
     def test_bump_updated_at_moves_the_sitemap_lastmod(self):
         car = cars.create(make_car("1"), now=self.now)

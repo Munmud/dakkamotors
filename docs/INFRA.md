@@ -25,7 +25,7 @@ The exceptions above always carry an explicit `--region us-east-1`.
 | `dakkamotors-data` | Tokyo | The DynamoDB table, the Cognito pool, three groups, two app clients, the hosted-UI domain, the UserMigration trigger, the backend's managed IAM policy |
 | `dakkamotors-core` | Tokyo | Both S3 buckets. The VPC and Aurora were deleted 2026-09-18. |
 | `dakkamotors-github-oidc` | Tokyo | GitHub OIDC provider + `dakkamotors-github-deploy` role |
-| `dakkamotors-edge` | **us-east-1** | CloudFront distribution, SPA router function, API cache policy |
+| `dakkamotors-edge` | **us-east-1** | CloudFront distribution, cache and origin-request policies |
 | Zappa (`dakkamotors-production`) | Tokyo | Lambda + API Gateway. Managed by Zappa, not by our templates. |
 | Route53 hosted zone | global | `dakkamotors.com` |
 | ACM certificate | **us-east-1** | `dakkamotors.com`, `www.dakkamotors.com` |
@@ -50,11 +50,15 @@ The Lambda holds no `VpcConfig` and reaches DynamoDB, Cognito, SSM and S3 over t
 internet.
 
 The VPC (`vpc-07b008c32ab530661`), its two private subnets and the Lambda security group
-were **not** deleted with Aurora. CloudFormation tried for about an hour, gave up, and
-finished the update anyway, which left them as orphans owned by no stack. The cause was
-not AWS being slow: **Lambda will not release a VPC ENI while any published version still
-references the subnets**, and Zappa keeps a version per deploy. Deleting versions 1-24
-removed the last reference. They cost nothing either way.
+were not deleted with Aurora, and are gone now. CloudFormation tried for about an hour,
+gave up, and finished the update anyway, leaving them orphaned and owned by no stack.
+
+The cause was not AWS being slow, and it is the part worth remembering: **Lambda will not
+release a VPC ENI while any published version still references the subnets**, and Zappa
+publishes a version per deploy. Twenty-four of them still carried `VpcConfig`, so the
+ENIs were pinned indefinitely rather than for the documented 20-40 minutes. Deleting
+those versions released them within minutes, after which the VPC, both subnets and the
+security group were deleted by hand on 2026-09-19.
 
 ---
 
@@ -146,7 +150,7 @@ if there ever is one -- would need it.
 | Owner account | `moontasir042@gmail.com`, in `owners` and `staff` |
 | Buckets | frontend and media emptied; `config/env.json` kept and updated |
 | Aurora | **deleted**, final snapshot `dakkamotors-core-snapshot-dbcluster-m8ulwb0bdvyl` |
-| VPC, subnets, security groups | **not** deleted -- orphaned when CloudFormation gave up; see above |
+| VPC, subnets, security groups | orphaned when CloudFormation gave up, then deleted by hand 2026-09-19 |
 
 The cluster was stopped first to halt ACU billing, then started again only because a
 stopped Aurora cluster cannot be deleted -- `DeleteDBCluster` refuses one. Worth knowing
@@ -197,7 +201,8 @@ step 4 is the one nobody guesses.
    `COGNITO_POOL_ID`, `COGNITO_CUSTOMER_CLIENT_ID`, `COGNITO_STAFF_CLIENT_ID` and
    `COGNITO_DOMAIN` go into `backend/zappa_settings.json`, which has all four as empty
    strings today. The staff client secret goes to SSM at
-   `/dakkamotors/COGNITO_STAFF_CLIENT_SECRET`, and into `config/env.json`. Then bake the
+   `/dakkamotors/COGNITO_STAFF_CLIENT_SECRET`, where `config/ssm.py` reads it at
+   settings import. Then bake the
    pool's signing keys into the deploy, so a cold start is not coupled to a Cognito
    endpoint being reachable:
 
@@ -317,7 +322,7 @@ in step. The page also embeds the data the app needs for its first paint, which 
 a 0.309 cumulative layout shift and a round-trip.
 
 HTML is cached at the edge for five minutes, so crawlers and repeat visitors rarely reach
-Lambda and Aurora keeps scaling to zero. Hashed bundles under `/assets/*` and the favicon
+Lambda at all. Hashed bundles under `/assets/*` and the favicon
 still come straight from S3 and never touch the origin.
 
 `robots.txt`, `sitemap.xml` and `llms.txt` are generated from the database, so the sitemap
@@ -443,9 +448,14 @@ password and the cluster is gone; `/dakkamotors/ADMIN_PASSWORD` and
 deleting anyway -- a live-looking password that opens nothing is worse than no parameter,
 because the next person has to work out which it is.
 
-The Lambda receives these through Zappa's `remote_env`: a private JSON file at
-`s3://dakkamotors-backend-media/config/env.json`, fetched on cold start. Secrets are
-therefore never committed to git and never appear in the Lambda console.
+`backend/config/ssm.py` loads them into the environment at settings import -- one call
+per warm container, gated on `AWS_LAMBDA_FUNCTION_NAME` so tests and local development
+make no network call, and using `setdefault` so a real environment variable always wins.
+Secrets are therefore never committed to git and never appear in the Lambda console.
+
+This replaced Zappa's `remote_env`, which fetched `config/env.json` from S3 on every cold
+start because the VPC put the SSM API out of reach. That meant every secret lived in two
+places and had to be kept in step by hand.
 
 ---
 

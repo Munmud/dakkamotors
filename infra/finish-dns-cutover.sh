@@ -53,29 +53,26 @@ aws cloudformation deploy \
     DomainNames=dakkamotors.com,www.dakkamotors.com \
   --no-fail-on-empty-changeset
 
-echo "==> Serving car photos from the real domain instead of *.cloudfront.net"
-python - "$MEDIA_BUCKET" "$LAMBDA" "$REGION" <<'PY'
-import json, sys, time, boto3
-
-bucket, function, region = sys.argv[1:4]
-s3 = boto3.client("s3", region_name=region)
-lam = boto3.client("lambda", region_name=region)
-
-env = json.loads(s3.get_object(Bucket=bucket, Key="config/env.json")["Body"].read())
-env["MEDIA_CUSTOM_DOMAIN"] = "dakkamotors.com"
-s3.put_object(
-    Bucket=bucket, Key="config/env.json",
-    Body=json.dumps(env, indent=2).encode(),
-    ContentType="application/json", ServerSideEncryption="AES256",
-)
-
-# remote_env is only read at cold start, so retire the warm containers.
-cfg = lam.get_function_configuration(FunctionName=function)
-variables = cfg.get("Environment", {}).get("Variables", {})
-variables["ENV_RELOADED_AT"] = str(int(time.time()))
-lam.update_function_configuration(FunctionName=function, Environment={"Variables": variables})
-print("    media domain set to dakkamotors.com")
-PY
+echo "==> Checking car photos are served from the real domain"
+#
+# This step used to rewrite MEDIA_CUSTOM_DOMAIN inside s3://<media>/config/env.json and
+# then bump ENV_RELOADED_AT to cycle the warm containers, because Zappa's remote_env was
+# the only way to get a value into the function -- the Lambda was in a VPC with no NAT
+# and could not reach SSM at all.
+#
+# remote_env is gone (see backend/config/ssm.py). MEDIA_CUSTOM_DOMAIN is an ordinary
+# entry in zappa_settings.json now, so changing it is a code change and a deploy, not a
+# script rewriting a JSON object under the running function. Left as a check rather than
+# an action: a script that silently edits deploy configuration is how the two copies of
+# a setting drift apart, which is the thing remote_env was retired for.
+CURRENT=$(grep -o '"MEDIA_CUSTOM_DOMAIN": *"[^"]*"' "$(dirname "$0")/../backend/zappa_settings.json"   | sed 's/.*: *"//; s/"$//')
+if [ "$CURRENT" = "dakkamotors.com" ]; then
+  echo "    MEDIA_CUSTOM_DOMAIN is already dakkamotors.com."
+else
+  echo "    MEDIA_CUSTOM_DOMAIN is '${CURRENT:-unset}'."
+  echo "    Set it to dakkamotors.com in backend/zappa_settings.json and redeploy,"
+  echo "    or photo URLs keep pointing at *.cloudfront.net."
+fi
 
 echo "==> Invalidating the cache"
 aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" \
@@ -86,5 +83,5 @@ cat <<'DONE'
 Done. Verify with:
   curl -I https://dakkamotors.com/
   curl -s https://dakkamotors.com/api/cars/
-  open https://dakkamotors.com/api/admin/
+  curl -I https://dakkamotors.com/api/staff/cars/   # expect 302 to the Cognito hosted UI
 DONE
