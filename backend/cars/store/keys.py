@@ -6,13 +6,19 @@ this module may concatenate a `pk` or an `sk`.
 
 Two sort-key orderings are load-bearing, and both fall out of plain ASCII:
 
-    within CAR#<id>    IMG#  <  META  <  Q#
+    within CAR#<id>    IMG#  <  META  <  Q#  <  VID#
     within CUST#<sub>  BOOKING#  <  DEDUPE#  <  NOTIF#  <  PROFILE
     within SLOT#<id>   LIVE#  <  META
 
 The first is why the car detail page is one Query instead of three: images, then the car
 itself, then its published questions, in that order, from one partition. Changing any
 prefix here without re-checking those orderings will quietly break that.
+
+`VID#` sorting last is harmless rather than lucky: `store/cars.detail()` queries the
+partition with no range condition, so it reads every prefix whatever the order, and the
+grouping is done in Python. What the prefix does buy is that photos and videos are each
+one contiguous `begins_with` range -- which is what keeps `images.for_car` from ever
+returning a video, and therefore what stops a video becoming the listing card photo.
 """
 
 import datetime as dt
@@ -74,6 +80,10 @@ GUARD = "UNIQ"
 
 def image_sk(image_id):
     return f"IMG#{image_id}"
+
+
+def video_sk(video_id):
+    return f"VID#{video_id}"
 
 
 def question_sk(created_at, question_id):

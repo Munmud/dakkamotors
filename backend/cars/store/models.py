@@ -244,6 +244,40 @@ class CarImage(BaseItem, discriminator="img"):
         return default_storage.url(self.image_name) if self.image_name else ""
 
 
+class CarVideo(BaseItem, discriminator="vid"):
+    """A clip in the car's gallery.
+
+    Its own item type rather than a `kind` attribute on `CarImage`, and the reason is
+    `Car.primary_image_ref`. `images.for_car` queries `begins_with(sk, "IMG#")`, so the
+    list `pick_primary` chooses from is homogeneous *by construction* and a video can
+    never become the listing card photo. Sharing one item type would put a `kind` filter
+    on all seven paths that maintain that reference, plus on `Car.primary_image` below,
+    which rebuilds a detached `CarImage` from the ref and would otherwise happily
+    construct one out of a video.
+
+    Deliberately small. There are no derivatives -- no widths, no `IMG#PENDING` index
+    entry, no `derivatives_ready` -- because nothing transcodes video here: the file is
+    served as uploaded, and CloudFront handles byte-range seeking against S3 without
+    help. `order` shares one number space with `CarImage.order`; `store/media.py` is the
+    only definition of how the two interleave.
+    """
+
+    video_id = UnicodeAttribute(null=True)
+    car_id = UnicodeAttribute(null=True)
+
+    video_name = UnicodeAttribute(null=True)
+    order = NumberAttribute(default=0)
+
+    created_at = UTCDateTimeAttribute(null=True)
+
+    def __str__(self):
+        return f"Video {self.video_id}"
+
+    @property
+    def url(self):
+        return default_storage.url(self.video_name) if self.video_name else ""
+
+
 # --------------------------------------------------------------------------------------
 # Test drives
 # --------------------------------------------------------------------------------------
