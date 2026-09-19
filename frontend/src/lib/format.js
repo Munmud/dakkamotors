@@ -32,6 +32,20 @@ export function carTitle(car) {
 }
 
 /**
+ * One `_en`/`_ja` pair in the reader's language, falling back to the other.
+ *
+ * `pickDescription` is the same idea bound to one field name. This is the general form,
+ * and free-form specs need it twice per row — once for the label and once for the value,
+ * resolved independently: staff who translate the label but not the value are common,
+ * and pairing the fallbacks would then show an English label beside a Japanese value.
+ */
+export function pickLocalized(source, base, language) {
+  const preferred = source?.[language === "ja" ? `${base}_ja` : `${base}_en`];
+  const fallback = source?.[language === "ja" ? `${base}_en` : `${base}_ja`];
+  return (preferred || "").trim() || (fallback || "").trim() || "";
+}
+
+/**
  * Description in the reader's language, falling back to whichever field is filled.
  * Staff often write only one language; showing nothing would be worse than showing
  * the other one.

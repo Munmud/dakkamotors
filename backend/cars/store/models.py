@@ -114,6 +114,13 @@ class Car(BaseItem, discriminator="car"):
 
     slug = UnicodeAttribute(null=True)
 
+    # Free-form [{label_en, label_ja, value_en, value_ja}, ...], list order = display
+    # order. A JSON blob on the car rather than child items, for the same reason
+    # primary_image_ref is one: specs are always read with the car, never on their own
+    # and never indexed, so a fourth bucket in cars.detail() would buy nothing. See
+    # cars/specs.py for the validation, and for why the cap is twenty.
+    specs = JSONAttribute(null=True)
+
     # Denormalised so the listing page is ONE query rather than one per card. Kept in
     # step by store.images.refresh_primary(); store/images.py lists every path that has
     # to call it. Miss one and a card goes stale.
@@ -166,6 +173,12 @@ class Car(BaseItem, discriminator="car"):
         return base[:110].rstrip("-")
 
     def build_search_blob(self):
+        """The haystack the staff search greps. Deliberately not including `specs`.
+
+        This attribute is stored on the car item, which is projected whole into GSI1 and
+        read by every listing page. Twenty staff-typed pairs in two languages would
+        roughly double that read, on every page, to serve a search nobody has asked for.
+        """
         parts = [self.brand, self.grade, self.model_name, self.model_code,
                  self.chassis_number]
         return " ".join(p for p in parts if p).casefold()

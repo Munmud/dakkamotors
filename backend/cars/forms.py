@@ -15,6 +15,7 @@ instance, it puts the storage name into `cleaned_data` for the view to use.
 from django import forms
 
 from .choices import CarStatus, FuelType
+from .specs import FIELDS as SPEC_FIELDS, MAX_LABEL, MAX_VALUE
 
 
 class DirectUploadMixin:
@@ -155,6 +156,38 @@ class CarVideoForm(DirectUploadMixin, forms.Form):
         if not cleaned.get("video") and not self.uploaded_name("video"):
             if cleaned.get("order"):
                 self.add_error("video", "Choose a video, or clear this row.")
+        return cleaned
+
+
+class CarSpecForm(forms.Form):
+    """One free-form detail: a label and a value, each in either language.
+
+    `specs.clean` drops a half-filled row silently, because the importer writes through
+    it with nobody watching. This form refuses one instead. The difference is deliberate:
+    a staff member who typed "Colour" and tabbed away has made a mistake worth pointing
+    at, whereas dropping it would look like the save had failed for no stated reason.
+
+    An entirely blank row is still ignored, so the three spare rows on every page are
+    not three errors.
+    """
+
+    label_en = forms.CharField(max_length=MAX_LABEL, required=False,
+                               label="Label (English)")
+    label_ja = forms.CharField(max_length=MAX_LABEL, required=False,
+                               label="Label (Japanese)")
+    value_en = forms.CharField(max_length=MAX_VALUE, required=False,
+                               label="Value (English)")
+    value_ja = forms.CharField(max_length=MAX_VALUE, required=False,
+                               label="Value (Japanese)")
+
+    def clean(self):
+        cleaned = super().clean()
+        if not any((cleaned.get(name) or "").strip() for name in SPEC_FIELDS):
+            return cleaned
+        if not (cleaned.get("label_en") or cleaned.get("label_ja")):
+            self.add_error("label_en", "Name this detail, or clear the row.")
+        if not (cleaned.get("value_en") or cleaned.get("value_ja")):
+            self.add_error("value_en", "Give this detail a value, or clear the row.")
         return cleaned
 
 

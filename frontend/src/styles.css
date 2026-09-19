@@ -474,10 +474,14 @@ a {
   font-weight: 700;
 }
 
+/* Not `max-content` on the key column any more. Staff type their own labels now, and
+   one long label would widen the column for every row on the page — a table shape
+   decided by its worst entry. The 60-character cap in cars/specs.py is defence in
+   depth, not the fix: 60 characters is still far too wide here. */
 .specs {
   margin: 0;
   display: grid;
-  grid-template-columns: max-content 1fr;
+  grid-template-columns: minmax(6rem, 14rem) 1fr;
   gap: 0 1.5rem;
   border-top: 1px solid var(--line);
 }
@@ -486,6 +490,7 @@ a {
   padding: 0.65rem 0 0.15rem;
   color: var(--muted);
   font-size: 0.92rem;
+  overflow-wrap: anywhere;
 }
 
 .specs__value {
@@ -493,6 +498,7 @@ a {
   padding: 0.65rem 0 0.15rem;
   border-bottom: 1px solid var(--line);
   font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 /* <picture> is a plain wrapper; without this it does not fill the frame the way the

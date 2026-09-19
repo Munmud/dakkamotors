@@ -103,12 +103,25 @@ class CarDetailSerializer(serializers.Serializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     description_en = serializers.CharField(read_only=True)
     description_ja = serializers.CharField(read_only=True)
+    specs = serializers.SerializerMethodField()
     images = CarImageSerializer(many=True, read_only=True)
     media = serializers.SerializerMethodField()
     video = serializers.SerializerMethodField()
     questions = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
+
+    def get_specs(self, obj):
+        """Free-form detail rows, in both languages, in staff's order.
+
+        Sent unlocalised, unlike `fuel_type_display`: the client already knows the
+        reader's language and switches it without a refetch, so resolving the fallback
+        here would freeze the payload to whichever language happened to be current when
+        it was fetched.
+
+        `[]` rather than null, so the client has a list to map over either way.
+        """
+        return obj.specs or []
 
     def get_media(self, obj):
         """Photos and videos in the one order staff arranged, already merged by the store.

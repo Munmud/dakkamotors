@@ -15,6 +15,7 @@ from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from PIL import Image
 
+from .specs import MAX_PAIRS
 from .store import cars as car_store
 from .store import images as image_store
 from .store import media as media_store
@@ -59,12 +60,12 @@ def car_fields(**overrides):
     return fields
 
 
-def formset_fields(images=0, videos=0):
-    """The management forms both gallery formsets need, with no rows filled in.
+def formset_fields(images=0, videos=0, specs=0):
+    """The management forms every formset on the car page needs, with no rows filled in.
 
-    Both, always. A POST missing `videos-TOTAL_FORMS` raises a `ManagementForm` error
-    rather than a validation error, so leaving it out fails every posting test at once
-    with a message about the formset instead of about the car.
+    All of them, always. A POST missing `videos-TOTAL_FORMS` raises a `ManagementForm`
+    error rather than a validation error, so leaving one out fails every posting test at
+    once with a message about formsets instead of about the car.
     """
     return {
         "images-TOTAL_FORMS": str(max(images, 3)),
@@ -75,6 +76,10 @@ def formset_fields(images=0, videos=0):
         "videos-INITIAL_FORMS": "0",
         "videos-MIN_NUM_FORMS": "0",
         "videos-MAX_NUM_FORMS": "1000",
+        "specs-TOTAL_FORMS": str(max(specs, 3)),
+        "specs-INITIAL_FORMS": "0",
+        "specs-MIN_NUM_FORMS": "0",
+        "specs-MAX_NUM_FORMS": "1000",
     }
 
 
@@ -138,7 +143,8 @@ class StaffCarEditTests(FakeCognito, DynamoReset, SimpleTestCase):
 
     def test_adding_a_car_creates_it_with_a_slug(self):
         response = self.client.post(
-            reverse("staff:car-add"), car_fields(chassis_number="NEW-1"), follow=True)
+            reverse("staff:car-add"),
+            {**car_fields(chassis_number="NEW-1"), **formset_fields()}, follow=True)
 
         self.assertEqual(response.status_code, 200)
         cars = car_store.list_by_status("available")
@@ -151,7 +157,8 @@ class StaffCarEditTests(FakeCognito, DynamoReset, SimpleTestCase):
 
         response = self.client.post(
             reverse("staff:car-add"),
-            car_fields(chassis_number="TAKEN-1", grade="Z"), follow=True)
+            {**car_fields(chassis_number="TAKEN-1", grade="Z"), **formset_fields()},
+            follow=True)
 
         self.assertContains(response, "already on another car")
         self.assertEqual(len(car_store.list_by_status("available")), 1)
@@ -161,7 +168,8 @@ class StaffCarEditTests(FakeCognito, DynamoReset, SimpleTestCase):
         make_car("TAKEN-2")
 
         self.client.post(reverse("staff:car-add"),
-                         car_fields(chassis_number="TAKEN-2", grade="Z"), follow=True)
+                         {**car_fields(chassis_number="TAKEN-2", grade="Z"),
+                          **formset_fields()}, follow=True)
 
         with self.assertRaises(SlugGuard.DoesNotExist):
             SlugGuard.get(keys.slug_pk("2018-daihatsu-tanto-z"), "SLUG")
@@ -281,6 +289,133 @@ class StaffCarPhotoTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.assertContains(response, "Rebuilt 1 photo")
         self.assertTrue(image_store.get(self.car.car_id, photo.image_id)
                         .derivatives_ready)
+
+
+def spec_row(index, **fields):
+    """One posted spec row. Every field, because a formset posts every field."""
+    return {f"specs-{index}-{name}": fields.get(name, "")
+            for name in ("label_en", "label_ja", "value_en", "value_ja")}
+
+
+@override_settings(**MAIL_SETTINGS)
+class StaffCarSpecTests(FakeCognito, DynamoReset, SimpleTestCase):
+    """Free-form details, on both the add page and the edit page.
+
+    They are on the add page unlike photos and videos, because they are attributes of
+    the car item and land in the same conditional write as its guards -- so the first
+    assertion here is that a car can be created with them in one POST.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.staff, _ = make_staff()
+        sign_in(self.client, self.staff, staff=True)
+
+    def test_a_car_can_be_created_with_specs(self):
+        self.client.post(
+            reverse("staff:car-add"),
+            {**car_fields(chassis_number="SPEC-NEW"), **formset_fields(),
+             **spec_row(0, label_en="Colour", value_en="White")},
+            follow=True)
+
+        car = car_store.list_by_status("available")[0]
+
+        self.assertEqual(len(car.specs), 1)
+        self.assertEqual(car.specs[0]["label_en"], "Colour")
+        self.assertEqual(car.specs[0]["value_en"], "White")
+
+    def test_specs_keep_the_order_they_were_typed_in(self):
+        self.client.post(
+            reverse("staff:car-add"),
+            {**car_fields(chassis_number="SPEC-ORDER"), **formset_fields(),
+             **spec_row(0, label_en="Second", value_en="2"),
+             **spec_row(1, label_en="First", value_en="1")},
+            follow=True)
+
+        car = car_store.list_by_status("available")[0]
+
+        self.assertEqual([r["label_en"] for r in car.specs], ["Second", "First"])
+
+    def test_a_half_filled_row_is_refused_rather_than_dropped(self):
+        """Somebody typed a label and tabbed away. Saying so beats swallowing it."""
+        response = self.client.post(
+            reverse("staff:car-add"),
+            {**car_fields(chassis_number="SPEC-HALF"), **formset_fields(),
+             **spec_row(0, label_en="Colour")},
+            follow=True)
+
+        self.assertContains(response, "Give this detail a value")
+        self.assertEqual(car_store.list_by_status("available"), [])
+
+    def test_blank_rows_are_ignored(self):
+        """Three spare rows are on every page and must not be three errors."""
+        self.client.post(
+            reverse("staff:car-add"),
+            {**car_fields(chassis_number="SPEC-BLANK"), **formset_fields()},
+            follow=True)
+
+        car = car_store.list_by_status("available")[0]
+
+        self.assertIsNone(car.specs)
+
+    def test_editing_replaces_the_whole_list(self):
+        car = make_car("SPEC-EDIT")
+        self.client.post(
+            reverse("staff:car-edit", args=[car.car_id]),
+            {**car_fields(chassis_number="SPEC-EDIT"), **formset_fields(),
+             **spec_row(0, label_en="Colour", value_en="White")},
+            follow=True)
+
+        self.client.post(
+            reverse("staff:car-edit", args=[car.car_id]),
+            {**car_fields(chassis_number="SPEC-EDIT"), **formset_fields(),
+             **spec_row(0, label_en="Mileage", value_en="42,000 km")},
+            follow=True)
+
+        specs = car_store.get(car.car_id).specs
+
+        self.assertEqual([r["label_en"] for r in specs], ["Mileage"])
+
+    def test_the_edit_page_shows_what_is_already_there(self):
+        car = make_car("SPEC-SHOW")
+        self.client.post(
+            reverse("staff:car-edit", args=[car.car_id]),
+            {**car_fields(chassis_number="SPEC-SHOW"), **formset_fields(),
+             **spec_row(0, label_en="Tow bar", value_en="Fitted")},
+            follow=True)
+
+        page = self.client.get(reverse("staff:car-edit", args=[car.car_id]))
+
+        self.assertContains(page, "Tow bar")
+        self.assertContains(page, "Fitted")
+
+    def test_a_collision_re_renders_what_was_typed(self):
+        """The one case where somebody has just filled the whole page in."""
+        make_car("SPEC-TAKEN")
+
+        response = self.client.post(
+            reverse("staff:car-add"),
+            {**car_fields(chassis_number="SPEC-TAKEN", grade="Z"), **formset_fields(),
+             **spec_row(0, label_en="Tow bar", value_en="Fitted")},
+            follow=True)
+
+        self.assertContains(response, "already on another car")
+        self.assertContains(response, "Tow bar")
+        self.assertContains(response, "Fitted")
+
+    def test_over_the_cap_is_refused(self):
+        rows = {}
+        for index in range(MAX_PAIRS + 1):
+            rows.update(spec_row(index, label_en=str(index), value_en=str(index)))
+
+        response = self.client.post(
+            reverse("staff:car-add"),
+            {**car_fields(chassis_number="SPEC-MANY"),
+             **formset_fields(specs=MAX_PAIRS + 1), **rows},
+            follow=True)
+
+        self.assertContains(response, "at most")
+        self.assertEqual(car_store.list_by_status("available"), [])
 
 
 @override_settings(**MAIL_SETTINGS)

@@ -57,6 +57,46 @@ matter will not fit through it, which is the whole reason the direct path exists
       </div>
     {% endfor %}
 
+    <div class="panel">
+      <h2 style="font-size:1rem;margin-top:0;">Extra details</h2>
+      <p class="help">
+        Anything the fixed fields do not cover &mdash; colour, tyre condition, whether it
+        has a tow bar. They appear under the specification table in the order below.
+        Japanese is optional: a row with only English shows its English to everybody.
+      </p>
+      {{ spec_formset.management_form }}
+      {% if spec_formset.non_form_errors %}
+        <ul class="messages">
+          {% for error in spec_formset.non_form_errors %}
+            <li class="error">{{ error }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+      <table>
+        <thead>
+          <tr>
+            <th>Label (English)</th><th>Label (Japanese)</th>
+            <th>Value (English)</th><th>Value (Japanese)</th>
+            <th>Remove</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for subform in spec_formset %}
+            <tr>
+              {% for field in subform.visible_fields %}
+                <td>
+                  {{ field }}
+                  {% for error in field.errors %}
+                    <p class="help" style="color:var(--bad);">{{ error }}</p>
+                  {% endfor %}
+                </td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
     {% if car %}
       <div class="panel">
         <h2 style="font-size:1rem;margin-top:0;">Gallery</h2>

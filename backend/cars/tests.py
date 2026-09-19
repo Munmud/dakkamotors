@@ -275,6 +275,26 @@ class CarDetailApiTests(DynamoReset, SimpleTestCase):
 
         self.assertEqual(payload["video"], clip.url)
 
+    def test_specs_are_sent_unlocalised_and_in_order(self):
+        """The client switches language without a refetch, so it resolves the fallback."""
+        car = make_car("SPEC-API", specs=[
+            {"label_en": "Colour", "label_ja": "色", "value_en": "W", "value_ja": "白"},
+            {"label_en": "Tow bar", "label_ja": "", "value_en": "Fitted", "value_ja": ""},
+        ])
+
+        payload = self.client.get(reverse("car-detail", args=[car.slug])).json()
+
+        self.assertEqual([r["label_en"] for r in payload["specs"]], ["Colour", "Tow bar"])
+        self.assertEqual(payload["specs"][0]["label_ja"], "色")
+
+    def test_a_car_with_no_specs_sends_an_empty_list(self):
+        """So the client has something to map over either way."""
+        car = make_car("SPEC-API-NONE")
+
+        payload = self.client.get(reverse("car-detail", args=[car.slug])).json()
+
+        self.assertEqual(payload["specs"], [])
+
     def test_detail_exposes_both_descriptions(self):
         car = make_car("DESCRIPTIONS", description_en="English", description_ja="日本語")
 
@@ -745,6 +765,64 @@ class RenderedPageTests(DynamoReset, SimpleTestCase):
         payload = after_marker.split("</script>", 1)[0]
 
         # The closing tag inside the data is escaped, so the block ends where we intend.
+        self.assertNotIn("<script>alert(1)", payload)
+        self.assertIn("u003c/script", payload)
+
+    def test_specs_are_rendered_into_the_page_body(self, _tags):
+        """A crawler and a reader with no JavaScript get the words, same as the fixed rows."""
+        car = make_car("PAGE-SPEC", specs=[
+            {"label_en": "Tow bar", "label_ja": "", "value_en": "Fitted", "value_ja": ""},
+        ])
+
+        body = self.client.get(car.get_absolute_url()).content.decode()
+
+        self.assertIn("<li>Tow bar: Fitted</li>", body)
+
+    def test_specs_are_rendered_in_the_page_language(self, _tags):
+        """Unlike the nine fixed labels, which are English throughout. See pages.py."""
+        car = make_car("PAGE-SPEC-JA", specs=[
+            {"label_en": "Colour", "label_ja": "色",
+             "value_en": "White", "value_ja": "白"},
+        ])
+
+        body = self.client.get(f"{car.get_absolute_url()}?lang=ja").content.decode()
+
+        self.assertIn("<li>色: 白</li>", body)
+
+    def test_a_spec_falls_back_per_half(self, _tags):
+        """A translated label beside an untranslated value is the common case."""
+        car = make_car("PAGE-SPEC-HALF", specs=[
+            {"label_en": "Colour", "label_ja": "色",
+             "value_en": "Pearl White", "value_ja": ""},
+        ])
+
+        body = self.client.get(f"{car.get_absolute_url()}?lang=ja").content.decode()
+
+        self.assertIn("<li>色: Pearl White</li>", body)
+
+    def test_a_hostile_spec_label_cannot_inject_markup(self, _tags):
+        """Staff-typed text on a path that previously carried only descriptions and
+        customer questions. The <ul> is rendered by hand, so this is not free."""
+        car = make_car("PAGE-SPEC-XSS", specs=[
+            {"label_en": "<img src=x onerror=alert(1)>", "label_ja": "",
+             "value_en": "<b>bold</b>", "value_ja": ""},
+        ])
+
+        body = self.client.get(car.get_absolute_url()).content.decode()
+
+        self.assertNotIn("<img src=x", body)
+        self.assertNotIn("<b>bold</b>", body)
+        self.assertIn("&lt;img src=x", body)
+
+    def test_a_hostile_spec_label_cannot_break_out_of_initial_data(self, _tags):
+        car = make_car("PAGE-SPEC-XSS2", specs=[
+            {"label_en": "</script><script>alert(1)</script>", "label_ja": "",
+             "value_en": "x", "value_ja": ""},
+        ])
+
+        body = self.client.get(car.get_absolute_url()).content.decode()
+        payload = body.split('id="initial-data"', 1)[1].split("</script>", 1)[0]
+
         self.assertNotIn("<script>alert(1)", payload)
         self.assertIn("u003c/script", payload)
 

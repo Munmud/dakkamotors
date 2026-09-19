@@ -150,6 +150,16 @@ def vehicle_schema(car, image_urls, canonical_url):
     description = (car.description_en or car.description_ja or "").strip()
     if description:
         data["description"] = description
+    # Two omissions, recorded so they are not re-litigated:
+    #
+    # `car.specs` does NOT become `additionalProperty`. It is valid Schema.org and
+    # Google's vehicle rich result does not read it, so it would push staff-typed text
+    # into the JSON-LD for no gain in any result anyone sees.
+    #
+    # A car's videos do NOT become `VideoObject`. That type needs `thumbnailUrl`,
+    # `uploadDate` and `description` to be eligible for a video result, and nothing in
+    # this system produces the first or the last -- an ineligible node is markup that
+    # only costs bytes.
     return data
 
 

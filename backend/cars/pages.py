@@ -24,6 +24,7 @@ from django.http import Http404, HttpResponse
 
 from . import qa
 from . import seo
+from . import specs
 from .choices import CarStatus
 from .store import cars as car_store
 from .store.errors import NotFound
@@ -284,14 +285,20 @@ def car_detail(request, slug):
     # keep competing in search results against cars that can still be bought.
     robots = "noindex, follow" if car.status == CarStatus.SOLD else None
 
+    # The nine fixed labels are English even on ?lang=ja. That is a pre-existing
+    # inconsistency and fixing it is separate scope -- but the staff-typed rows below
+    # are localised, because they carry a Japanese translation staff actually wrote and
+    # ignoring it would be worse than the inconsistency.
+    fixed = [
+        ("Make", car.brand), ("Model", car.model_name), ("Grade", car.grade),
+        ("Year", car.manufacture_year), ("Fuel", car.get_fuel_type_display()),
+        ("Seats", car.seat_capacity), ("Colour", car.color),
+        ("Model code", car.model_code), ("Chassis number", car.chassis_number),
+    ]
+    extra = [specs.localized(row, language) for row in (car.specs or [])]
     spec_rows = "".join(
         f"<li>{_esc(label)}: {_esc(value)}</li>"
-        for label, value in [
-            ("Make", car.brand), ("Model", car.model_name), ("Grade", car.grade),
-            ("Year", car.manufacture_year), ("Fuel", car.get_fuel_type_display()),
-            ("Seats", car.seat_capacity), ("Colour", car.color),
-            ("Model code", car.model_code), ("Chassis number", car.chassis_number),
-        ]
+        for label, value in fixed + extra
         if value
     )
     description_text = (car.description_ja if language == "ja" else car.description_en) or ""

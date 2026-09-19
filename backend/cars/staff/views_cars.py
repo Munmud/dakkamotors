@@ -19,7 +19,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from ..choices import DERIVATIVE_WIDTHS
-from ..forms import CarFilterForm, CarForm, CarImageForm, CarVideoForm
+from ..forms import CarFilterForm, CarForm, CarImageForm, CarSpecForm, CarVideoForm
+from .. import specs as spec_rules
 from ..images import build_derivatives
 from ..tasks import build_derivatives_task
 from ..store import cars as car_store
@@ -36,6 +37,21 @@ ImageFormSet = formset_factory(CarImageForm, extra=3, can_delete=True)
 #: One extra row, not three: a video is a rare addition next to a batch of photos, and
 #: three empty file inputs for it made the panel read as though videos were expected.
 VideoFormSet = formset_factory(CarVideoForm, extra=1, can_delete=True)
+#: Specs appear on the *add* page as well as the edit page, unlike photos and videos.
+#: They are attributes of the car item, so they land in the same conditional write as
+#: the chassis guard -- there is no window in which one exists without the other. A
+#: child row written before a failed guard would leave an orphan in a partition with
+#: no META item.
+SpecFormSet = formset_factory(CarSpecForm, extra=3, can_delete=True)
+
+
+def _spec_rows(formset):
+    """Submitted rows in page order, deletions removed. Validation is `specs.clean`."""
+    return [
+        {name: form.cleaned_data.get(name, "") for name in spec_rules.FIELDS}
+        for form in formset
+        if form not in formset.deleted_forms and form.cleaned_data
+    ]
 
 #: Fields the form owns. Kept explicit so a new form field cannot silently start
 #: writing something the store did not expect.
@@ -71,10 +87,12 @@ def car_list(request):
 def car_add(request):
     if request.method == "POST":
         form = CarForm(request.POST, request.FILES)
-        if form.is_valid():
-            return _create(request, form)
+        specset = SpecFormSet(request.POST, prefix="specs")
+        if form.is_valid() and specset.is_valid():
+            return _create(request, form, specset)
     else:
         form = CarForm()
+        specset = SpecFormSet(prefix="specs")
 
     return render(request, "staff/cars/form.html", {
         "title": "Add a car",
@@ -84,26 +102,37 @@ def car_add(request):
         "gallery": [],
         "image_formset": ImageFormSet(prefix="images"),
         "video_formset": VideoFormSet(prefix="videos"),
+        "spec_formset": specset,
     })
 
 
-def _create(request, form):
+def _create(request, form, specset):
     car = Car(car_id=keys.new_id())
     for name in EDITABLE:
         setattr(car, name, form.cleaned_data.get(name))
 
-    try:
-        car = car_store.create(car, now=timezone.now())
-    except ConditionFailed as exc:
-        form.add_error("chassis_number", str(exc))
+    def refused():
         return render(request, "staff/cars/form.html", {
             "title": "Add a car", "form": form, "car": None, "images": [],
             "gallery": [],
             "image_formset": ImageFormSet(prefix="images"),
             "video_formset": VideoFormSet(prefix="videos"),
+            "spec_formset": specset,
         })
 
-    messages.success(request, f"Added {car.seo_title_plain}. Now add its photos.")
+    try:
+        car.specs = spec_rules.clean(_spec_rows(specset))
+    except spec_rules.TooManySpecs as exc:
+        form.add_error(None, str(exc))
+        return refused()
+
+    try:
+        car = car_store.create(car, now=timezone.now())
+    except ConditionFailed as exc:
+        form.add_error("chassis_number", str(exc))
+        return refused()
+
+    messages.success(request, f"Added {car.seo_title_plain}. Now add its photos and videos.")
     return redirect(reverse("staff:car-edit", args=[car.car_id]))
 
 
@@ -131,6 +160,7 @@ def car_edit(request, car_id):
         "gallery": car.media,
         "image_formset": ImageFormSet(prefix="images"),
         "video_formset": VideoFormSet(prefix="videos"),
+        "spec_formset": SpecFormSet(initial=car.specs or [], prefix="specs"),
     })
 
 
@@ -143,19 +173,32 @@ def _save(request, car):
     form = CarForm(request.POST, request.FILES)
     formset = ImageFormSet(request.POST, request.FILES, prefix="images")
     videoset = VideoFormSet(request.POST, request.FILES, prefix="videos")
+    specset = SpecFormSet(request.POST, prefix="specs")
 
     def invalid():
+        # The bound formsets go back into the template, so a rejected save re-renders
+        # what was typed. Rebuilding them from `car` would throw it all away -- which
+        # is what a chassis collision would do, and that is the one case where somebody
+        # has just filled the whole page in.
         return render(request, "staff/cars/form.html", {
             "title": car.seo_title_plain, "form": form, "car": car,
             "images": car.images, "gallery": car.media,
             "image_formset": formset, "video_formset": videoset,
+            "spec_formset": specset,
         })
 
-    if not (form.is_valid() and formset.is_valid() and videoset.is_valid()):
+    if not (form.is_valid() and formset.is_valid() and videoset.is_valid()
+            and specset.is_valid()):
         return invalid()
 
     now = timezone.now()
     fields = {name: form.cleaned_data.get(name) for name in EDITABLE}
+
+    try:
+        fields["specs"] = spec_rules.clean(_spec_rows(specset))
+    except spec_rules.TooManySpecs as exc:
+        form.add_error(None, str(exc))
+        return invalid()
 
     try:
         car_store.update(car, now=now, **fields)
