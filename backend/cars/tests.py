@@ -13,6 +13,7 @@ from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from PIL import Image
 
+from . import authentication
 from . import booking as booking_rules
 from . import identity
 from . import email_theme
@@ -455,9 +456,24 @@ class SignUploadEndpointTests(FakeCognito, SimpleTestCase):
         )
         self.assertEqual(response.status_code, 403)
 
-    def test_staff_get_a_helpful_error_for_bad_types(self):
-        sign_in(self.client, fake_cognito.make_user(
-            "boss@example.com", groups=(cognito.STAFF_GROUP, cognito.OWNERS_GROUP)))
+    def staffer(self):
+        return fake_cognito.make_user(
+            "boss@example.com", groups=(cognito.STAFF_GROUP, cognito.OWNERS_GROUP))
+
+    def test_staff_signing_in_through_the_hosted_ui_can_sign(self):
+        """The whole reason `StaffCookieAuthentication` exists.
+
+        A staff member who signed in at the hosted UI holds `dm_st` and nothing else. If
+        this endpoint reads the customer cookie instead, they are anonymous here, signing
+        403s, and `direct-upload.js` quietly falls back to posting the file through
+        Lambda -- where the ~4.5 MB ceiling makes a 200 MB video impossible and the
+        fallback validates neither type nor size. Nothing on screen says so.
+
+        Asserting the 400 rather than a 200 is deliberate: `_validate` rejects the
+        content type before `build_presigned_upload` ever reaches S3, so this proves
+        authentication passed without needing a bucket or a stand-in for one.
+        """
+        sign_in(self.client, self.staffer(), staff=True)
 
         response = self.client.post(
             self.url,
@@ -467,6 +483,44 @@ class SignUploadEndpointTests(FakeCognito, SimpleTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("MP4", response.json()["detail"])
+
+    def test_a_customer_cookie_alone_cannot_sign(self):
+        """The same person, signed in only as a customer, is not staff *here*.
+
+        This is the isolation `staff/auth.py` documents, and it is what previously ran
+        backwards: every test in this class used to sign in this way, which is why the
+        missing wiring went unnoticed.
+        """
+        sign_in(self.client, self.staffer())
+
+        response = self.client.post(
+            self.url,
+            {"kind": "image", "content_type": "image/jpeg", "size": 1024},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    @override_settings(COGNITO_STAFF_CLIENT_ID="staff-client",
+                       COGNITO_CUSTOMER_CLIENT_ID="customer-client")
+    def test_a_customer_token_in_the_staff_cookie_is_refused(self):
+        """A genuine token, minted by the wrong app client, in the right cookie.
+
+        The `@override_settings` is what makes this test test anything: both ids default
+        to "" in the suite, and `CognitoCookieAuthentication` skips the comparison
+        entirely when the expected value is empty.
+        """
+        user = self.staffer()
+        self.client.cookies[authentication.STAFF_COOKIE] = fake_cognito.token_for(
+            user, staff=False)
+
+        response = self.client.post(
+            self.url,
+            {"kind": "image", "content_type": "image/jpeg", "size": 1024},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
 
 
 # The Django admin's tests went with the admin itself: InventoryGroupTests,

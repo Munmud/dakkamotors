@@ -3,6 +3,7 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .authentication import StaffCookieAuthentication
 from .choices import CarStatus
 from .serializers import CarDetailSerializer, CarListSerializer
 from .store import cars as car_store
@@ -90,8 +91,17 @@ class SignUploadView(APIView):
 
     Staff only: signing is effectively granting write access to the media bucket, so it
     must never be reachable by the public read-only API's AllowAny default.
+
+    `authentication_classes` **replaces** the project default rather than extending it,
+    and that is the whole point. The default is `CognitoCookieAuthentication`, which reads
+    the customer cookie -- so a staff member who happens to also hold a customer session
+    authenticates as a customer here, and because their customer token still carries
+    `cognito:groups` containing `staff`, `IsAdminUser` passes. It looks like it works.
+    Everyone without a customer session gets a 403 and silently falls back to posting
+    through Lambda. Leaving the default in the list would preserve exactly that.
     """
 
+    authentication_classes = [StaffCookieAuthentication]
     permission_classes = [IsAdminUser]
 
     def post(self, request):

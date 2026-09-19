@@ -174,11 +174,28 @@ def _user_from(claims):
     return cognito.CognitoUser.from_claims(claims)
 
 
-# There is deliberately no StaffCookieAuthentication. The staff pages are server-rendered
-# Django views guarded by `staff.auth.staff_required`, not DRF ones -- a DRF class here
-# would imply otherwise and be the first thing somebody wired up by mistake. The staff
-# cookie is verified in `staff/auth.py`, which reads STAFF_COOKIE and calls `verify`
-# directly.
+class StaffCookieAuthentication(CognitoCookieAuthentication):
+    """Wiring for the one DRF endpoint the staff pages call.
+
+    This is **not** a general invitation. The staff pages are server-rendered Django
+    views guarded by `staff.auth.staff_required`, and they should stay that way. This
+    class exists for exactly one caller: `direct-upload.js` POSTs to
+    `/api/staff/uploads/sign/`, which *is* DRF, and a staff member who signed in through
+    the hosted UI holds only `dm_st`.
+
+    It was deleted once as unused. It was unused because nothing had been wired to it,
+    which is a different thing -- and the cost of removing it is invisible: signing 403s,
+    `direct-upload.js` reports the refusal, and every upload silently falls back to
+    posting through Lambda, where the ~4.5 MB request ceiling makes a 200 MB video
+    impossible and `_store_upload` validates neither type nor size.
+
+    The cookie is set with `path="/api/staff"` (`staff/auth.py`), and the sign endpoint
+    sits inside that path. Move the endpoint out from under `/api/staff` and the browser
+    stops attaching the cookie, silently.
+    """
+
+    expected_client = "COGNITO_STAFF_CLIENT_ID"
+    cookie = STAFF_COOKIE
 
 
 def set_session_cookies(response, tokens, *, secure=True):
