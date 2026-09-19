@@ -37,6 +37,7 @@ from .store import notifications as notification_store
 from .store import questions as question_store
 from .store import schedules as schedule_store
 from .store import slots as slot_store
+from .store import videos as video_store
 from . import cognito
 from . import tests_fake_cognito as fake_cognito
 from .tests_fake_cognito import FakeCognito, sign_in, sign_out
@@ -133,6 +134,13 @@ def attach_image(car, name, *, is_primary=False, order=0):
     return _attach(car, name, TINY_GIF, is_primary=is_primary, order=order)
 
 
+def attach_video(car, name, *, order=0):
+    """A video row plus an object behind it. No derivatives -- nothing transcodes one."""
+    stored = default_storage.save(f"cars/{name}", ContentFile(b"not really an mp4"))
+    return video_store.create(car_id=car.car_id, video_name=stored,
+                              order=order, now=timezone.now())
+
+
 def _attach(car, name, payload, **fields):
     """Put the bytes in storage, record the photo, and build its resized copies.
 
@@ -217,6 +225,55 @@ class CarDetailApiTests(DynamoReset, SimpleTestCase):
         images = self.client.get(reverse("car-detail", args=[car.slug])).json()["images"]
 
         self.assertEqual([i["id"] for i in images], [first.image_id, second.image_id])
+
+    def test_media_merges_photos_and_videos_in_one_order(self):
+        car = make_car("MEDIA")
+        photo = attach_image(car, "a.gif", order=0)
+        clip = attach_video(car, "b.mp4", order=1)
+
+        payload = self.client.get(reverse("car-detail", args=[car.slug])).json()
+
+        self.assertEqual([m["kind"] for m in payload["media"]], ["photo", "video"])
+        self.assertEqual([m["id"] for m in payload["media"]], [photo.image_id, clip.video_id])
+
+    def test_a_video_can_lead_the_gallery(self):
+        car = make_car("VIDEO-FIRST")
+        attach_image(car, "a.gif", order=1)
+        clip = attach_video(car, "b.mp4", order=0)
+
+        payload = self.client.get(reverse("car-detail", args=[car.slug])).json()
+
+        self.assertEqual(payload["media"][0]["id"], clip.video_id)
+
+    def test_images_excludes_videos_even_when_one_leads(self):
+        """`images` is the photos-only list the poster frame and the card both read."""
+        car = make_car("PHOTOS-ONLY")
+        photo = attach_image(car, "a.gif", order=1)
+        attach_video(car, "b.mp4", order=0)
+
+        payload = self.client.get(reverse("car-detail", args=[car.slug])).json()
+
+        self.assertEqual([i["id"] for i in payload["images"]], [photo.image_id])
+        self.assertEqual([i["kind"] for i in payload["images"]], ["photo"])
+
+    def test_a_video_carries_no_sources(self):
+        """Nothing resizes an upload, so promising a srcset would promise a 404."""
+        car = make_car("NO-SOURCES")
+        attach_video(car, "b.mp4")
+
+        entry = self.client.get(reverse("car-detail", args=[car.slug])).json()["media"][0]
+
+        self.assertNotIn("sources", entry)
+        self.assertTrue(entry["video"])
+
+    def test_video_field_still_answers_for_the_cached_bundle(self):
+        """Compatibility shim: the deployed JS asks for `video` until CloudFront turns over."""
+        car = make_car("LEGACY-FIELD")
+        clip = attach_video(car, "b.mp4")
+
+        payload = self.client.get(reverse("car-detail", args=[car.slug])).json()
+
+        self.assertEqual(payload["video"], clip.url)
 
     def test_detail_exposes_both_descriptions(self):
         car = make_car("DESCRIPTIONS", description_en="English", description_ja="日本語")

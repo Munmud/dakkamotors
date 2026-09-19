@@ -10,11 +10,23 @@ from rest_framework import serializers
 
 
 class CarImageSerializer(serializers.Serializer):
+    """A photo, in `images` and in the merged `media` list.
+
+    `kind` is a constant rather than something read off the object, because the item
+    class *is* the kind -- there is no photo/video flag in the store to get out of step
+    with. It exists so the client can branch on one field across a heterogeneous list
+    instead of sniffing which URL key is present.
+    """
+
     id = serializers.CharField(source="image_id", read_only=True)
+    kind = serializers.SerializerMethodField()
     image = serializers.CharField(source="url", read_only=True)
     sources = serializers.SerializerMethodField()
     is_primary = serializers.BooleanField(read_only=True)
     order = serializers.IntegerField(read_only=True)
+
+    def get_kind(self, obj):
+        return "photo"
 
     def get_sources(self, obj):
         """{width: webp url}, or null while the copies are still being generated.
@@ -25,6 +37,26 @@ class CarImageSerializer(serializers.Serializer):
         """
         urls = obj.derivative_urls
         return {str(width): url for width, url in sorted(urls.items())} or None
+
+
+class CarVideoSerializer(serializers.Serializer):
+    """A video, in the merged `media` list only.
+
+    Deliberately not in `images`: that list feeds `primary_image` and the poster frame,
+    both of which want a photo, and keeping videos out of it by construction is the same
+    argument that made `CarVideo` its own item type rather than a flag.
+
+    No `sources` and no poster. Nothing transcodes an upload and nothing extracts a
+    frame, so offering either field would be promising a URL that will never exist.
+    """
+
+    id = serializers.CharField(source="video_id", read_only=True)
+    kind = serializers.SerializerMethodField()
+    video = serializers.CharField(source="url", read_only=True)
+    order = serializers.IntegerField(read_only=True)
+
+    def get_kind(self, obj):
+        return "video"
 
 
 class CarListSerializer(serializers.Serializer):
@@ -72,14 +104,37 @@ class CarDetailSerializer(serializers.Serializer):
     description_en = serializers.CharField(read_only=True)
     description_ja = serializers.CharField(read_only=True)
     images = CarImageSerializer(many=True, read_only=True)
+    media = serializers.SerializerMethodField()
     video = serializers.SerializerMethodField()
     questions = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
+    def get_media(self, obj):
+        """Photos and videos in the one order staff arranged, already merged by the store.
+
+        `images` stays alongside it permanently rather than being replaced: it is the
+        photos-only list, and `primary_image` and the video poster frame both need one.
+        """
+        out = []
+        for kind, item in getattr(obj, "media", None) or []:
+            serializer = CarVideoSerializer if kind == "video" else CarImageSerializer
+            out.append(serializer(item, context=self.context).data)
+        return out
+
     def get_video(self, obj):
+        """The first video, for one release only.
+
+        A car has many videos now and this field can hold one, so it is a compatibility
+        shim, not an interface: CloudFront will keep serving the previous JS bundle --
+        which asks for `car.video` and knows nothing of `media` -- until its cache turns
+        over. Delete it, and `detail.video` from both locale files, after that.
+        """
         from django.core.files.storage import default_storage
 
+        clips = getattr(obj, "videos", None) or []
+        if clips:
+            return clips[0].url
         return default_storage.url(obj.video_name) if obj.video_name else None
 
     def get_questions(self, obj):
