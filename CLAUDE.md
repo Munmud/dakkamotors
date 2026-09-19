@@ -96,6 +96,12 @@ wanting distinct slots at the same instant need distinct rules.
   an upsert, and the stub it creates carries no discriminator -- invisible to every
   polymorphic read in this package, and enough to block the real item from ever being
   created. Guard with `.pk.exists()`. This cost real debugging time once already.
+* **Every path that can change the listing card photo must call
+  `images.refresh_primary`.** `store/images.py` names all seven. Six are in that module;
+  the seventh is `media.set_order`, which is there because it reorders photos and videos
+  together and `images.py` deliberately cannot see a video. Moving a video to the front
+  never touches a photo and still changes the card, because the photos beneath it
+  re-rank.
 * **`store/questions.py` is the only permitted writer of `is_published`.** That
   exclusivity replaces the `CheckConstraint` DynamoDB cannot express, and a test enforces
   it mechanically.
@@ -109,6 +115,54 @@ wanting distinct slots at the same instant need distinct rules.
   points call it -- Django orders tests by module, so `tests.py` runs before
   `tests_store.py` and leaning on the other one having gone first is how the suite came to
   pass locally against a leftover container and fail against a fresh one.
+
+### The gallery: photos and videos are separate item types
+
+A car has many photos (`CarImage`, `IMG#`) and many videos (`CarVideo`, `VID#`) in **one
+order**, over one shared `order` number space. `store/media.py` is the only definition of
+that merge; `images.py` and `videos.py` each know only their own type.
+
+That separation is load-bearing rather than tidiness. `images.for_car` queries
+`begins_with(sk, "IMG#")`, so `pick_primary` receives a homogeneous list *by
+construction* -- a video can never become the listing card, with no code at all. A
+unified item with a `kind` flag would put that filter on all seven refresh paths and on
+`Car.primary_image`, which rebuilds a detached `CarImage` from `primary_image_ref` and
+would otherwise happily build one out of a video row. Derivatives are the secondary
+argument: they are most of what `CarImage` is, and meaningless on half the instances of
+a merged type.
+
+Both lists sort on `(order, sk)`, never `(order, id)`. Within a type those are the same
+ordering; across types they are what makes one sequence possible.
+
+`cars.detail()` returns videos from the Query it already makes. Reading them separately
+would turn the car page's single round trip into two, which is what
+`tests_store.count_dynamo_calls` exists to catch.
+
+Nothing transcodes a video and nothing extracts a poster frame, so there is no `sources`
+and no thumbnail: a video's thumbnail is the car's primary photo with a play badge.
+`direct-upload.js` picks its size cap from the input's *name* -- it tests `/video/`
+before `/image/` -- which is why the staff formset is prefixed `videos` and its field is
+called `video`.
+
+The `video` field on the car API is a shim for the JS bundle CloudFront is still
+serving, not an interface. Remove it, and `detail.video` from both locale files, once
+that cache has turned over.
+
+### Free-form specs
+
+`Car.specs` is a JSON list of `{label_en, label_ja, value_en, value_ja}`; list order is
+display order. Rules live in `cars/specs.py` so the form, the importer and the tests
+share one definition. The form refuses a half-filled row; the module drops it -- the
+importer has nobody to tell.
+
+**Do not add specs to `build_search_blob`.** `Car` is an AllProjection into GSI1 and
+every listing page reads the whole item, so twenty pairs in two languages would roughly
+double that read for a search nobody asked for. `MAX_PAIRS = 20` exists for the same
+reason. They are not in the JSON-LD either; `seo.py` records why, and why videos are not
+a `VideoObject`.
+
+Specs appear on the **add** page, unlike photos and videos: they are attributes of the
+car item and land in the same conditional write as its guards, so no orphan is possible.
 
 ### Staff pages
 
@@ -225,6 +279,11 @@ resolved statically and a check that cries wolf gets disabled.
 
 ## Things that will bite
 
+* **Removing an attribute declaration erases live data.** `store.cars.update` ends in
+  `car.save()`, a full PutItem, and PynamoDB serialises only *declared* attributes -- so
+  deleting one from the model silently wipes it from every item on the next save. Retire
+  an attribute only after whatever reads it has been migrated. `video_name` was removed
+  this way, and was safe only because the table had just been emptied.
 * **There are no migrations.** A schema change is a code change to `cars/store/`, and
   an attribute that is not written is simply absent from an item rather than NULL. Adding
   one is free; changing the meaning of an existing one needs a backfill you write.
