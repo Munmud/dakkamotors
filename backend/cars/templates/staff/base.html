@@ -89,6 +89,11 @@ every page under time pressure.
       <a href="{% url 'staff:customer-list' %}">Customers</a>
       {# Owners only. A manager following this link gets a 403, not a broken page. #}
       <a href="{% url 'staff:staff-list' %}">Staff</a>
+      {# The way back out. Same tab on purpose: this is somebody leaving the staff
+         pages, not opening a reference beside them. The staff cookie is scoped to
+         /api/staff, so the public site sees an ordinary visitor -- which is the point,
+         since the reason to follow this link is to see what a customer sees. #}
+      <a href="{% url 'home' %}">View site</a>
     </nav>
   </header>
 

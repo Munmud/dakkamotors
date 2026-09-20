@@ -110,6 +110,14 @@ class StaffCarListTests(FakeCognito, DynamoReset, SimpleTestCase):
         sign_in(self.client, self.staff, staff=True)
         self.url = reverse("staff:car-list")
 
+    def test_the_staff_pages_link_back_to_the_site(self):
+        """There was no way out of the staff pages except editing the URL.
+
+        Asserted on the list rather than in its own module because the masthead comes
+        from `staff/base.html` and every staff page renders it.
+        """
+        self.assertContains(self.client.get(self.url), ">View site<")
+
     def test_searching_by_partial_chassis_number_finds_the_car(self):
         """How a mechanic actually looks a car up."""
         make_car("L375S-0012345", brand="Daihatsu", model_name="Tanto")
