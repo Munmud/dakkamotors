@@ -1,0 +1,18 @@
+{% comment %}
+One row of the "Add photos" table. Rendered per live row and once inside the
+<template> formset-rows.js clones -- see _spec_row.html for why that is a partial.
+
+`image_key` is the hidden field direct-upload.js fills with the S3 object name once
+the browser has finished uploading. It has to be in the cloned row too, or a photo
+added through the button uploads and then has nowhere to report where it went.
+{% endcomment %}
+<tr>
+  <td>
+    {{ subform.image }}{{ subform.image_key }}
+    {% for error in subform.image.errors %}
+      <p class="help" style="color:var(--bad);">{{ error }}</p>
+    {% endfor %}
+  </td>
+  <td style="width:7rem;">{{ subform.is_primary }}</td>
+  <td style="width:7rem;">{{ subform.order }}</td>
+</tr>

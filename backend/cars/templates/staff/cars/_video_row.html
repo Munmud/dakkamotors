@@ -1,0 +1,19 @@
+{% comment %}
+One row of the "Add videos" table. See _spec_row.html for why this is a partial.
+
+`show_help` rather than `forloop.first`: a partial has no loop of its own, and the
+size-limit note belongs once above the first row rather than under every one. The
+<template> copy is included without it.
+{% endcomment %}
+<tr>
+  <td>
+    {{ subform.video }}{{ subform.video_key }}
+    {% if show_help %}
+      <p class="help">{{ subform.video.help_text }}</p>
+    {% endif %}
+    {% for error in subform.video.errors %}
+      <p class="help" style="color:var(--bad);">{{ error }}</p>
+    {% endfor %}
+  </td>
+  <td style="width:7rem;">{{ subform.order }}</td>
+</tr>

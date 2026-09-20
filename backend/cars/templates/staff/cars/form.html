@@ -63,6 +63,8 @@ matter will not fit through it, which is the whole reason the direct path exists
         Anything the fixed fields do not cover &mdash; colour, tyre condition, whether it
         has a tow bar. They appear under the specification table in the order below.
         Japanese is optional: a row with only English shows its English to everybody.
+        Up to {{ spec_formset.max_num }} rows; every listing page reads them whether or
+        not it shows them, which is what the ceiling is for.
       </p>
       {{ spec_formset.management_form }}
       {% if spec_formset.non_form_errors %}
@@ -80,21 +82,21 @@ matter will not fit through it, which is the whole reason the direct path exists
             <th>Remove</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody data-formset-rows="{{ spec_formset.prefix }}">
           {% for subform in spec_formset %}
-            <tr>
-              {% for field in subform.visible_fields %}
-                <td>
-                  {{ field }}
-                  {% for error in field.errors %}
-                    <p class="help" style="color:var(--bad);">{{ error }}</p>
-                  {% endfor %}
-                </td>
-              {% endfor %}
-            </tr>
+            {% include "staff/cars/_spec_row.html" %}
           {% endfor %}
         </tbody>
       </table>
+      {# The row formset-rows.js clones. `__prefix__` is where the row number goes. #}
+      <template data-formset-empty="{{ spec_formset.prefix }}">
+        {% include "staff/cars/_spec_row.html" with subform=spec_formset.empty_form %}
+      </template>
+      <div class="actions">
+        {# Ships hidden; the script reveals it. See formset-rows.js. #}
+        <button type="button" class="secondary" hidden
+                data-formset-add="{{ spec_formset.prefix }}">+ Add a detail</button>
+      </div>
     </div>
 
     {% if car %}
@@ -168,43 +170,37 @@ matter will not fit through it, which is the whole reason the direct path exists
         {{ image_formset.management_form }}
         <table>
           <thead><tr><th>Photo</th><th>Card photo</th><th>Order</th></tr></thead>
-          <tbody>
+          <tbody data-formset-rows="{{ image_formset.prefix }}">
             {% for subform in image_formset %}
-              <tr>
-                <td>
-                  {{ subform.image }}{{ subform.image_key }}
-                  {% for error in subform.image.errors %}
-                    <p class="help" style="color:var(--bad);">{{ error }}</p>
-                  {% endfor %}
-                </td>
-                <td style="width:7rem;">{{ subform.is_primary }}</td>
-                <td style="width:7rem;">{{ subform.order }}</td>
-              </tr>
+              {% include "staff/cars/_image_row.html" %}
             {% endfor %}
           </tbody>
         </table>
+        <template data-formset-empty="{{ image_formset.prefix }}">
+          {% include "staff/cars/_image_row.html" with subform=image_formset.empty_form %}
+        </template>
+        <div class="actions">
+          <button type="button" class="secondary" hidden
+                  data-formset-add="{{ image_formset.prefix }}">+ Add another photo</button>
+        </div>
 
         <h3 style="font-size:.9rem;margin-bottom:.4rem;">Add videos</h3>
         {{ video_formset.management_form }}
         <table>
           <thead><tr><th>Video</th><th>Order</th></tr></thead>
-          <tbody>
+          <tbody data-formset-rows="{{ video_formset.prefix }}">
             {% for subform in video_formset %}
-              <tr>
-                <td>
-                  {{ subform.video }}{{ subform.video_key }}
-                  {% if forloop.first %}
-                    <p class="help">{{ subform.video.help_text }}</p>
-                  {% endif %}
-                  {% for error in subform.video.errors %}
-                    <p class="help" style="color:var(--bad);">{{ error }}</p>
-                  {% endfor %}
-                </td>
-                <td style="width:7rem;">{{ subform.order }}</td>
-              </tr>
+              {% include "staff/cars/_video_row.html" with subform=subform show_help=forloop.first %}
             {% endfor %}
           </tbody>
         </table>
+        <template data-formset-empty="{{ video_formset.prefix }}">
+          {% include "staff/cars/_video_row.html" with subform=video_formset.empty_form %}
+        </template>
+        <div class="actions">
+          <button type="button" class="secondary" hidden
+                  data-formset-add="{{ video_formset.prefix }}">+ Add another video</button>
+        </div>
       </div>
     {% endif %}
 
@@ -240,4 +236,5 @@ matter will not fit through it, which is the whole reason the direct path exists
 
   <link rel="stylesheet" href="/static/cars/direct-upload.css">
   <script src="/static/cars/direct-upload.js" defer></script>
+  <script src="/static/cars/formset-rows.js" defer></script>
 {% endblock %}

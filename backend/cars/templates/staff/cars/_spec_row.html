@@ -1,0 +1,18 @@
+{% comment %}
+One row of the Extra details table.
+
+A partial because it is rendered twice: once per live row, and once inside the
+<template> that formset-rows.js clones when somebody asks for another. Two copies of
+this markup would drift, and the row that drifted would be the one nobody looks at
+until a staff member types into it.
+{% endcomment %}
+<tr>
+  {% for field in subform.visible_fields %}
+    <td>
+      {{ field }}
+      {% for error in field.errors %}
+        <p class="help" style="color:var(--bad);">{{ error }}</p>
+      {% endfor %}
+    </td>
+  {% endfor %}
+</tr>

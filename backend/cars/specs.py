@@ -13,11 +13,15 @@ writer: the migration importer and the tests need the same definition of what a 
 row is, and a second copy of it would drift.
 """
 
-#: Room for a generous spec sheet and no more. The ceiling is not about storage: `Car`
-#: is an AllProjection into GSI1 and every listing page reads the whole item, so each
-#: pair is paid for on pages that never display it. Twenty pairs in two languages is
-#: already a noticeable fraction of a car item.
-MAX_PAIRS = 20
+#: Room for a generous spec sheet and no more. The ceiling is not about storage -- a
+#: DynamoDB item has 400KB and this is nowhere near it. It is about reads: `Car` is an
+#: AllProjection into GSI1, so every listing page fetches the whole item for every card,
+#: and each pair is paid for on pages that never display it.
+#:
+#: Forty rather than unbounded for that reason, and forty rather than twenty because
+#: twenty turned out to be a real ceiling for a well-documented car, and a few KB on a
+#: listing read is a cost this shop can afford where an unbounded one is not.
+MAX_PAIRS = 40
 MAX_LABEL = 60
 MAX_VALUE = 200
 

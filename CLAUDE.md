@@ -156,9 +156,9 @@ share one definition. The form refuses a half-filled row; the module drops it --
 importer has nobody to tell.
 
 **Do not add specs to `build_search_blob`.** `Car` is an AllProjection into GSI1 and
-every listing page reads the whole item, so twenty pairs in two languages would roughly
-double that read for a search nobody asked for. `MAX_PAIRS = 20` exists for the same
-reason. They are not in the JSON-LD either; `seo.py` records why, and why videos are not
+every listing page reads the whole item, so forty pairs in two languages would roughly
+double that read for a search nobody asked for. `MAX_PAIRS = 40` exists for the same
+reason -- it is a read cost, not a storage one, and nowhere near the 400KB item limit. They are not in the JSON-LD either; `seo.py` records why, and why videos are not
 a `VideoObject`.
 
 Specs appear on the **add** page, unlike photos and videos: they are attributes of the
@@ -256,7 +256,11 @@ are now TTL attributes the table handles itself.
 **Uploads go straight to S3.** Lambda has a ~4.5 MB request ceiling, so the staff pages
 sign a presigned POST and the browser uploads directly. `direct-upload.js` is
 progressive enhancement -- file inputs stay file inputs, so a JS failure falls back to a
-normal upload.
+normal upload. `formset-rows.js` beside it makes the same bargain the other way round:
+its "+ Add a row" buttons ship with `hidden` set and the script removes it, so a page
+that never got the script shows the rows Django rendered rather than a button that does
+nothing. That also covers the deploy window -- `backend.yml` runs `collectstatic` after
+`zappa update`, so both files 404 for a few seconds on every deploy.
 
 **Secrets come from SSM at settings import**, via `config/ssm.py`, which runs only when
 `AWS_LAMBDA_FUNCTION_NAME` is set -- so tests and local development make no network call,

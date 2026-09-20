@@ -66,6 +66,10 @@ def formset_fields(images=0, videos=0, specs=0):
     All of them, always. A POST missing `videos-TOTAL_FORMS` raises a `ManagementForm`
     error rather than a validation error, so leaving one out fails every posting test at
     once with a message about formsets instead of about the car.
+
+    The floors are "at least what the page renders", not the exact counts. Posting more
+    blank rows than the page has is harmless -- they clean to blanks that `specs.clean`
+    drops -- so these do not have to move every time an `extra` does.
     """
     return {
         "images-TOTAL_FORMS": str(max(images, 3)),
@@ -76,10 +80,10 @@ def formset_fields(images=0, videos=0, specs=0):
         "videos-INITIAL_FORMS": "0",
         "videos-MIN_NUM_FORMS": "0",
         "videos-MAX_NUM_FORMS": "1000",
-        "specs-TOTAL_FORMS": str(max(specs, 3)),
+        "specs-TOTAL_FORMS": str(max(specs, 1)),
         "specs-INITIAL_FORMS": "0",
         "specs-MIN_NUM_FORMS": "0",
-        "specs-MAX_NUM_FORMS": "1000",
+        "specs-MAX_NUM_FORMS": str(MAX_PAIRS),
     }
 
 
@@ -360,6 +364,40 @@ class StaffCarSpecTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.staff, _ = make_staff()
         sign_in(self.client, self.staff, staff=True)
 
+    def test_the_add_page_renders_one_blank_row(self):
+        """One row, not three.
+
+        Three rows nobody asked for were also the whole allowance, because there was no
+        way to ask for a fourth -- which is how a cap of forty came to read as a cap of
+        three.
+        """
+        page = self.client.get(reverse("staff:car-add"))
+
+        self.assertContains(page, "specs-0-label_en")
+        self.assertNotContains(page, "specs-1-label_en")
+
+    def test_the_spec_table_carries_a_template_row(self):
+        """What the "+ Add a detail" button clones.
+
+        The only assertion that catches the <template> being dropped or the partial
+        being mis-included -- both of which leave a page that looks right and a button
+        that silently does nothing.
+        """
+        page = self.client.get(reverse("staff:car-add"))
+
+        self.assertContains(page, "specs-__prefix__-label_en")
+        self.assertContains(page, 'data-formset-add="specs"')
+
+    def test_the_cap_is_published_to_the_page(self):
+        """The button stops at the cap, and it reads it from the management form.
+
+        If this drifts the button keeps adding rows past the point `specs.clean` will
+        accept them, and the refusal arrives after somebody has typed them all in.
+        """
+        page = self.client.get(reverse("staff:car-add"))
+
+        self.assertContains(page, f'name="specs-MAX_NUM_FORMS" value="{MAX_PAIRS}"')
+
     def test_a_car_can_be_created_with_specs(self):
         self.client.post(
             reverse("staff:car-add"),
@@ -376,7 +414,7 @@ class StaffCarSpecTests(FakeCognito, DynamoReset, SimpleTestCase):
     def test_specs_keep_the_order_they_were_typed_in(self):
         self.client.post(
             reverse("staff:car-add"),
-            {**car_fields(chassis_number="SPEC-ORDER"), **formset_fields(),
+            {**car_fields(chassis_number="SPEC-ORDER"), **formset_fields(specs=2),
              **spec_row(0, label_en="Second", value_en="2"),
              **spec_row(1, label_en="First", value_en="1")},
             follow=True)
@@ -397,7 +435,7 @@ class StaffCarSpecTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.assertEqual(car_store.list_by_status("available"), [])
 
     def test_blank_rows_are_ignored(self):
-        """Three spare rows are on every page and must not be three errors."""
+        """A spare row is on every page and must not be an error."""
         self.client.post(
             reverse("staff:car-add"),
             {**car_fields(chassis_number="SPEC-BLANK"), **formset_fields()},
@@ -463,7 +501,11 @@ class StaffCarSpecTests(FakeCognito, DynamoReset, SimpleTestCase):
              **formset_fields(specs=MAX_PAIRS + 1), **rows},
             follow=True)
 
-        self.assertContains(response, "at most")
+        # The whole sentence, not just "at most". Django's own `validate_max` message
+        # is "Please submit at most N forms", so the short substring passes whichever
+        # of the two refused it -- and the point of `validate_max=False` is that
+        # `specs.clean` is the only thing that does.
+        self.assertContains(response, f"at most {MAX_PAIRS} extra details")
         self.assertEqual(car_store.list_by_status("available"), [])
 
 
