@@ -318,10 +318,21 @@ rebrand: the name is pinned in `infra/edge.yaml` as its own CloudFront behaviour
 renaming it is a distribution update that would have to land in step with a frontend
 deploy or the site serves a 404 for its own icon.
 
-`--ink` is `#1c2b33` and is free to move: nothing composites against it any more.
-`generate.py`'s own `INK` is still the artwork's `#1b2734`, and must stay that, because
-`share_card()` extends the canvas around pixels painted on it. The two are different
-numbers on purpose -- one is the page, one is the picture.
+**Three darks, and only one of them is pinned.** `--hero-ground` is `#1b2734` because
+that is what `docs/Logo.png` is painted on, and the home banner is an opaque rectangle
+with no alpha -- the masthead takes that value or a faint block appears around the
+artwork. `generate.py`'s `INK` is the same number for the same reason, since
+`share_card()` extends the canvas around those pixels. `--ink` is `#1c2b33` and stays
+free: it is body text and the footer, and pinning the site's text colour to a raster's
+background is the coupling this arrangement exists to avoid.
+
+The whole masthead is painted `--hero-ground`, not a strip behind the banner. The two
+values differ by about 1.5 dE, which is invisible as a field and visible as a hard edge
+between two of them. The footer keeps `--ink`; `.l-main` is always between them.
+
+`hero()` cannot fix this by re-grounding the picture -- it only trims and resizes, and
+its docstring records why matting a dithered ground against soft drop shadows was
+rejected. A new banner on a new ground means a new `docs/Logo.png`.
 
 **The yellow is `--plate`, and it is the kei number plate**, which is the legal marker
 of the class this shop sells rather than an accent picked for contrast. It says exactly

@@ -16,6 +16,20 @@
      footer, and it is the ink on a number plate -- readable at any size, never pure
      black, and cool enough to sit under the chrome monogram without arguing with it. */
   --ink: #1c2b33;
+
+  /* The ground `docs/Logo.png` is painted on, and the one colour on this site that is
+     not free to move: the home banner is an opaque rectangle with no alpha, so the band
+     behind it has to be this exact value or a faint block appears around the artwork.
+     `hero()` in docs/brand/generate.py only trims and resizes -- it cannot re-ground the
+     picture, and its docstring records why matting a dithered ground against soft drop
+     shadows was rejected.
+
+     It is a separate token rather than a correction to `--ink` because pinning the
+     site's text colour to a raster's baked background is the coupling this redesign
+     removed. The whole masthead takes it, not a strip behind the banner: the two darks
+     differ by about 1.5 dE, invisible as fields and visible as a hard edge between
+     them. The footer keeps `--ink`; they are never adjacent. */
+  --hero-ground: #1b2734;
   --ink-soft: #3a4b55;
   --road: #5f6b72;          /* secondary text: grades, labels, metadata */
 

@@ -183,10 +183,13 @@ def artwork():
 def hero(width=1100):
     """The home masthead. Twice its ~550px display width, for retina.
 
-    No alpha: the artwork's ground is #1b2734, which is `--ink`, which is the masthead
-    it sits on -- so a rectangle of it is invisible against the bar. Knocking the
-    background out instead would have meant matting a dithered ground against soft
-    drop shadows, which fringes, to solve a seam that does not exist.
+    No alpha: the artwork's ground is #1b2734, which is `--hero-ground`, which is what
+    the masthead is painted -- so a rectangle of it is invisible against the bar.
+    Knocking the background out instead would have meant matting a dithered ground
+    against soft drop shadows, which fringes, to solve a seam that does not exist.
+
+    The consequence is that this function cannot move the ground. Changing the band's
+    colour means supplying a `docs/Logo.png` painted on the new one.
     """
     art = artwork()
     return art.resize((width, round(art.height * width / art.width)), Image.LANCZOS)

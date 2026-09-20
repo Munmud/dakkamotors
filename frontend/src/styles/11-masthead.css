@@ -1,12 +1,13 @@
 /* ---------------------------------------------------------------------- header --- */
 
-/* A band, not a hero. It used to open with a 512px picture of the logo above the fold,
-   which meant the first thing a buyer saw on a six-car lot was not a car. The shop's
-   own window does not work that way: the stock is in it, and the phone number is on
-   the glass. So the band carries the mark, the controls, one line of what this is and
-   the number, and then it stops and the cars start. */
+/* The band carries the mark and the controls, and on the home page the logo artwork
+   and one line of what this is.
+
+   `--hero-ground`, not `--ink`: the artwork is an opaque rectangle and the band behind
+   it has to match the colour baked into it. Painting the whole header rather than a
+   strip behind the picture is what keeps the seam from existing at all. */
 .masthead {
-  background: var(--ink);
+  background: var(--hero-ground);
   color: #fff;
 }
 
@@ -31,21 +32,30 @@
   flex-wrap: wrap;
 }
 
-/* Home only. One sentence and the number -- the two things a walk-up customer wants
-   before they look at anything. */
+/* Home only: the artwork and one line of what this is, centred.
+
+   Grid rather than a centred flex row. The two children are of very different widths,
+   and a flex row that centres then wraps leaves the tagline aligned to the start of its
+   own line rather than to the middle of the page. */
 .masthead__intro {
   max-width: var(--shell);
   margin: 0 auto;
   padding: 0 var(--gutter) var(--space-4);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3) var(--space-5);
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: var(--space-3);
+}
+
+.masthead__logo {
+  width: min(100%, 34rem);
+  height: auto;
 }
 
 .masthead__tagline {
   margin: 0;
   max-width: 34ch;
+  margin-inline: auto;
   color: #c3ccd2;
   font-size: var(--step-1);
   line-height: 1.55;
