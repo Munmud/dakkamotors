@@ -1968,6 +1968,20 @@ class QuestionSeoTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.assertEqual(entity["name"], "Is it rust free?")
         self.assertEqual(entity["acceptedAnswer"]["text"], "Yes, the underside is clean.")
 
+    def test_a_car_with_no_chassis_number_omits_it_from_the_graph(self):
+        """A `null` in JSON-LD is an error to a validator, not an absence.
+
+        The field was unconditional while the staff form demanded one. It no longer
+        does, so the key has to go rather than carry nothing.
+        """
+        car = make_car(None, brand="Suzuki", model_name="Alto")
+
+        response = self.client.get(f"/cars/{car.slug}")
+        vehicle = [n for n in self.ld_json(response)["@graph"]
+                   if n["@type"] == "Car"][0]
+
+        self.assertNotIn("vehicleIdentificationNumber", vehicle)
+
     def test_no_faq_node_is_emitted_when_there_is_nothing_published(self):
         """An empty mainEntity is an invalid node, not a harmless one."""
         response = self.client.get(f"/cars/{self.car.slug}")

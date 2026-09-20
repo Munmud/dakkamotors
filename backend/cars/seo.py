@@ -133,12 +133,17 @@ def vehicle_schema(car, image_urls, canonical_url):
         "model": car.model_name,
         "vehicleModelDate": str(car.manufacture_year),
         "productionDate": str(car.manufacture_year),
-        "vehicleIdentificationNumber": car.chassis_number,
         "fuelType": car.get_fuel_type_display(),
         "seatingCapacity": car.seat_capacity,
         "itemCondition": "https://schema.org/UsedCondition",
         "offers": offer,
     }
+    # Down here with the other optional facts rather than in the literal above. It was
+    # unconditional while the staff form demanded one; now that a car can have no
+    # chassis number, emitting it regardless would put a literal `null` into public
+    # JSON-LD, which validators report as an error on the page rather than ignoring.
+    if car.chassis_number:
+        data["vehicleIdentificationNumber"] = car.chassis_number
     if car.color:
         data["color"] = car.color
     if car.grade:

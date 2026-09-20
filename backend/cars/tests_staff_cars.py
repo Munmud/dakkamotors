@@ -171,6 +171,47 @@ class StaffCarEditTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.assertContains(response, "already on another car")
         self.assertEqual(len(car_store.list_by_status("available")), 1)
 
+    def test_a_car_can_be_created_without_a_chassis_number(self):
+        """Stock arrives before its paperwork does.
+
+        Stored as absent rather than empty: the store decides whether the chassis moved
+        by comparing it to the old one, and `""` against `None` reads as a change on
+        every save of a car that never had one.
+        """
+        response = self.client.post(
+            reverse("staff:car-add"),
+            {**car_fields(chassis_number=""), **formset_fields()}, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        cars = car_store.list_by_status("available")
+        self.assertEqual(len(cars), 1)
+        self.assertIsNone(cars[0].chassis_number)
+
+    def test_two_cars_can_both_have_no_chassis_number(self):
+        """The thing a unique index would have got wrong.
+
+        No number means no guard to collide on, so the second car is not a duplicate of
+        the first -- it is two cars nobody has the paperwork for yet.
+        """
+        for grade in ("X", "Z"):
+            self.client.post(
+                reverse("staff:car-add"),
+                {**car_fields(chassis_number="", grade=grade), **formset_fields()},
+                follow=True)
+
+        self.assertEqual(len(car_store.list_by_status("available")), 2)
+
+    def test_clearing_a_chassis_number_frees_its_guard(self):
+        car = make_car("CLEAR-1")
+
+        self.client.post(reverse("staff:car-edit", args=[car.car_id]),
+                         {**car_fields(chassis_number=""), **formset_fields()},
+                         follow=True)
+
+        self.assertIsNone(car_store.get(car.car_id).chassis_number)
+        with self.assertRaises(ChassisGuard.DoesNotExist):
+            ChassisGuard.get(keys.chassis_guard_pk("CLEAR-1"), keys.GUARD)
+
     def test_a_refused_car_leaves_no_orphan_slug_guard(self):
         """The reason the car and both guards go in one transaction."""
         make_car("TAKEN-2")

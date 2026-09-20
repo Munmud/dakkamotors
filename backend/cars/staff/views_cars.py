@@ -61,6 +61,41 @@ EDITABLE = (
     "status", "description_en", "description_ja",
 )
 
+#: Blank means absent here, not empty.
+#:
+#: `CharField(required=False)` hands back `""`, and the store's `if car.chassis_number:`
+#: guards read that correctly -- but it would leave an empty attribute sitting on the
+#: item, and `store.cars.update` compares `car.chassis_number != old_chassis` to decide
+#: whether the chassis moved. With `""` on one side and `None` on the other that is true
+#: on *every* save of a chassis-less car, sending an update that changes nothing down
+#: the transaction path instead of the plain `car.save()` beside it.
+#:
+#: Same rule `price_jpy` already follows, where absent and zero are different answers.
+BLANK_IS_ABSENT = ("chassis_number",)
+
+
+def _field_values(form):
+    """The form's values, with blanks that mean "not given" turned back into None."""
+    values = {name: form.cleaned_data.get(name) for name in EDITABLE}
+    for name in BLANK_IS_ABSENT:
+        if not (values.get(name) or "").strip():
+            values[name] = None
+    return values
+
+
+def _blame_chassis(form, exc):
+    """Attach a refused conditional write to the field that can actually fix it.
+
+    `cars.create` raises `ConditionFailed` for a taken chassis number and for running
+    out of slug candidates, and this used to hang both on `chassis_number`. Now that the
+    field can legitimately be empty, pointing a failure at an empty box says nothing --
+    so it only gets the blame when there is something in it to be wrong.
+    """
+    if form.cleaned_data.get("chassis_number"):
+        form.add_error("chassis_number", str(exc))
+    else:
+        form.add_error(None, str(exc))
+
 
 @staff_required
 @requires("car.view")
@@ -108,8 +143,8 @@ def car_add(request):
 
 def _create(request, form, specset):
     car = Car(car_id=keys.new_id())
-    for name in EDITABLE:
-        setattr(car, name, form.cleaned_data.get(name))
+    for name, value in _field_values(form).items():
+        setattr(car, name, value)
 
     def refused():
         return render(request, "staff/cars/form.html", {
@@ -129,7 +164,7 @@ def _create(request, form, specset):
     try:
         car = car_store.create(car, now=timezone.now())
     except ConditionFailed as exc:
-        form.add_error("chassis_number", str(exc))
+        _blame_chassis(form, exc)
         return refused()
 
     messages.success(request, f"Added {car.seo_title_plain}. Now add its photos and videos.")
@@ -192,7 +227,7 @@ def _save(request, car):
         return invalid()
 
     now = timezone.now()
-    fields = {name: form.cleaned_data.get(name) for name in EDITABLE}
+    fields = _field_values(form)
 
     try:
         fields["specs"] = spec_rules.clean(_spec_rows(specset))
@@ -203,7 +238,7 @@ def _save(request, car):
     try:
         car_store.update(car, now=now, **fields)
     except ConditionFailed as exc:
-        form.add_error("chassis_number", str(exc))
+        _blame_chassis(form, exc)
         return invalid()
 
     added = _apply_images(car, formset, now)

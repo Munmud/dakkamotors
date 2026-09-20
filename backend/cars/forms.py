@@ -64,7 +64,14 @@ class CarForm(DirectUploadMixin, forms.Form):
     model_name = forms.CharField(max_length=80, label="Model")
     grade = forms.CharField(max_length=60, required=False)
     model_code = forms.CharField(max_length=40, required=False)
-    chassis_number = forms.CharField(max_length=40)
+    # Optional. Plenty of stock arrives before its paperwork does, and a field that
+    # refuses the car until somebody invents a number gets a made-up one typed into it.
+    # Uniqueness still applies to whatever is given -- the guard in `store.cars` is
+    # written only when there is a value to guard.
+    chassis_number = forms.CharField(
+        max_length=40, required=False,
+        help_text="Optional. No two cars may share one.",
+    )
     manufacture_year = forms.IntegerField(min_value=1900, max_value=2100, label="Year")
 
     fuel_type = forms.ChoiceField(choices=FuelType.choices, initial=FuelType.PETROL)
