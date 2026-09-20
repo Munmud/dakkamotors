@@ -161,8 +161,19 @@ double that read for a search nobody asked for. `MAX_PAIRS = 40` exists for the 
 reason -- it is a read cost, not a storage one, and nowhere near the 400KB item limit. They are not in the JSON-LD either; `seo.py` records why, and why videos are not
 a `VideoObject`.
 
-Specs appear on the **add** page, unlike photos and videos: they are attributes of the
-car item and land in the same conditional write as its guards, so no orphan is possible.
+**Everything is on the add page**, photos and videos included. Specs ride on the car
+item itself, so they land in the same conditional write as its guards and no orphan is
+possible. Media are different and the ordering is the rule: `images.create` writes an
+`IMG#` row into the car's partition and then calls `refresh_primary`, which GETs the
+META item -- so a photo written before the car exists is a `NotFound`, and one written
+before the guards are checked is an orphan child in a partition that never gets a car.
+`_create` therefore attaches media only after `cars.create` has returned.
+
+That works at all because `uploads.py` keys objects by a fresh uuid rather than by car
+id, so the bytes reach S3 before the form is even posted. The corollary is that a
+refused create can strand an object in the bucket, which is why `_create` re-renders
+with the **bound** formsets: the hidden `image_key` survives, so the retry reuses the
+object instead of uploading a second one.
 
 ### Staff pages
 

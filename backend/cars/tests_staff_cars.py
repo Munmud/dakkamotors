@@ -281,6 +281,70 @@ class StaffCarPhotoTests(FakeCognito, DynamoReset, SimpleTestCase):
         data.update(extra or {})
         return self.client.post(self.url, {**data, **(images or {})}, follow=True)
 
+    def test_a_car_can_be_created_with_its_photos_in_one_go(self):
+        """The add page takes media now.
+
+        It used to redirect to the edit page to ask for them, which meant two round
+        trips and a car in the inventory with no picture in between.
+        """
+        response = self.client.post(
+            reverse("staff:car-add"),
+            {**car_fields(chassis_number="ADD-PHOTO"), **formset_fields(),
+             "images-0-image": a_jpeg()},
+            follow=True)
+
+        self.assertContains(response, "Added 1 photo")
+        created = [c for c in car_store.list_by_status("available")
+                   if c.chassis_number == "ADD-PHOTO"][0]
+        self.assertEqual(len(image_store.for_car(created.car_id)), 1)
+        self.assertIsNotNone(car_store.get(created.car_id).primary_image)
+
+    def test_a_refused_create_keeps_the_uploaded_photo_key(self):
+        """The bytes are already in S3 by the time the form is posted.
+
+        Rebuilding the formsets unbound would drop the key pointing at them, so the
+        retry uploads a second copy and the first is left in the bucket with nothing
+        referring to it.
+        """
+        make_car("ADD-TAKEN")
+
+        response = self.client.post(
+            reverse("staff:car-add"),
+            {**car_fields(chassis_number="ADD-TAKEN", grade="Z"), **formset_fields(),
+             "images-0-image_key": "cars/deadbeef/original"},
+            follow=True)
+
+        self.assertContains(response, "already on another car")
+        self.assertContains(response, "cars/deadbeef/original")
+
+    def test_a_refused_create_attaches_nothing(self):
+        """Media go on only after `cars.create` returns.
+
+        An IMG# row written first would sit in a partition that never gets a car, and
+        `refresh_primary` would not even get that far -- it GETs the META item.
+        """
+        blocker = make_car("ADD-ORPHAN")
+        before = len(car_store.list_by_status("available"))
+
+        self.client.post(
+            reverse("staff:car-add"),
+            {**car_fields(chassis_number="ADD-ORPHAN", grade="Z"), **formset_fields(),
+             "images-0-image": a_jpeg()},
+            follow=True)
+
+        self.assertEqual(len(car_store.list_by_status("available")), before)
+        # Not hung off either car that does exist, and there is no third partition it
+        # could have landed in.
+        self.assertEqual(image_store.for_car(blocker.car_id), [])
+        self.assertEqual(image_store.for_car(self.car.car_id), [])
+
+    def test_the_add_page_offers_the_media_inputs(self):
+        page = self.client.get(reverse("staff:car-add"))
+
+        self.assertContains(page, "images-0-image")
+        self.assertContains(page, "videos-0-video")
+        self.assertNotContains(page, "Nothing in the gallery yet")
+
     def test_uploading_a_photo_attaches_it_and_builds_its_copies(self):
         response = self.post(images={"images-0-image": a_jpeg()})
 
@@ -528,6 +592,18 @@ class StaffCarVideoTests(FakeCognito, DynamoReset, SimpleTestCase):
         data = {**car_fields(chassis_number="VIDEOS-1"), **formset_fields(videos=videos)}
         data.update(extra or {})
         return self.client.post(self.url, {**data, **(files or {})}, follow=True)
+
+    def test_a_car_can_be_created_with_a_video(self):
+        response = self.client.post(
+            reverse("staff:car-add"),
+            {**car_fields(chassis_number="ADD-VIDEO"), **formset_fields(),
+             "videos-0-video": an_mp4()},
+            follow=True)
+
+        self.assertContains(response, "Added 1 video")
+        created = [c for c in car_store.list_by_status("available")
+                   if c.chassis_number == "ADD-VIDEO"][0]
+        self.assertEqual(len(video_store.for_car(created.car_id)), 1)
 
     def test_uploading_a_video_attaches_it(self):
         response = self.post(files={"videos-0-video": an_mp4()})

@@ -99,9 +99,13 @@ matter will not fit through it, which is the whole reason the direct path exists
       </div>
     </div>
 
-    {% if car %}
-      <div class="panel">
-        <h2 style="font-size:1rem;margin-top:0;">Gallery</h2>
+    {# The panel is on the add page too. Photos and videos upload straight to S3 under
+       a key that has no car id in it, so they can be chosen before the car exists --
+       the view simply attaches them once `cars.create` has returned. Only the list of
+       what is already attached needs a car to exist. #}
+    <div class="panel">
+      <h2 style="font-size:1rem;margin-top:0;">Gallery</h2>
+      {% if car %}
         {% if gallery %}
           <table>
             <thead>
@@ -165,6 +169,13 @@ matter will not fit through it, which is the whole reason the direct path exists
         {% else %}
           <p class="empty">Nothing in the gallery yet.</p>
         {% endif %}
+      {% else %}
+        <p class="help">
+          Photos and videos can go on now, with the rest of the car. They are attached
+          once the car itself saves, so a refused save leaves nothing behind. Ordering
+          and the card photo are on the edit page, once there is something to order.
+        </p>
+      {% endif %}
 
         <h3 style="font-size:.9rem;margin-bottom:.4rem;">Add photos</h3>
         {{ image_formset.management_form }}
@@ -202,7 +213,6 @@ matter will not fit through it, which is the whole reason the direct path exists
                   data-formset-add="{{ video_formset.prefix }}">+ Add another video</button>
         </div>
       </div>
-    {% endif %}
 
     <div class="actions">
       <button type="submit">Save</button>

@@ -130,11 +130,16 @@ def car_list(request):
 def car_add(request):
     if request.method == "POST":
         form = CarForm(request.POST, request.FILES)
+        imageset = ImageFormSet(request.POST, request.FILES, prefix="images")
+        videoset = VideoFormSet(request.POST, request.FILES, prefix="videos")
         specset = SpecFormSet(request.POST, prefix="specs")
-        if form.is_valid() and specset.is_valid():
-            return _create(request, form, specset)
+        if (form.is_valid() and imageset.is_valid() and videoset.is_valid()
+                and specset.is_valid()):
+            return _create(request, form, imageset, videoset, specset)
     else:
         form = CarForm()
+        imageset = ImageFormSet(prefix="images")
+        videoset = VideoFormSet(prefix="videos")
         specset = SpecFormSet(prefix="specs")
 
     return render(request, "staff/cars/form.html", {
@@ -143,23 +148,43 @@ def car_add(request):
         "car": None,
         "images": [],
         "gallery": [],
-        "image_formset": ImageFormSet(prefix="images"),
-        "video_formset": VideoFormSet(prefix="videos"),
+        "image_formset": imageset,
+        "video_formset": videoset,
         "spec_formset": specset,
     })
 
 
-def _create(request, form, specset):
+def _create(request, form, imageset, videoset, specset):
+    """Write the car, then hang its media off it. Strictly in that order.
+
+    `images.create` writes an `IMG#` row into the car's partition and then calls
+    `refresh_primary`, which GETs the META item -- so a photo written before the car
+    exists is a `NotFound`, and a photo written before the guards are checked is an
+    orphan child in a partition that never gets a car.
+
+    The upload itself does not care when it happens. `uploads.py` keys objects by a
+    fresh uuid rather than by car id, so the bytes are already in the bucket before this
+    view is entered, which is why photos can be chosen on the add page at all.
+
+    Known and accepted: if `_apply_images` throws after `cars.create` returned, the car
+    exists with no photos and the page 500s. That is already true of `_save` on the edit
+    page; this spreads it rather than inventing it.
+    """
     car = Car(car_id=keys.new_id())
     for name, value in _field_values(form).items():
         setattr(car, name, value)
 
     def refused():
+        # The BOUND formsets, for the reason `_save.invalid()` gives one screen down --
+        # and here it is not only about retyping. The hidden `image_key` fields point at
+        # objects already sitting in S3, so throwing them away makes somebody re-upload
+        # a walkaround video because a chassis number was taken, and leaves the first
+        # copy in the bucket with nothing referring to it.
         return render(request, "staff/cars/form.html", {
             "title": "Add a car", "form": form, "car": None, "images": [],
             "gallery": [],
-            "image_formset": ImageFormSet(prefix="images"),
-            "video_formset": VideoFormSet(prefix="videos"),
+            "image_formset": imageset,
+            "video_formset": videoset,
             "spec_formset": specset,
         })
 
@@ -169,13 +194,26 @@ def _create(request, form, specset):
         form.add_error(None, str(exc))
         return refused()
 
+    now = timezone.now()
     try:
-        car = car_store.create(car, now=timezone.now())
+        car = car_store.create(car, now=now)
     except ConditionFailed as exc:
         _blame_chassis(form, exc)
         return refused()
 
-    messages.success(request, f"Added {car.seo_title_plain}. Now add its photos and videos.")
+    # Not `_apply_existing_media`: there is nothing existing to reorder, the card-photo
+    # radio is not on this page, and `images.create` refreshes the primary itself.
+    added = _apply_images(car, imageset, now)
+    clips = _apply_videos(car, videoset, now)
+
+    parts = [f"Added {car.seo_title_plain}."]
+    if added:
+        parts.append(f"Added {added} photo(s).")
+    if clips:
+        parts.append(f"Added {clips} video(s).")
+    if not (added or clips):
+        parts.append("Now add its photos and videos.")
+    messages.success(request, " ".join(parts))
     return redirect(reverse("staff:car-edit", args=[car.car_id]))
 
 
