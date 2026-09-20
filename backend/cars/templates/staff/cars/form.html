@@ -99,10 +99,12 @@ matter will not fit through it, which is the whole reason the direct path exists
       </div>
     </div>
 
-    {# The panel is on the add page too. Photos and videos upload straight to S3 under
-       a key that has no car id in it, so they can be chosen before the car exists --
-       the view simply attaches them once `cars.create` has returned. Only the list of
-       what is already attached needs a car to exist. #}
+    {% comment %}
+      The panel is on the add page too. Photos and videos upload straight to S3 under
+      a key that has no car id in it, so they can be chosen before the car exists --
+      the view simply attaches them once `cars.create` has returned. Only the list of
+      what is already attached needs a car to exist.
+    {% endcomment %}
     <div class="panel">
       <h2 style="font-size:1rem;margin-top:0;">Gallery</h2>
       {% if car %}

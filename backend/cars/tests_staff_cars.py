@@ -122,6 +122,23 @@ class StaffCarListTests(FakeCognito, DynamoReset, SimpleTestCase):
         """
         self.assertContains(self.client.get(self.url), ">View site<")
 
+    def test_no_template_syntax_reaches_the_page(self):
+        """A comment that renders is a comment in the navbar.
+
+        `{# ... #}` cannot span lines in Django -- a multi-line one is not a comment at
+        all, it is text, and it shipped as four lines of rationale across the top of
+        every staff page. The link assertion above passed the whole time, because the
+        link was fine; it was what sat next to it that was not.
+
+        So this checks the rendered output for template syntax of any kind rather than
+        for that one mistake.
+        """
+        for name in ("staff:car-list", "staff:car-add"):
+            with self.subTest(page=name):
+                html = self.client.get(reverse(name)).content.decode()
+                for token in ("{#", "#}", "{%", "%}", "{{", "}}"):
+                    self.assertNotIn(token, html)
+
     def test_searching_by_partial_chassis_number_finds_the_car(self):
         """How a mechanic actually looks a car up."""
         make_car("L375S-0012345", brand="Daihatsu", model_name="Tanto")
