@@ -1,0 +1,26 @@
+:root {
+  /* The ground the monogram is drawn on, sampled off the master artwork. It moved
+     nine hundredths of nothing from the old #1b2430, but the logo sits directly on it
+     in the masthead and a near-miss there is the one place it would show. */
+  --ink: #1b2734;
+  --ink-soft: #2b3747;
+  --paper: #f4f5f6;
+  --surface: #ffffff;
+  --accent: #fbd200;
+  --line: #d8dbde;
+  --muted: #61697a;
+  --flag: #b23a2e;
+
+  --measure: 66ch;
+  --radius-photo: 3px;
+  --radius-ui: 6px;
+
+  --step-0: 1rem;
+  --step-1: 1.15rem;
+  --step-2: 1.45rem;
+  --step-3: 1.9rem;
+  --step-4: 2.6rem;
+
+  --font: "Zen Kaku Gothic New", "Hiragino Kaku Gothic ProN", "Yu Gothic",
+    "Segoe UI", system-ui, sans-serif;
+}

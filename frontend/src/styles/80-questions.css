@@ -1,0 +1,69 @@
+/* ------------------------------------------------------------- questions --- */
+
+.qa {
+  margin: 0 0 1.5rem;
+  display: grid;
+  gap: 1.1rem;
+}
+
+.qa__pair {
+  border-left: 3px solid var(--accent);
+  padding-left: 0.9rem;
+}
+
+.qa__question {
+  margin: 0 0 0.3rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.qa__answer {
+  margin: 0;
+  color: var(--ink-soft);
+  max-width: var(--measure);
+}
+
+/* Their own thread: quieter than the published pairs, because it is not the page's
+   content — it is a receipt. */
+.qa__mine {
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.qa__mineitem {
+  background: var(--paper);
+  border-radius: var(--radius-ui);
+  padding: 0.8rem 1rem;
+}
+
+.qa__waiting {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.qa__form {
+  display: grid;
+  gap: 0.7rem;
+  justify-items: start;
+  max-width: 34rem;
+}
+
+.qa__input {
+  font: inherit;
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-ui);
+  background: var(--surface);
+  color: var(--ink);
+  resize: vertical;
+}
+
+.qa__input:focus-visible {
+  border-color: var(--ink);
+  outline: none;
+}

@@ -1,0 +1,22 @@
+/* ------------------------------------------------------------------- brandmark --- */
+
+/* The monogram sits straight on the masthead rather than in a badge, because the
+   masthead is already `--ink` -- the same ground the artwork is drawn on. Giving it a
+   tile here would have been a second border around a shape that already has one. The
+   favicon does get the tile, since it has no masthead to sit on. */
+.brandmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: #fff;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.brandmark__icon {
+  display: block;
+  height: 1.7rem;
+  width: auto;
+}

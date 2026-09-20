@@ -1,0 +1,36 @@
+/* --------------------------------------------------------------------- footer --- */
+
+.footer {
+  background: var(--ink);
+  color: #ccd2da;
+  margin-top: auto;
+}
+
+.footer__inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 2.5rem;
+  display: grid;
+  gap: 1rem;
+  justify-items: start;
+}
+
+.footer__prompt {
+  margin: 0;
+  font-size: var(--step-1);
+  color: #fff;
+}
+
+.footer__legal {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

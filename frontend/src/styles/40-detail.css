@@ -1,0 +1,215 @@
+/* ------------------------------------------------------------------ detail page --- */
+
+.backlink {
+  display: inline-block;
+  margin-bottom: 1.25rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.detail {
+  display: grid;
+  gap: 2rem;
+}
+
+@media (min-width: 900px) {
+  .detail {
+    grid-template-columns: minmax(0, 1.35fr) minmax(300px, 1fr);
+    align-items: start;
+  }
+}
+
+.gallery__frame {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  background: #e6e8ea;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-photo);
+  overflow: hidden;
+}
+
+.gallery__photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Same box as .gallery__photo. A 16/9 clip letterboxes inside the 4/3 frame rather
+   than being cropped to fit it: `cover` on a video would cut the top and bottom off a
+   walkaround, and the frame is shared with photos so it cannot change shape. */
+.gallery__video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--ink);
+  display: block;
+}
+
+.gallery__thumb-video {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--ink);
+}
+
+.gallery__thumb-video img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.55;
+}
+
+.gallery__play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 1.1rem;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.gallery__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.gallery__thumbs {
+  list-style: none;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.gallery__thumb {
+  width: 74px;
+  aspect-ratio: 4 / 3;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #e6e8ea;
+  cursor: pointer;
+}
+
+.gallery__thumb[aria-current="true"] {
+  border-color: var(--ink);
+}
+
+.gallery__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.summary {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.summary__year {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.summary__title {
+  margin: 0;
+  font-size: var(--step-4);
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.summary__grade {
+  margin: 0;
+  color: var(--muted);
+}
+
+.pricebox {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-photo);
+  padding: 1.1rem 1.25rem 1.35rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.pricebox__amount {
+  font-size: var(--step-3);
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.pricebox__amount--call {
+  font-size: var(--step-2);
+  color: var(--muted);
+}
+
+.pricebox__note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.section {
+  margin-top: 2.5rem;
+}
+
+.section__title {
+  margin: 0 0 0.9rem;
+  font-size: var(--step-2);
+  font-weight: 700;
+}
+
+/* Not `max-content` on the key column any more. Staff type their own labels now, and
+   one long label would widen the column for every row on the page — a table shape
+   decided by its worst entry. The 60-character cap in cars/specs.py is defence in
+   depth, not the fix: 60 characters is still far too wide here. */
+.specs {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(6rem, 14rem) 1fr;
+  gap: 0 1.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.specs__key {
+  padding: 0.65rem 0 0.15rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.specs__value {
+  margin: 0;
+  padding: 0.65rem 0 0.15rem;
+  border-bottom: 1px solid var(--line);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+/* <picture> is a plain wrapper; without this it does not fill the frame the way the
+   bare <img> it replaced did. */
+.card__frame picture,
+.gallery__frame picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.prose {
+  max-width: var(--measure);
+  margin: 0;
+  white-space: pre-line;
+}
+
+.prose--muted {
+  color: var(--muted);
+}

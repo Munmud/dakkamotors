@@ -1,0 +1,33 @@
+/* ------------------------------------------------------------------ call button --- */
+
+.callbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--accent);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-ui);
+  padding: 0.8rem 1.25rem;
+  font-weight: 900;
+  font-size: var(--step-1);
+  text-decoration: none;
+  justify-self: start;
+  box-shadow: 0 2px 0 var(--ink);
+}
+
+.callbtn:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+.callbtn--onink {
+  border-color: var(--accent);
+  box-shadow: none;
+}
+
+.callbtn__icon {
+  width: 1.1em;
+  height: 1.1em;
+  flex: none;
+}

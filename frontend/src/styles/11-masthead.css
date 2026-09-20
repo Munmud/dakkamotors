@@ -1,0 +1,67 @@
+/* ---------------------------------------------------------------------- header --- */
+
+.masthead {
+  background: var(--ink);
+  color: #fff;
+}
+
+.masthead__bar {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.masthead__intro {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 1.25rem 1.6rem;
+  display: grid;
+  gap: 1rem;
+}
+
+/* The artwork's own ground is `--ink`, the same colour as the masthead it sits on, so
+   the rectangle has no visible edge and needs no knockout -- it reads as though it
+   were drawn straight onto the bar. If `--ink` is ever changed, change it to whatever
+   `docs/Logo.png` is painted on or a faint block will appear around this. */
+.masthead__logo {
+  width: 100%;
+  max-width: 32rem;
+  height: auto;
+  margin: 0 0 0 -1%;
+}
+
+.masthead__tagline {
+  margin: 0;
+  max-width: 46ch;
+  color: #ccd2da;
+  font-size: var(--step-1);
+  line-height: 1.6;
+}
+
+.langswitch {
+  display: inline-flex;
+  border: 1px solid #45505f;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.langswitch__option {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #ccd2da;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+}
+
+.langswitch__option[aria-pressed="true"] {
+  background: #fff;
+  color: var(--ink);
+}
