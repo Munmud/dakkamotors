@@ -41,3 +41,9 @@ npm-debug.log*
 
 # ---- Local agent tooling ----
 .claude/
+
+# ---- Design review ----
+# Screenshot passes, regenerated on demand from a local fixture set. Dozens of
+# full-page PNGs at 3x go stale the moment a rule moves, and this repo's whole
+# character is leanness.
+/screenshots/
