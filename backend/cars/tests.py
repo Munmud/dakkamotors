@@ -632,8 +632,8 @@ class SlugTests(DynamoReset, SimpleTestCase):
     def test_slug_is_built_from_the_words_a_buyer_would_search(self):
         car = make_car("SLUG-1", brand="Daihatsu", model_name="Tanto", grade="X",
                        manufacture_year=2008)
-        self.assertEqual(car.slug, "2008-daihatsu-tanto-x")
-        self.assertEqual(car.get_absolute_url(), "/cars/2008-daihatsu-tanto-x")
+        self.assertEqual(car.slug, "2008-daihatsu-tanto")
+        self.assertEqual(car.get_absolute_url(), "/cars/2008-daihatsu-tanto")
 
     def test_identical_cars_get_distinct_slugs(self):
         first = make_car("SLUG-2", brand="Honda", model_name="N-Box", grade="G",
@@ -709,8 +709,8 @@ class RenderedPageTests(DynamoReset, SimpleTestCase):
         a = self.client.get(first.get_absolute_url()).content.decode()
         b = self.client.get(second.get_absolute_url()).content.decode()
 
-        self.assertIn("2008 Daihatsu Tanto X for sale in Hamura", a)
-        self.assertIn("2020 Honda N-Box X for sale in Hamura", b)
+        self.assertIn("2008 Daihatsu Tanto for sale in Hamura", a)
+        self.assertIn("2020 Honda N-Box for sale in Hamura", b)
         self.assertNotEqual(
             re.search(r"<title>(.*?)</title>", a).group(1),
             re.search(r"<title>(.*?)</title>", b).group(1),

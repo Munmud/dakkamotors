@@ -38,7 +38,7 @@ class CarStoreTests(DynamoTestCase):
 
     def test_creating_a_car_writes_both_guards(self):
         car = cars.create(make_car("1"), now=self.now)
-        self.assertEqual(car.slug, "2008-daihatsu-tanto-x")
+        self.assertEqual(car.slug, "2008-daihatsu-tanto")
         self.assertEqual(
             SlugGuard.get(keys.slug_pk(car.slug), "SLUG").car_id, "1")
         self.assertEqual(
@@ -46,15 +46,15 @@ class CarStoreTests(DynamoTestCase):
 
     def test_the_slug_guard_is_also_the_lookup(self):
         cars.create(make_car("1"), now=self.now)
-        self.assertEqual(cars.by_slug("2008-daihatsu-tanto-x").car_id, "1")
+        self.assertEqual(cars.by_slug("2008-daihatsu-tanto").car_id, "1")
         self.assertIsNone(cars.by_slug("no-such-car"))
 
     def test_two_identically_named_cars_get_distinct_slugs(self):
         """Resolved by a conditional write, not by a check-then-write loop."""
         a = cars.create(make_car("1"), now=self.now)
         b = cars.create(make_car("2"), now=self.now)
-        self.assertEqual(a.slug, "2008-daihatsu-tanto-x")
-        self.assertEqual(b.slug, "2008-daihatsu-tanto-x-2")
+        self.assertEqual(a.slug, "2008-daihatsu-tanto")
+        self.assertEqual(b.slug, "2008-daihatsu-tanto-2")
         self.assertEqual(cars.by_slug(b.slug).car_id, "2")
 
     def test_a_duplicate_chassis_number_is_refused(self):
@@ -183,7 +183,7 @@ class CarDetailTests(DynamoTestCase):
         self.assertEqual([i.image_name for i in car.images],
                          ["cars/a.jpg", "cars/b.jpg"])
         self.assertEqual(len(car.questions), 1)
-        self.assertEqual(car.seo_title_plain, "2008 Daihatsu Tanto X")
+        self.assertEqual(car.seo_title_plain, "2008 Daihatsu Tanto")
 
     def test_detail_by_slug_works_and_missing_slugs_raise(self):
         self.assertEqual(cars.detail_by_slug(self.car.slug).car_id, "1")

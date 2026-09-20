@@ -25,9 +25,13 @@ from .txn import Txn, failed
 
 SLUG, CHASSIS, CAR, LEGACY = "slug", "chassis", "car", "legacy"
 
-#: How many suffixes to try before giving up. Ten identically-named cars in one
-#: inventory would be remarkable; a runaway loop would not be.
-MAX_SLUG_ATTEMPTS = 10
+#: How many suffixes to try before giving up.
+#:
+#: Was ten, on the reasoning that ten identically-named cars in one inventory would be
+#: remarkable. They are not, now that the grade has left the title: every 2021 Honda
+#: N-BOX shares a base, and on a lot that buys N-BOXes the eleventh could not be added
+#: at all. Fifty is still a bound against a runaway loop and is not reachable by stock.
+MAX_SLUG_ATTEMPTS = 50
 
 # slug -> car_id, memoised for the life of a warm container. Safe because a slug is
 # generated once and then left alone -- models.py is explicit that changing one breaks

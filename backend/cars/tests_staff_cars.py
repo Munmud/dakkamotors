@@ -45,9 +45,6 @@ def car_fields(**overrides):
     fields = {
         "brand": "Daihatsu",
         "model_name": "Tanto",
-        "grade": "X",
-        "model_code": "LA600S",
-        "chassis_number": "L375S-0012345",
         "manufacture_year": 2018,
         "fuel_type": "petrol",
         "seat_capacity": 4,
@@ -173,35 +170,50 @@ class StaffCarEditTests(FakeCognito, DynamoReset, SimpleTestCase):
     def test_adding_a_car_creates_it_with_a_slug(self):
         response = self.client.post(
             reverse("staff:car-add"),
-            {**car_fields(chassis_number="NEW-1"), **formset_fields()}, follow=True)
+            {**car_fields(), **formset_fields()}, follow=True)
 
         self.assertEqual(response.status_code, 200)
         cars = car_store.list_by_status("available")
         self.assertEqual(len(cars), 1)
-        self.assertEqual(cars[0].slug, "2018-daihatsu-tanto-x")
+        self.assertEqual(cars[0].slug, "2018-daihatsu-tanto")
         self.assertContains(response, "Now add its photos")
 
-    def test_a_duplicate_chassis_number_is_refused_with_a_reason(self):
-        make_car("TAKEN-1")
+    def test_editing_a_car_keeps_the_fields_the_form_no_longer_owns(self):
+        """Grade, model code and chassis number left the form. They must not leave the car.
 
-        response = self.client.post(
-            reverse("staff:car-add"),
-            {**car_fields(chassis_number="TAKEN-1", grade="Z"), **formset_fields()},
-            follow=True)
+        `_field_values` builds its dict from `EDITABLE`, and a name that is no longer on
+        the form cleans to None -- so leaving one in that tuple writes None over the
+        stored value on the next save. For the chassis that is worse than data loss:
+        `store.cars.update` decides the number moved by comparing new to old, so
+        None != "KEEP-1" fires the transaction path and deletes the guard for a number
+        still sitting on the car.
 
-        self.assertContains(response, "already on another car")
-        self.assertEqual(len(car_store.list_by_status("available")), 1)
+        Silent, on first edit, and invisible to any smoke test.
+        """
+        car = make_car("KEEP-1", grade="Custom G", model_code="JF3")
 
-    def test_a_car_can_be_created_without_a_chassis_number(self):
-        """Stock arrives before its paperwork does.
+        self.client.post(reverse("staff:car-edit", args=[car.car_id]),
+                         {**car_fields(), **formset_fields()}, follow=True)
 
-        Stored as absent rather than empty: the store decides whether the chassis moved
-        by comparing it to the old one, and `""` against `None` reads as a change on
-        every save of a car that never had one.
+        saved = car_store.get(car.car_id)
+        self.assertEqual(saved.chassis_number, "KEEP-1")
+        self.assertEqual(saved.grade, "Custom G")
+        self.assertEqual(saved.model_code, "JF3")
+        # The guard still points at the car, so the number is still reserved.
+        self.assertEqual(
+            ChassisGuard.get(keys.chassis_guard_pk("KEEP-1"), keys.GUARD).car_id,
+            car.car_id)
+
+    def test_a_car_added_here_has_no_chassis_number(self):
+        """The form does not ask for one, so a new car simply has none.
+
+        Absent rather than empty: `store.cars.update` decides the number moved by
+        comparing new to old, and `""` against `None` would read as a change on every
+        save of a car that never had one.
         """
         response = self.client.post(
             reverse("staff:car-add"),
-            {**car_fields(chassis_number=""), **formset_fields()}, follow=True)
+            {**car_fields(), **formset_fields()}, follow=True)
 
         self.assertEqual(response.status_code, 200)
         cars = car_store.list_by_status("available")
@@ -217,28 +229,17 @@ class StaffCarEditTests(FakeCognito, DynamoReset, SimpleTestCase):
         for grade in ("X", "Z"):
             self.client.post(
                 reverse("staff:car-add"),
-                {**car_fields(chassis_number="", grade=grade), **formset_fields()},
+                {**car_fields(grade=grade), **formset_fields()},
                 follow=True)
 
         self.assertEqual(len(car_store.list_by_status("available")), 2)
-
-    def test_clearing_a_chassis_number_frees_its_guard(self):
-        car = make_car("CLEAR-1")
-
-        self.client.post(reverse("staff:car-edit", args=[car.car_id]),
-                         {**car_fields(chassis_number=""), **formset_fields()},
-                         follow=True)
-
-        self.assertIsNone(car_store.get(car.car_id).chassis_number)
-        with self.assertRaises(ChassisGuard.DoesNotExist):
-            ChassisGuard.get(keys.chassis_guard_pk("CLEAR-1"), keys.GUARD)
 
     def test_a_refused_car_leaves_no_orphan_slug_guard(self):
         """The reason the car and both guards go in one transaction."""
         make_car("TAKEN-2")
 
         self.client.post(reverse("staff:car-add"),
-                         {**car_fields(chassis_number="TAKEN-2", grade="Z"),
+                         {**car_fields(),
                           **formset_fields()}, follow=True)
 
         with self.assertRaises(SlugGuard.DoesNotExist):
@@ -250,34 +251,21 @@ class StaffCarEditTests(FakeCognito, DynamoReset, SimpleTestCase):
         before = car.slug
 
         self.client.post(reverse("staff:car-edit", args=[car.car_id]),
-                         {**car_fields(chassis_number="SLUG-1", grade="Corrected"),
+                         {**car_fields(color="Corrected"),
                           **formset_fields()}, follow=True)
 
         self.assertEqual(car_store.get(car.car_id).slug, before)
-        self.assertEqual(car_store.get(car.car_id).grade, "Corrected")
+        self.assertEqual(car_store.get(car.car_id).color, "Corrected")
 
     def test_changing_status_moves_the_car_between_listings(self):
         car = make_car("STATUS-1")
 
         self.client.post(reverse("staff:car-edit", args=[car.car_id]),
-                         {**car_fields(chassis_number="STATUS-1", status="sold"),
+                         {**car_fields(status="sold"),
                           **formset_fields()}, follow=True)
 
         self.assertEqual(car_store.list_by_status("available"), [])
         self.assertEqual(len(car_store.list_by_status("sold")), 1)
-
-    def test_changing_the_chassis_number_frees_the_old_one(self):
-        car = make_car("OLD-1")
-
-        self.client.post(reverse("staff:car-edit", args=[car.car_id]),
-                         {**car_fields(chassis_number="NEW-9"),
-                          **formset_fields()}, follow=True)
-
-        self.assertEqual(
-            ChassisGuard.get(keys.chassis_guard_pk("NEW-9"), keys.GUARD).car_id,
-            car.car_id)
-        with self.assertRaises(ChassisGuard.DoesNotExist):
-            ChassisGuard.get(keys.chassis_guard_pk("OLD-1"), keys.GUARD)
 
     def test_a_missing_car_is_a_404(self):
         self.assertEqual(
@@ -294,7 +282,7 @@ class StaffCarPhotoTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.url = reverse("staff:car-edit", args=[self.car.car_id])
 
     def post(self, extra=None, images=None):
-        data = {**car_fields(chassis_number="PHOTOS-1"), **formset_fields()}
+        data = {**car_fields(), **formset_fields()}
         data.update(extra or {})
         return self.client.post(self.url, {**data, **(images or {})}, follow=True)
 
@@ -306,13 +294,12 @@ class StaffCarPhotoTests(FakeCognito, DynamoReset, SimpleTestCase):
         """
         response = self.client.post(
             reverse("staff:car-add"),
-            {**car_fields(chassis_number="ADD-PHOTO"), **formset_fields(),
+            {**car_fields(), **formset_fields(),
              "images-0-image": a_jpeg()},
             follow=True)
 
         self.assertContains(response, "Added 1 photo")
-        created = [c for c in car_store.list_by_status("available")
-                   if c.chassis_number == "ADD-PHOTO"][0]
+        created = car_store.list_by_status("available")[0]
         self.assertEqual(len(image_store.for_car(created.car_id)), 1)
         self.assertIsNotNone(car_store.get(created.car_id).primary_image)
 
@@ -322,16 +309,22 @@ class StaffCarPhotoTests(FakeCognito, DynamoReset, SimpleTestCase):
         Rebuilding the formsets unbound would drop the key pointing at them, so the
         retry uploads a second copy and the first is left in the bucket with nothing
         referring to it.
+
+        Refused over the extra-details cap rather than a duplicate chassis, which the
+        form can no longer produce -- it is the same `refused()`, reached the one way
+        still open to it.
         """
-        make_car("ADD-TAKEN")
+        rows = {}
+        for index in range(MAX_PAIRS + 1):
+            rows.update(spec_row(index, label_en=str(index), value_en=str(index)))
 
         response = self.client.post(
             reverse("staff:car-add"),
-            {**car_fields(chassis_number="ADD-TAKEN", grade="Z"), **formset_fields(),
+            {**car_fields(), **formset_fields(specs=MAX_PAIRS + 1), **rows,
              "images-0-image_key": "cars/deadbeef/original"},
             follow=True)
 
-        self.assertContains(response, "already on another car")
+        self.assertContains(response, "extra details")
         self.assertContains(response, "cars/deadbeef/original")
 
     def test_a_refused_create_attaches_nothing(self):
@@ -342,10 +335,15 @@ class StaffCarPhotoTests(FakeCognito, DynamoReset, SimpleTestCase):
         """
         blocker = make_car("ADD-ORPHAN")
         before = len(car_store.list_by_status("available"))
+        # Refused over the extra-details cap: the form can no longer produce a duplicate
+        # chassis, and this is the other route into the same `refused()`.
+        rows = {}
+        for index in range(MAX_PAIRS + 1):
+            rows.update(spec_row(index, label_en=str(index), value_en=str(index)))
 
         self.client.post(
             reverse("staff:car-add"),
-            {**car_fields(chassis_number="ADD-ORPHAN", grade="Z"), **formset_fields(),
+            {**car_fields(), **formset_fields(specs=MAX_PAIRS + 1), **rows,
              "images-0-image": a_jpeg()},
             follow=True)
 
@@ -529,7 +527,7 @@ class StaffCarSpecTests(FakeCognito, DynamoReset, SimpleTestCase):
     def test_a_car_can_be_created_with_specs(self):
         self.client.post(
             reverse("staff:car-add"),
-            {**car_fields(chassis_number="SPEC-NEW"), **formset_fields(),
+            {**car_fields(), **formset_fields(),
              **spec_row(0, label_en="Colour", value_en="White")},
             follow=True)
 
@@ -542,7 +540,7 @@ class StaffCarSpecTests(FakeCognito, DynamoReset, SimpleTestCase):
     def test_specs_keep_the_order_they_were_typed_in(self):
         self.client.post(
             reverse("staff:car-add"),
-            {**car_fields(chassis_number="SPEC-ORDER"), **formset_fields(specs=2),
+            {**car_fields(), **formset_fields(specs=2),
              **spec_row(0, label_en="Second", value_en="2"),
              **spec_row(1, label_en="First", value_en="1")},
             follow=True)
@@ -555,7 +553,7 @@ class StaffCarSpecTests(FakeCognito, DynamoReset, SimpleTestCase):
         """Somebody typed a label and tabbed away. Saying so beats swallowing it."""
         response = self.client.post(
             reverse("staff:car-add"),
-            {**car_fields(chassis_number="SPEC-HALF"), **formset_fields(),
+            {**car_fields(), **formset_fields(),
              **spec_row(0, label_en="Colour")},
             follow=True)
 
@@ -566,7 +564,7 @@ class StaffCarSpecTests(FakeCognito, DynamoReset, SimpleTestCase):
         """A spare row is on every page and must not be an error."""
         self.client.post(
             reverse("staff:car-add"),
-            {**car_fields(chassis_number="SPEC-BLANK"), **formset_fields()},
+            {**car_fields(), **formset_fields()},
             follow=True)
 
         car = car_store.list_by_status("available")[0]
@@ -577,13 +575,13 @@ class StaffCarSpecTests(FakeCognito, DynamoReset, SimpleTestCase):
         car = make_car("SPEC-EDIT")
         self.client.post(
             reverse("staff:car-edit", args=[car.car_id]),
-            {**car_fields(chassis_number="SPEC-EDIT"), **formset_fields(),
+            {**car_fields(), **formset_fields(),
              **spec_row(0, label_en="Colour", value_en="White")},
             follow=True)
 
         self.client.post(
             reverse("staff:car-edit", args=[car.car_id]),
-            {**car_fields(chassis_number="SPEC-EDIT"), **formset_fields(),
+            {**car_fields(), **formset_fields(),
              **spec_row(0, label_en="Mileage", value_en="42,000 km")},
             follow=True)
 
@@ -595,7 +593,7 @@ class StaffCarSpecTests(FakeCognito, DynamoReset, SimpleTestCase):
         car = make_car("SPEC-SHOW")
         self.client.post(
             reverse("staff:car-edit", args=[car.car_id]),
-            {**car_fields(chassis_number="SPEC-SHOW"), **formset_fields(),
+            {**car_fields(), **formset_fields(),
              **spec_row(0, label_en="Tow bar", value_en="Fitted")},
             follow=True)
 
@@ -608,13 +606,17 @@ class StaffCarSpecTests(FakeCognito, DynamoReset, SimpleTestCase):
         """The one case where somebody has just filled the whole page in."""
         make_car("SPEC-TAKEN")
 
+        rows = {}
+        for index in range(1, MAX_PAIRS + 1):
+            rows.update(spec_row(index, label_en=str(index), value_en=str(index)))
+
         response = self.client.post(
             reverse("staff:car-add"),
-            {**car_fields(chassis_number="SPEC-TAKEN", grade="Z"), **formset_fields(),
-             **spec_row(0, label_en="Tow bar", value_en="Fitted")},
+            {**car_fields(), **formset_fields(specs=MAX_PAIRS + 1),
+             **spec_row(0, label_en="Tow bar", value_en="Fitted"), **rows},
             follow=True)
 
-        self.assertContains(response, "already on another car")
+        self.assertContains(response, "extra details")
         self.assertContains(response, "Tow bar")
         self.assertContains(response, "Fitted")
 
@@ -625,7 +627,7 @@ class StaffCarSpecTests(FakeCognito, DynamoReset, SimpleTestCase):
 
         response = self.client.post(
             reverse("staff:car-add"),
-            {**car_fields(chassis_number="SPEC-MANY"),
+            {**car_fields(),
              **formset_fields(specs=MAX_PAIRS + 1), **rows},
             follow=True)
 
@@ -653,20 +655,19 @@ class StaffCarVideoTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.url = reverse("staff:car-edit", args=[self.car.car_id])
 
     def post(self, extra=None, files=None, videos=1):
-        data = {**car_fields(chassis_number="VIDEOS-1"), **formset_fields(videos=videos)}
+        data = {**car_fields(), **formset_fields(videos=videos)}
         data.update(extra or {})
         return self.client.post(self.url, {**data, **(files or {})}, follow=True)
 
     def test_a_car_can_be_created_with_a_video(self):
         response = self.client.post(
             reverse("staff:car-add"),
-            {**car_fields(chassis_number="ADD-VIDEO"), **formset_fields(),
+            {**car_fields(), **formset_fields(),
              "videos-0-video": an_mp4()},
             follow=True)
 
         self.assertContains(response, "Added 1 video")
-        created = [c for c in car_store.list_by_status("available")
-                   if c.chassis_number == "ADD-VIDEO"][0]
+        created = car_store.list_by_status("available")[0]
         self.assertEqual(len(video_store.for_car(created.car_id)), 1)
 
     def test_uploading_a_video_attaches_it(self):

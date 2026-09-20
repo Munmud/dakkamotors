@@ -66,22 +66,22 @@ def _spec_rows(formset):
 #: Fields the form owns. Kept explicit so a new form field cannot silently start
 #: writing something the store did not expect.
 EDITABLE = (
-    "brand", "model_name", "grade", "model_code", "chassis_number",
-    "manufacture_year", "fuel_type", "seat_capacity", "color", "price_jpy",
-    "status", "description_en", "description_ja",
+    "brand", "model_name", "manufacture_year", "fuel_type", "seat_capacity",
+    "color", "price_jpy", "status", "description_en", "description_ja",
 )
 
 #: Blank means absent here, not empty.
 #:
-#: `CharField(required=False)` hands back `""`, and the store's `if car.chassis_number:`
-#: guards read that correctly -- but it would leave an empty attribute sitting on the
-#: item, and `store.cars.update` compares `car.chassis_number != old_chassis` to decide
-#: whether the chassis moved. With `""` on one side and `None` on the other that is true
-#: on *every* save of a chassis-less car, sending an update that changes nothing down
-#: the transaction path instead of the plain `car.save()` beside it.
+#: Empty today, and deliberately kept rather than deleted. `CharField(required=False)`
+#: hands back `""`, and for a field the store reads with a plain truth test that would
+#: leave an empty attribute on the item rather than an absent one.
 #:
-#: Same rule `price_jpy` already follows, where absent and zero are different answers.
-BLANK_IS_ABSENT = ("chassis_number",)
+#: It has to stay empty while `chassis_number` is off the form: `values.get(name)` on a
+#: name that is not in `EDITABLE` returns None, so listing it here would put
+#: `chassis_number: None` back into the dict and write it over every car on its next
+#: save -- and `store.cars.update` would read that as the number having changed and
+#: delete the guard for one still on the car.
+BLANK_IS_ABSENT = ()
 
 
 def _field_values(form):
@@ -91,20 +91,6 @@ def _field_values(form):
         if not (values.get(name) or "").strip():
             values[name] = None
     return values
-
-
-def _blame_chassis(form, exc):
-    """Attach a refused conditional write to the field that can actually fix it.
-
-    `cars.create` raises `ConditionFailed` for a taken chassis number and for running
-    out of slug candidates, and this used to hang both on `chassis_number`. Now that the
-    field can legitimately be empty, pointing a failure at an empty box says nothing --
-    so it only gets the blame when there is something in it to be wrong.
-    """
-    if form.cleaned_data.get("chassis_number"):
-        form.add_error("chassis_number", str(exc))
-    else:
-        form.add_error(None, str(exc))
 
 
 @staff_required
@@ -200,7 +186,10 @@ def _create(request, form, imageset, videoset, specset):
     try:
         car = car_store.create(car, now=now)
     except ConditionFailed as exc:
-        _blame_chassis(form, exc)
+        # No field to hang it on any more. With the chassis off the form the only thing
+        # `create` can refuse is the slug, which nothing on the page caused and nothing
+        # on the page fixes.
+        form.add_error(None, str(exc))
         return refused()
 
     # Not `_apply_existing_media`: there is nothing existing to reorder, the card-photo
@@ -289,7 +278,7 @@ def _save(request, car):
     try:
         car_store.update(car, now=now, **fields)
     except ConditionFailed as exc:
-        _blame_chassis(form, exc)
+        form.add_error(None, str(exc))
         return invalid()
 
     # Read before the writes, or it counts the rows it is about to add. New media then

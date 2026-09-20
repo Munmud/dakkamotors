@@ -62,16 +62,15 @@ class CarForm(DirectUploadMixin, forms.Form):
 
     brand = forms.CharField(max_length=60)
     model_name = forms.CharField(max_length=80, label="Model")
-    grade = forms.CharField(max_length=60, required=False)
-    model_code = forms.CharField(max_length=40, required=False)
-    # Optional. Plenty of stock arrives before its paperwork does, and a field that
-    # refuses the car until somebody invents a number gets a made-up one typed into it.
-    # Uniqueness still applies to whatever is given -- the guard in `store.cars` is
-    # written only when there is a value to guard.
-    chassis_number = forms.CharField(
-        max_length=40, required=False,
-        help_text="Optional. No two cars may share one.",
-    )
+    # No grade, model code or chassis number. Three boxes of trade paperwork at the top
+    # of the page, two of them blank on most cars, ahead of the price and the photos.
+    # Anything a particular car needs goes in Extra details, which is what that panel is
+    # for and which puts it on the public spec table either way.
+    #
+    # The attributes stay on the model and legacy cars keep theirs, so the staff search
+    # still finds an older car by part of its chassis number. They are simply no longer
+    # something the form owns -- see EDITABLE in staff/views_cars.py, where leaving them
+    # behind would have been a quiet data loss.
     manufacture_year = forms.IntegerField(min_value=1900, max_value=2100, label="Year")
 
     fuel_type = forms.ChoiceField(choices=FuelType.choices, initial=FuelType.PETROL)
@@ -97,8 +96,7 @@ class CarForm(DirectUploadMixin, forms.Form):
 
     #: Rendered as groups, in this order. Same shape as the admin's fieldsets.
     GROUPS = (
-        ("Vehicle", ["brand", "model_name", "grade", "model_code", "chassis_number",
-                     "manufacture_year"]),
+        ("Vehicle", ["brand", "model_name", "manufacture_year"]),
         ("Specification", ["fuel_type", "seat_capacity", "color"]),
         ("Listing", ["price_jpy", "status"]),
         ("Description", ["description_en", "description_ja"]),

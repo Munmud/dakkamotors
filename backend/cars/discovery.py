@@ -95,7 +95,7 @@ def llms_txt(request):
         "- Languages: English and Japanese",
         "",
         "## How buying works",
-        "- Every listing is one specific vehicle, identified by its chassis number.",
+        "- Every listing is one specific vehicle on the lot, not a model or a trim level.",
         "- There is no online checkout and no enquiry form. Buyers phone the number "
         "above to ask about a car or arrange to see it.",
         '- A listing with no price shows "Call for price"; ring to ask.',

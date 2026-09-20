@@ -147,8 +147,13 @@ class Car(BaseItem, discriminator="car"):
 
     @property
     def seo_title_plain(self):
-        """"2008 Daihatsu Tanto X" - the phrase a buyer would actually search for."""
-        parts = [str(self.manufacture_year or ""), self.brand, self.model_name, self.grade]
+        """"2008 Daihatsu Tanto" - the phrase a buyer would actually search for.
+
+        No grade. It left the staff form, so new cars have none, and a title that
+        silently changed shape depending on how old the record was would be worse than
+        one that is simply year, make and model.
+        """
+        parts = [str(self.manufacture_year or ""), self.brand, self.model_name]
         return " ".join(p for p in parts if p).strip()
 
     def get_absolute_url(self):
