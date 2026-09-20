@@ -1,14 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Dakka Motors">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"
+     role="img" aria-label="Dakka Motors">
   <title>Dakka Motors</title>
-  <!-- The Japanese kei-car number plate: yellow ground, black border. In Japan a yellow
-       plate is what legally marks a vehicle as kei class, so it does the job the van
-       illustration used to do, in one shape. -->
-  <rect x="2" y="2" width="60" height="60" rx="11" fill="#fbd200" stroke="#1b2430" stroke-width="4"/>
-  <!-- D, built to the kei silhouette: flat stem for the vertical tailgate, squared bowl,
-       and a landscape counter that reads as side glass. -->
-  <g transform="translate(14.25 15) scale(0.7727)">
-    <path fill="#1b2430" fill-rule="evenodd"
+  <!-- The DM monogram on its ink tile: the app-icon form, and what ships as the
+       favicon at frontend/public/plate.svg. Chrome on #1b2734, the ground the master
+       artwork is drawn on. -->
+  <defs>
+    <linearGradient id="dm-chrome" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e8edf2"/>
+      <stop offset="0.18" stop-color="#ffffff"/>
+      <stop offset="0.38" stop-color="#b0bcc8"/>
+      <stop offset="0.52" stop-color="#f2f6f9"/>
+      <stop offset="0.72" stop-color="#96a3b0"/>
+      <stop offset="1" stop-color="#dde4ea"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="12" fill="#1b2734"/>
+  <g transform="translate(8.32 21.37) scale(0.4833)" fill="url(#dm-chrome)">
+    <!-- D: flat stem for the vertical tailgate, squared bowl, landscape counter that
+         reads as side glass. Drawn for the kei silhouette and kept through the
+         rebrand — it is the one piece of the old plate mark still standing. -->
+    <path fill-rule="evenodd"
           d="M0 0 H30 Q46 0 46 16 V28 Q46 44 30 44 H0 Z
              M12 12 H27 Q34 12 34 19 V25 Q34 32 27 32 H12 Z"/>
+    <!-- M: square stems, pointed centre, echoing the artwork's sharp apexes. -->
+    <path transform="translate(52 0)"
+          d="M0 44 V0 H11 L23 21 L35 0 H46 V44 H35 V17 L23 38 L11 17 V44 Z"/>
   </g>
 </svg>

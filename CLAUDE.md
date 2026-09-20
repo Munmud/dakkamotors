@@ -277,6 +277,36 @@ each other cannot catch a key both of them have and nothing reads, which is how 
 accumulated. That half warns rather than fails, because `t(`status.${x}`)` cannot be
 resolved statically and a check that cries wolf gets disabled.
 
+**The brand is two assets, used at two scales.** `docs/Logo.png` is the master artwork
+-- a kei car, a swoosh and a chrome DM, about 1167x600 once trimmed. It is an
+illustration, so it only goes where it is large enough to read: the home masthead and
+the Open Graph share card. At 32px it is a grey smudge and at 16px nothing survives, so
+the small sizes get the **DM monogram** instead -- the favicon and the 26px logo in an
+email masthead. `docs/brand/generate.py` bakes every raster from both and explains each
+format choice; nothing redraws the artwork, the cuts are a trim and a resize.
+
+The monogram's path data exists in three files (`frontend/public/plate.svg`, the inline
+`BrandMark` in `Header.jsx`, and the generator) because the favicon must stand alone,
+the header must be inline for the gradient to paint with the masthead, and the generator
+has no SVG renderer. `test_the_monogram_is_the_same_shape_everywhere` fails if they
+drift. **`/plate.svg` keeps its name** though it has not been a number plate since the
+rebrand: the name is pinned in `infra/edge.yaml` as its own CloudFront behaviour, and
+renaming it is a distribution update that would have to land in step with a frontend
+deploy or the site serves a 404 for its own icon.
+
+`--ink` is `#1b2734` because that is what the artwork is painted on. The hero is a
+plain rectangle with no knockout, invisible against the masthead only because those two
+values match -- change one without the other and a faint block appears around the logo.
+The monogram brought no accent colour with it, so **the yellow stayed on as `--accent`**:
+it is the fill behind dark text on the Call Us button and on the selected day and slot,
+and silver at those sizes has almost no separation from `--paper`.
+
+Email inverts the mark -- ink letters on a chrome tile, rather than chrome on ink --
+because the masthead band it sits in is already `--ink`. The tile is a table cell with a
+`bgcolor`, not an image, so the logo still reads with images blocked; that is the whole
+point of it and there is a test. **`email-mark-d.png` is kept although nothing renders
+it**: messages delivered before the rebrand still fetch it when they are opened.
+
 ## Things that will bite
 
 * **Removing an attribute declaration erases live data.** `store.cars.update` ends in

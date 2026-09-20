@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 98 44" width="98" height="44"
+     role="img" aria-label="Dakka Motors">
+  <title>Dakka Motors</title>
+  <!-- The monogram with no tile, for dark grounds — this is the form the masthead
+       uses, where the page is already ink and a tile would only draw a second border
+       around a shape that has one. Never place it on light: the chrome carries no
+       outline and there is nothing left to see. Use mark-mono.svg there. -->
+  <defs>
+    <linearGradient id="dm-chrome" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e8edf2"/>
+      <stop offset="0.18" stop-color="#ffffff"/>
+      <stop offset="0.38" stop-color="#b0bcc8"/>
+      <stop offset="0.52" stop-color="#f2f6f9"/>
+      <stop offset="0.72" stop-color="#96a3b0"/>
+      <stop offset="1" stop-color="#dde4ea"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#dm-chrome)">
+    <path fill-rule="evenodd"
+          d="M0 0 H30 Q46 0 46 16 V28 Q46 44 30 44 H0 Z
+             M12 12 H27 Q34 12 34 19 V25 Q34 32 27 32 H12 Z"/>
+    <path transform="translate(52 0)"
+          d="M0 44 V0 H11 L23 21 L35 0 H46 V44 H35 V17 L23 38 L11 17 V44 Z"/>
+  </g>
+</svg>

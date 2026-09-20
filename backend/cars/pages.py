@@ -72,8 +72,22 @@ def _esc(value):
     return html.escape(str(value or ""), quote=True)
 
 
+#: The picture a link to this site unfurls as, when the page has no better one of its
+#: own. A car page does have one -- its first photo, which is what somebody sharing
+#: that car means to show -- so this is the fallback, not the default: the home page,
+#: the account and booking shells, and any car whose photos have not been added yet.
+#:
+#: Served from the frontend bucket through the `/assets/*` behaviour, and absolute
+#: because a scraper resolves it against nothing.
+SHARE_CARD = f"{seo.SITE_URL}/assets/share-card.jpg"
+
+
 def _head(*, title, description, canonical, language, image=None, robots=None,
           structured_data=None):
+    # Every page unfurls with a picture. Before this, one without its own fell back to
+    # `summary`, a card with no image at all -- the least clickable thing a link can
+    # turn into in a chat window, which is where most of these are pasted.
+    image = image or SHARE_CARD
     alternates = "\n    ".join(
         f'<link rel="alternate" hreflang="{code}" href="{_esc(canonical)}?lang={code}" />'
         for code in seo.LANGUAGES
@@ -89,11 +103,10 @@ def _head(*, title, description, canonical, language, image=None, robots=None,
     <meta property="og:description" content="{_esc(description)}" />
     <meta property="og:url" content="{_esc(canonical)}" />
     <meta property="og:locale" content="{'ja_JP' if language == 'ja' else 'en_US'}" />
-    <meta name="twitter:card" content="{'summary_large_image' if image else 'summary'}" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="{_esc(title)}" />
     <meta name="twitter:description" content="{_esc(description)}" />"""
-    if image:
-        tags += f"""
+    tags += f"""
     <meta property="og:image" content="{_esc(image)}" />
     <meta name="twitter:image" content="{_esc(image)}" />"""
     if robots:
@@ -135,7 +148,7 @@ def _render(*, language, head, body, initial_data=None):
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#1B2430" />
+    <meta name="theme-color" content="#1b2734" />
     <link rel="icon" type="image/svg+xml" href="/plate.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

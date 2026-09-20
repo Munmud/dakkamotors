@@ -1,23 +1,33 @@
 /* ==================================================================================
    Dakka Motors
    One typeface (Zen Kaku Gothic New) carries both English and Japanese so the two
-   languages share a voice. The Japanese kei-car number plate is the one bold device;
-   everything around it stays quiet.
+   languages share a voice. The chrome DM monogram on ink is the brand; everything
+   around it stays quiet.
+
+   The monogram brought no accent colour with it -- it is chrome on navy and nothing
+   else -- so the yellow stayed on as `--accent`, doing a job the brand no longer does.
+   It is not decoration: it is the fill behind dark text on the Call Us button and on
+   the selected day and slot, and silver at those sizes has almost no separation from
+   `--paper`. Swapping it for chrome would have made the site's one call to action and
+   the two states the booking flow turns on stop reading as either.
    ================================================================================== */
 
 :root {
-  --ink: #1b2430;
+  /* The ground the monogram is drawn on, sampled off the master artwork. It moved
+     nine hundredths of nothing from the old #1b2430, but the logo sits directly on it
+     in the masthead and a near-miss there is the one place it would show. */
+  --ink: #1b2734;
   --ink-soft: #2b3747;
   --paper: #f4f5f6;
   --surface: #ffffff;
-  --plate: #fbd200;
+  --accent: #fbd200;
   --line: #d8dbde;
   --muted: #61697a;
   --flag: #b23a2e;
 
   --measure: 66ch;
   --radius-photo: 3px;
-  --radius-plate: 6px;
+  --radius-ui: 6px;
 
   --step-0: 1rem;
   --step-1: 1.15rem;
@@ -92,25 +102,27 @@ a {
   padding: 1.75rem 1.25rem 4rem;
 }
 
-/* ---------------------------------------------------------------- number plate --- */
+/* ------------------------------------------------------------------- brandmark --- */
 
-.plate {
+/* The monogram sits straight on the masthead rather than in a badge, because the
+   masthead is already `--ink` -- the same ground the artwork is drawn on. Giving it a
+   tile here would have been a second border around a shape that already has one. The
+   favicon does get the tile, since it has no masthead to sit on. */
+.brandmark {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  background: var(--plate);
-  color: var(--ink);
-  border: 2px solid var(--ink);
-  border-radius: var(--radius-plate);
-  padding: 0.3rem 0.7rem 0.35rem;
+  gap: 0.6rem;
+  color: #fff;
   font-weight: 900;
   letter-spacing: 0.06em;
   line-height: 1;
   text-decoration: none;
 }
 
-.plate__mark {
-  font-size: 1.35rem;
+.brandmark__icon {
+  display: block;
+  height: 1.7rem;
+  width: auto;
 }
 
 /* ---------------------------------------------------------------------- header --- */
@@ -136,6 +148,17 @@ a {
   padding: 0 1.25rem 1.6rem;
   display: grid;
   gap: 1rem;
+}
+
+/* The artwork's own ground is `--ink`, the same colour as the masthead it sits on, so
+   the rectangle has no visible edge and needs no knockout -- it reads as though it
+   were drawn straight onto the bar. If `--ink` is ever changed, change it to whatever
+   `docs/Logo.png` is painted on or a faint block will appear around this. */
+.masthead__logo {
+  width: 100%;
+  max-width: 32rem;
+  height: auto;
+  margin: 0 0 0 -1%;
 }
 
 .masthead__tagline {
@@ -176,10 +199,10 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 0.6rem;
-  background: var(--plate);
+  background: var(--accent);
   color: var(--ink);
   border: 2px solid var(--ink);
-  border-radius: var(--radius-plate);
+  border-radius: var(--radius-ui);
   padding: 0.8rem 1.25rem;
   font-weight: 900;
   font-size: var(--step-1);
@@ -194,7 +217,7 @@ a {
 }
 
 .callbtn--onink {
-  border-color: var(--plate);
+  border-color: var(--accent);
   box-shadow: none;
 }
 
@@ -545,7 +568,7 @@ a {
   background: var(--ink);
   color: #fff;
   border: 2px solid var(--ink);
-  border-radius: var(--radius-plate);
+  border-radius: var(--radius-ui);
   padding: 0.6rem 1.1rem;
   cursor: pointer;
 }
@@ -701,7 +724,7 @@ a {
   width: 100%;
   max-width: 22rem;
   border: 2px solid var(--line);
-  border-radius: var(--radius-plate);
+  border-radius: var(--radius-ui);
   background: var(--surface);
   padding: 0.6rem;
 }
@@ -727,7 +750,7 @@ a {
   width: 2rem;
   height: 2rem;
   border: 2px solid var(--line);
-  border-radius: var(--radius-plate);
+  border-radius: var(--radius-ui);
   background: var(--surface);
   color: var(--ink);
 }
@@ -766,7 +789,7 @@ a {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-plate);
+  border-radius: var(--radius-ui);
   border: 2px solid transparent;
   background: none;
   font-size: 0.9rem;
@@ -789,7 +812,7 @@ a {
 }
 
 .cal__day--open[aria-pressed="true"] {
-  background: var(--plate);
+  background: var(--accent);
   border-color: var(--ink);
 }
 
@@ -819,12 +842,12 @@ a {
   background: var(--surface);
   color: var(--ink);
   border: 2px solid var(--line);
-  border-radius: var(--radius-plate);
+  border-radius: var(--radius-ui);
 }
 
 .slotpicker__slot[aria-pressed="true"] {
   border-color: var(--ink);
-  background: var(--plate);
+  background: var(--accent);
 }
 
 .slotpicker__slot:disabled {
@@ -953,7 +976,7 @@ a {
 }
 
 .qa__pair {
-  border-left: 3px solid var(--plate);
+  border-left: 3px solid var(--accent);
   padding-left: 0.9rem;
 }
 
@@ -981,7 +1004,7 @@ a {
 
 .qa__mineitem {
   background: var(--paper);
-  border-radius: var(--radius-plate);
+  border-radius: var(--radius-ui);
   padding: 0.8rem 1rem;
 }
 
@@ -1003,7 +1026,7 @@ a {
   width: 100%;
   padding: 0.6rem 0.7rem;
   border: 2px solid var(--line);
-  border-radius: var(--radius-plate);
+  border-radius: var(--radius-ui);
   background: var(--surface);
   color: var(--ink);
   resize: vertical;
@@ -1050,7 +1073,7 @@ a {
   min-width: 1.05rem;
   padding: 0 0.2rem;
   border-radius: 999px;
-  background: var(--plate);
+  background: var(--accent);
   color: var(--ink);
   font-size: 0.7rem;
   font-weight: 700;
@@ -1067,7 +1090,7 @@ a {
   background: var(--surface);
   color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius-plate);
+  border-radius: var(--radius-ui);
   box-shadow: 0 10px 30px rgb(27 36 48 / 18%);
   padding: 0.6rem;
 }
@@ -1122,7 +1145,7 @@ a {
   font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
-  color: var(--plate);
+  color: var(--accent);
 }
 
 .masthead__admin:hover,

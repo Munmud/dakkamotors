@@ -2,6 +2,7 @@ import datetime
 import itertools
 import io
 import json
+import pathlib
 import re
 from unittest import mock
 
@@ -1483,6 +1484,94 @@ class PrimaryImageFallbackTests(DynamoReset, SimpleTestCase):
         self.assertIsNone(make_car("EMPTY").primary_image)
 
 
+class BrandMarkTests(SimpleTestCase):
+    """The DM monogram exists as path data in more than one file, and has to stay one
+    shape.
+
+    Three copies is one more than anybody wants, and none of them can be removed: the
+    favicon has to be a standalone file a browser can fetch, the header has to be inline
+    for the chrome gradient to paint with the masthead rather than after it, and
+    `docs/brand/generate.py` has no SVG renderer to read either of them with. So instead
+    of a single source there is this, which fails the moment they drift.
+
+    It compares the path data itself, not a rendering -- two marks can differ by a
+    single control point and still look identical at the sizes anybody checks by eye.
+    """
+
+    REPO = pathlib.Path(__file__).resolve().parents[2]
+    # The three subpaths, exactly as every copy must spell them.
+    D_OUTER = "M0 0 H30 Q46 0 46 16 V28 Q46 44 30 44 H0 Z"
+    D_COUNTER = "M12 12 H27 Q34 12 34 19 V25 Q34 32 27 32 H12 Z"
+    M_OUTER = "M0 44 V0 H11 L23 21 L35 0 H46 V44 H35 V17 L23 38 L11 17 V44 Z"
+
+    CARRIERS = (
+        "frontend/public/plate.svg",
+        "frontend/src/components/Header.jsx",
+        "docs/brand/generate.py",
+        "docs/brand/mark.svg",
+        "docs/brand/lockup.svg",
+        "docs/brand/mark-mono.svg",
+    )
+
+    def source(self, relative):
+        text = (self.REPO / relative).read_text(encoding="utf-8")
+        # The svg files wrap `d` across lines to stay readable; a renderer does not
+        # care and neither should this.
+        return re.sub(r"\s+", " ", text)
+
+    def test_the_monogram_is_the_same_shape_everywhere(self):
+        for relative in self.CARRIERS:
+            text = self.source(relative)
+            for name in ("D_OUTER", "D_COUNTER", "M_OUTER"):
+                with self.subTest(file=relative, subpath=name):
+                    self.assertIn(getattr(self, name), text)
+
+    def test_the_favicon_keeps_the_filename_cloudfront_is_pinned_to(self):
+        """`/plate.svg` has its own behaviour in infra/edge.yaml.
+
+        The artwork stopped being a number plate, but renaming the file is a CloudFront
+        distribution update rather than a frontend deploy -- and if the two go out in
+        either order, the site spends the gap serving a 404 for its own icon.
+        """
+        edge = (self.REPO / "infra/edge.yaml").read_text(encoding="utf-8")
+
+        self.assertIn("PathPattern: /plate.svg", edge)
+        self.assertTrue((self.REPO / "frontend/public/plate.svg").exists())
+        for served_by in ("frontend/index.html", "backend/cars/pages.py"):
+            with self.subTest(file=served_by):
+                self.assertIn('href="/plate.svg"', self.source(served_by))
+
+    def test_every_svg_is_well_formed_xml(self):
+        """SVG is XML, and a browser will not draw one that does not parse.
+
+        This is here because it caught a real one: the comments in these files are
+        written in the same prose style as the rest of the repo, which uses `--` as an
+        em dash -- and `--` inside an XML comment is forbidden. The favicon parsed
+        nowhere and looked fine in every diff.
+        """
+        import xml.etree.ElementTree as ElementTree
+
+        svgs = [self.REPO / "frontend/public/plate.svg"]
+        svgs += sorted((self.REPO / "docs/brand").glob("*.svg"))
+        self.assertTrue(svgs)
+        for path in svgs:
+            with self.subTest(svg=path.name):
+                try:
+                    ElementTree.parse(path)
+                except ElementTree.ParseError as exc:
+                    self.fail(f"{path.name} is not well-formed XML: {exc}")
+
+    def test_the_old_email_mark_is_kept_for_messages_already_delivered(self):
+        """An email in somebody's inbox still points at /assets/email-mark-d.png.
+
+        It is fetched when the message is opened, which may be months from now, so the
+        file outlives the design it belonged to. Deleting it would hollow out the logo
+        of every email sent before the rebrand.
+        """
+        self.assertTrue(
+            (self.REPO / "frontend/public/assets/email-mark-d.png").exists())
+
+
 class EmailTemplateTests(FakeCognito, DynamoReset, SimpleTestCase):
     """The shell every message is rendered into.
 
@@ -1495,24 +1584,34 @@ class EmailTemplateTests(FakeCognito, DynamoReset, SimpleTestCase):
         kwargs.setdefault("body", email_theme.paragraph("Body copy."))
         return email_theme.render(**kwargs)
 
-    def test_the_plate_is_drawn_by_the_client_not_the_image(self):
-        """With images off the cell still has its yellow ground, so the mark shows."""
+    def test_the_tile_is_drawn_by_the_client_not_the_image(self):
+        """With images off the cell still has its chrome ground, so the mark shows."""
         html = self.render()
 
-        self.assertIn(f'bgcolor="{email_theme.PLATE}"', html)
-        self.assertIn(f"background-color:{email_theme.PLATE}", html)
+        self.assertIn(f'bgcolor="{email_theme.CHROME}"', html)
+        self.assertIn(f"background-color:{email_theme.CHROME}", html)
 
-    def test_the_letter_has_alt_text_to_fall_back_to(self):
+    def test_the_letters_have_alt_text_to_fall_back_to(self):
         html = self.render()
 
-        self.assertIn('alt="D"', html)
-        self.assertIn("/assets/email-mark-d.png", html)
+        self.assertIn('alt="DM"', html)
+        self.assertIn("/assets/email-mark-dm.png", html)
 
     def test_the_logo_image_is_an_absolute_url(self):
         """A relative src resolves against nothing in a mail client."""
         html = self.render()
 
-        self.assertIn(f'src="{seo.SITE_URL}/assets/email-mark-d.png"', html)
+        self.assertIn(f'src="{seo.SITE_URL}/assets/email-mark-dm.png"', html)
+
+    def test_the_mark_is_not_drawn_in_the_colour_it_sits_on(self):
+        """The site has chrome on ink; the email masthead has to invert it.
+
+        The band the monogram sits in is itself INK, so a chrome-on-ink mark would be
+        ink on ink here -- invisible, and invisible in precisely the case the tile
+        exists to survive, which is images being blocked.
+        """
+        self.assertNotEqual(email_theme.CHROME, email_theme.INK)
+        self.assertIn(f"color:{email_theme.INK};\">", email_theme._logo())
 
     def test_the_preheader_is_hidden_but_present(self):
         html = self.render(preheader="One click finishes your account.")

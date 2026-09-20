@@ -7,10 +7,10 @@ boring techniques, because they are the ones that arrive intact.
 
 Two decisions are worth knowing about:
 
-**The logo does not depend on images loading.** The yellow plate is a table cell with a
+**The logo does not depend on images loading.** The chrome tile is a table cell with a
 background colour and a border, so it is drawn by the client itself and is always there.
-Only the letter inside it is a PNG. When images are blocked the `alt` text renders in its
-place, styled heavy and dark, and the mark still reads as the mark.
+Only the letters inside it are a PNG. When images are blocked the `alt` text renders in
+its place, styled heavy and dark, and the mark still reads as the mark.
 
 **Every message keeps a real plain-text part.** Beyond being what text-only clients show,
 a message whose HTML has no text alternative is a well-known spam signal, and this domain
@@ -23,11 +23,16 @@ from . import seo
 
 # ---------------------------------------------------------------------------- palette --
 # The tokens from frontend/src/styles.css. The email and the site are the same brand.
-INK = "#1b2430"
+INK = "#1b2734"
 INK_SOFT = "#2b3747"
 PAPER = "#f4f5f6"
 SURFACE = "#ffffff"
-PLATE = "#fbd200"
+ACCENT = "#fbd200"
+# The monogram's chrome, flattened to one tone. Email has no dependable gradient -- the
+# tolerable ones are a Microsoft filter and a background-image neither Gmail nor Outlook
+# will both honour -- so the mark ships as a solid mid-chrome. It is the tone the
+# gradient spends most of its length near, so the two read as the same mark side by side.
+CHROME = "#c8d2dc"
 LINE = "#d8dbde"
 MUTED = "#61697a"
 
@@ -120,12 +125,12 @@ def details(rows):
 
 
 def callout(html):
-    """A held-back note: the plate-yellow edge marks it without shouting."""
+    """A held-back note: the yellow edge marks it without shouting."""
     return f"""
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
        style="width:100%;margin:0 0 20px;">
   <tr>
-    <td style="padding:14px 16px;background-color:{PAPER};border-left:4px solid {PLATE};
+    <td style="padding:14px 16px;background-color:{PAPER};border-left:4px solid {ACCENT};
         font-family:{FONT};font-size:14px;line-height:1.6;color:{INK_SOFT};">{html}</td>
   </tr>
 </table>"""
@@ -143,22 +148,27 @@ def note(html):
 
 
 def _logo():
-    """The masthead plate.
+    """The masthead monogram.
 
-    The cell is the plate. Yellow ground, rounded corner, and the letter sits inside it -
-    so with images off you still get a yellow plate with a heavy D on it, which is the
+    The cell is the tile. Chrome ground, rounded corner, and the letters sit inside it -
+    so with images off you still get a chrome tile with a heavy DM on it, which is the
     logo. Outlook squares the corners off; it survives that.
+
+    This inverts the site, where the monogram is chrome on ink. Here the masthead cell
+    behind it is already ink, and ink on ink is nothing at all -- so the tile takes the
+    chrome and the letters take the ink. It is the same two colours either way round,
+    which is as close as a solid-fill medium gets to a gradient on a dark ground.
     """
     return f"""
 <table role="presentation" cellpadding="0" cellspacing="0" border="0">
   <tr>
-    <td width="52" height="52" align="center" valign="middle" bgcolor="{PLATE}"
-        style="width:52px;height:52px;background-color:{PLATE};border-radius:9px;
+    <td width="52" height="52" align="center" valign="middle" bgcolor="{CHROME}"
+        style="width:52px;height:52px;background-color:{CHROME};border-radius:9px;
         text-align:center;vertical-align:middle;line-height:52px;">
-      <img src="{seo.SITE_URL}/assets/email-mark-d.png" width="26" height="25" alt="D"
+      <img src="{seo.SITE_URL}/assets/email-mark-dm.png" width="34" height="15" alt="DM"
            style="border:0;outline:none;text-decoration:none;vertical-align:middle;
-           font-family:'Arial Black','Arial Bold',Arial,sans-serif;font-size:21px;
-           line-height:25px;font-weight:900;color:{INK};">
+           font-family:'Arial Black','Arial Bold',Arial,sans-serif;font-size:17px;
+           line-height:15px;font-weight:900;color:{INK};">
     </td>
     <td style="padding-left:14px;font-family:{FONT};font-size:18px;font-weight:bold;
         letter-spacing:0.06em;color:#ffffff;white-space:nowrap;">DAKKA MOTORS</td>
@@ -250,10 +260,11 @@ def render(*, heading, body, preheader="", language="en"):
              width="{WIDTH}" style="width:{WIDTH}px;max-width:{WIDTH}px;
              background-color:{SURFACE};border-radius:6px;overflow:hidden;">
 
-        <!-- One yellow edge along the top, the way the plate is the one bold thing on
-             the site. Everything below it stays quiet. -->
-        <tr><td height="4" bgcolor="{PLATE}"
-                style="height:4px;line-height:4px;font-size:4px;background-color:{PLATE};">&nbsp;</td></tr>
+        <!-- One yellow edge along the top. The monogram is chrome and carries no
+             accent of its own, so this edge and the callout rule are where the site's
+             one bright colour still shows. Everything below it stays quiet. -->
+        <tr><td height="4" bgcolor="{ACCENT}"
+                style="height:4px;line-height:4px;font-size:4px;background-color:{ACCENT};">&nbsp;</td></tr>
 
         <tr>
           <td class="pad" style="padding:24px 32px;background-color:{INK};">{_logo()}</td>

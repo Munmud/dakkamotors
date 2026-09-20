@@ -66,6 +66,43 @@ function AdminLink() {
   );
 }
 
+/**
+ * The DM monogram, inline rather than an <img>.
+ *
+ * It has to be inline for the chrome to survive: the gradient is the mark, and an
+ * <img> would need its own file fetched before the masthead could finish painting.
+ * The wordmark beside it stays real text, so it is selectable, translatable and
+ * carries the accessible name -- which is why the svg itself is aria-hidden rather
+ * than labelled, and the link reads as "Dakka Motors" once, not twice.
+ *
+ * The gradient id is namespaced because ids in inline SVG are document-global, and
+ * `url(#...)` binds to whichever element got there first.
+ */
+function BrandMark() {
+  return (
+    <svg className="brandmark__icon" viewBox="0 0 98 44" aria-hidden="true"
+         focusable="false">
+      <defs>
+        <linearGradient id="brandmark-chrome" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#e8edf2" />
+          <stop offset="0.18" stopColor="#ffffff" />
+          <stop offset="0.38" stopColor="#b0bcc8" />
+          <stop offset="0.52" stopColor="#f2f6f9" />
+          <stop offset="0.72" stopColor="#96a3b0" />
+          <stop offset="1" stopColor="#dde4ea" />
+        </linearGradient>
+      </defs>
+      <g fill="url(#brandmark-chrome)">
+        <path fillRule="evenodd"
+              d="M0 0 H30 Q46 0 46 16 V28 Q46 44 30 44 H0 Z
+                 M12 12 H27 Q34 12 34 19 V25 Q34 32 27 32 H12 Z" />
+        <path transform="translate(52 0)"
+              d="M0 44 V0 H11 L23 21 L35 0 H46 V44 H35 V17 L23 38 L11 17 V44 Z" />
+      </g>
+    </svg>
+  );
+}
+
 export default function Header() {
   const { t } = useTranslation();
   const isHome = useLocation().pathname === "/";
@@ -73,8 +110,8 @@ export default function Header() {
   return (
     <header className="masthead">
       <div className="masthead__bar">
-        <Link className="plate" to="/">
-          <span className="plate__mark">D</span>
+        <Link className="brandmark" to="/">
+          <BrandMark />
           <span>{t("brand")}</span>
         </Link>
         <div className="masthead__tools">
@@ -87,6 +124,21 @@ export default function Header() {
 
       {isHome && (
         <div className="masthead__intro">
+          {/*
+            The full logo artwork, home page only -- it is an illustration and it needs
+            the width, which is exactly what no other placement has.
+
+            alt is empty on purpose. It is decorative here: the masthead says "Dakka
+            Motors" in real text a few lines above, so giving this an alt would have a
+            screen reader announce the brand twice in a row.
+
+            width and height are the intrinsic pixels, so the browser reserves the box
+            before the file arrives. Without them this lands above the fold and pushes
+            the whole listing down as it loads, which is the layout shift the
+            server-rendered initial data was added to get rid of.
+          */}
+          <img className="masthead__logo" src="/assets/logo-hero.webp" alt=""
+               width="1100" height="566" decoding="async" fetchPriority="high" />
           <p className="masthead__tagline">{t("tagline")}</p>
           <CallButton onInk />
         </div>
