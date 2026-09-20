@@ -1,0 +1,104 @@
+/* ----------------------------------------------------------------------- base --- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--step-0);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  /* Nothing on this site is wide enough to scroll sideways on purpose, so a rule that
+     forces one is a bug. The masthead used to produce exactly that on every phone. */
+  overflow-x: hidden;
+}
+
+/* Japanese is set at a wider measure than English for the same token. `ch` is the
+   advance of `0`, so a full-width glyph eats two of them: 68ch is ~68 Latin characters
+   but only ~34 kana, which reads as a column half the intended width. Japanese also
+   breaks at almost any character, so it needs no help finding a line end.
+
+   This is the first `:lang()` rule in the codebase. It works because i18n/index.js
+   already keeps `document.documentElement.lang` in step with the switch. */
+:lang(ja) {
+  --measure: 46ch;
+  line-height: 1.85;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+}
+
+/* On the yellow plate a slate outline disappears; on white a yellow one does. Two
+   rules rather than one compromise colour that is weak against both. */
+:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.plate:focus-visible,
+[data-on-plate]:focus-visible {
+  outline-color: var(--ink);
+  outline-offset: 2px;
+}
+
+.u-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Prices and years line up in a column only if the digits are the same width. */
+.u-nums {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* Staff type these, and a customer's question is theirs to word. Either can contain a
+   pasted URL with no break opportunity in it, which walks straight out of its column.
+   This used to be set on the spec table alone, which is the one place it was least
+   needed -- that column is capped. */
+.prose,
+.qa__question,
+.qa__answer,
+.card__title,
+.summary__title,
+.bookings__car,
+.bell__item,
+.specs__key,
+.specs__value {
+  overflow-wrap: anywhere;
+}
+
+.l-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.l-main {
+  flex: 1;
+  width: 100%;
+  max-width: var(--shell);
+  margin: 0 auto;
+  padding: var(--space-5) var(--gutter) var(--space-7);
+}

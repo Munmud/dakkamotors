@@ -1,0 +1,346 @@
+/* ------------------------------------------------------- accounts and booking --- */
+
+.masthead__tools {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.masthead__account {
+  color: #ccd2da;
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.masthead__account:hover,
+.masthead__account:focus-visible {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.authcard {
+  max-width: 26rem;
+}
+
+.authform {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.authform__field {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.92rem;
+  color: var(--road);
+}
+
+.authform__field input {
+  font: inherit;
+  font-size: var(--step-0);
+  color: var(--ink);
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+    background: var(--paper);
+}
+
+.authform__error {
+  margin: 0;
+  color: var(--flag);
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.authform__switch {
+  margin-top: 1.25rem;
+  font-size: 0.92rem;
+}
+
+.account__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+/* Pick a date, then a time. The date step only ever lists days that have a bookable
+   slot left, so there is nothing disabled to render. */
+.slotpicker {
+  display: grid;
+  gap: 0.9rem;
+  margin: 1rem 0 1.5rem;
+  justify-items: start;
+}
+
+.slotpicker__step {
+  margin: 0;
+  font-size: var(--step-1);
+  font-weight: 700;
+}
+
+/* A month at a time. Only dates the server offered are pressable; the rest are shown
+   greyed rather than hidden, so the shape of the month stays readable. */
+/* Wider than it was, and that is a touch-target decision rather than a taste one.
+   Seven columns inside 22rem, minus the shell gutter, put a day cell at 35-43px on
+   every phone -- under the 44px floor, on the one control the whole booking flow
+   depends on. */
+.cal {
+  width: 100%;
+  max-width: 26rem;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  padding: var(--space-2);
+}
+
+.cal__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.1rem 0.15rem 0.5rem;
+}
+
+.cal__month {
+  font-weight: 700;
+}
+
+.cal__nav {
+  appearance: none;
+  font: inherit;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  /* Was a hard 2rem square, i.e. 32px. */
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.cal__nav:hover:not(:disabled),
+.cal__nav:focus-visible {
+  border-color: var(--ink);
+}
+
+.cal__nav:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.cal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.2rem;
+}
+
+.cal__weekday {
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--road);
+  padding-bottom: 0.2rem;
+}
+
+.cal__blank {
+  aspect-ratio: 1;
+}
+
+.cal__day {
+  appearance: none;
+  font: inherit;
+  aspect-ratio: 1;
+  /* The floor, whatever the container arithmetic works out to. */
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-control);
+  border: 2px solid transparent;
+  background: none;
+  font-size: 0.95rem;
+}
+
+.cal__day--off {
+  color: var(--line);
+}
+
+.cal__day--open {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 700;
+  border-color: var(--line);
+}
+
+.cal__day--open:hover,
+.cal__day--open:focus-visible {
+  border-color: var(--ink);
+}
+
+/* Chosen is ink, not yellow.
+
+   With the price and the primary action both on the plate colour, a yellow selected
+   day and a yellow selected slot put three yellows on one short screen and none of
+   them led. Ink reversed out is at least as unambiguous -- it is the strongest pair
+   on the page -- and it leaves the yellow meaning one thing here: the button that
+   finishes the booking. */
+.cal__day--open[aria-pressed="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+  font-weight: 700;
+}
+
+.cal__day--open:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+
+.slotpicker__times {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.slotpicker__slot {
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 0.15rem;
+  text-align: left;
+  padding: 0.6rem 0.9rem;
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  border-radius: var(--radius-control);
+}
+
+.slotpicker__slot[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+
+.slotpicker__slot:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.slotpicker__left {
+  font-size: 0.8rem;
+  color: var(--road);
+}
+
+.slotpicker__slot[aria-pressed="true"] .slotpicker__left {
+  color: #fff;
+}
+
+.bookbtn {
+  border: 0;
+  cursor: pointer;
+}
+
+.bookbtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  box-shadow: none;
+  transform: none;
+}
+
+/* Secondary to Call Us: phoning is still the fastest route to a person. */
+.bookbtn--outline {
+  display: inline-block;
+  background: transparent;
+  color: var(--ink);
+  text-decoration: none;
+  text-align: center;
+}
+
+.bookings {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.bookings__item {
+  background: var(--paper);
+  border: 1px solid var(--line);
+    padding: 1rem 1.1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.bookings__when {
+  margin: 0;
+  font-size: var(--step-1);
+  font-weight: 700;
+}
+
+.bookings__car {
+  margin: 0.15rem 0 0;
+  color: var(--road);
+  font-size: 0.92rem;
+}
+
+.bookings__actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.bookings__picker {
+  border-top: 1px solid var(--line);
+  padding-top: 0.9rem;
+}
+
+@media (min-width: 640px) {
+  .bookings__item {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+  .bookings__picker {
+    grid-column: 1 / -1;
+  }
+}
+
+.bookings__status {
+  margin: 0.2rem 0 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--flag);
+}
+
+.bookings__status--ok {
+  color: #2e7d32;
+}
+
+/* Sits under a field it explains, rather than beside it. */
+.authform__hint {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--road);
+}
+
+.authform__saved {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+/* Disabled inputs must read as "not yours to change", not as broken. */
+.authform__field input:disabled {
+  background: var(--paper);
+  color: var(--road);
+  cursor: not-allowed;
+}

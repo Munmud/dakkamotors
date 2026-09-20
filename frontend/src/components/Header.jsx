@@ -112,7 +112,7 @@ export default function Header() {
       <div className="masthead__bar">
         <Link className="brandmark" to="/">
           <BrandMark />
-          <span>{t("brand")}</span>
+          <span className="brandmark__word">{t("brand")}</span>
         </Link>
         <div className="masthead__tools">
           <NotificationBell />
@@ -124,21 +124,6 @@ export default function Header() {
 
       {isHome && (
         <div className="masthead__intro">
-          {/*
-            The full logo artwork, home page only -- it is an illustration and it needs
-            the width, which is exactly what no other placement has.
-
-            alt is empty on purpose. It is decorative here: the masthead says "Dakka
-            Motors" in real text a few lines above, so giving this an alt would have a
-            screen reader announce the brand twice in a row.
-
-            width and height are the intrinsic pixels, so the browser reserves the box
-            before the file arrives. Without them this lands above the fold and pushes
-            the whole listing down as it loads, which is the layout shift the
-            server-rendered initial data was added to get rid of.
-          */}
-          <img className="masthead__logo" src="/assets/logo-hero.webp" alt=""
-               width="1100" height="566" decoding="async" fetchPriority="high" />
           <p className="masthead__tagline">{t("tagline")}</p>
           <CallButton onInk />
         </div>

@@ -1,0 +1,215 @@
+/* ------------------------------------------------------------------ car listing --- */
+
+/*
+   A catalogue, not a card grid.
+
+   Six to thirty cars is a lot you walk along, not a search index you page through, and
+   identical rounded cards in a four-up grid is the one shape that tells a visitor
+   nothing about which car is which. So each car gets a full row: the photograph big
+   enough to actually judge, the name beside it, and the price set as a plate.
+
+   The plate is the whole idea. On a Japanese forecourt every car carries a printed
+   card in its windscreen with the price on it, and kei class is marked by a yellow
+   number plate. Those are the same yellow and it is the one loud thing on the page,
+   spent once per car. Everything else here is deliberately quiet.
+*/
+
+.lot {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* A hairline between rows rather than a box around each. The row is already separated
+   by its own whitespace; a border would be drawing the same boundary twice. */
+.lot > li + li {
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-4);
+}
+
+/* Two rows abreast once there is room for them. A single column of wide rows leaves a
+   third of a laptop screen empty beside three lines of text, and this lot will not
+   always have six cars in it. The unit does not change -- it is still a photograph
+   with its price on it and the name beside -- there are just two of them across.
+   The rules go: with two columns a horizontal line would have to stop in the middle
+   of the page, and the gap already does the separating. */
+@media (min-width: 1100px) {
+  .lot {
+    grid-template-columns: 1fr 1fr;
+    column-gap: var(--space-6);
+    row-gap: var(--space-5);
+  }
+
+  .lot > li + li {
+    border-top: 0;
+    padding-top: 0;
+  }
+}
+
+.card {
+  display: grid;
+  gap: var(--space-3);
+  text-decoration: none;
+  color: inherit;
+}
+
+@media (min-width: 560px) {
+  .card {
+    /* The photograph takes a bit over a third. It was near half, which made every row
+       tall enough that the three lines of text beside it floated in a column of
+       nothing -- a catalogue you scroll past rather than read down. */
+    grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
+    gap: var(--space-5);
+    /* Centred, not top-aligned. The listing payload carries year, name and grade and
+       that is all it carries, so there is never enough text to fill a photograph's
+       height; aligning to the top just moves the empty space somewhere more obvious. */
+    align-items: center;
+  }
+}
+
+@media (min-width: 900px) {
+  .card {
+    grid-template-columns: minmax(0, 24rem) minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 1100px) {
+  .card {
+    grid-template-columns: minmax(0, 17rem) minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  /* The display size belongs to the one-column layout, where a name has the width of
+     the page to run in. In a half-width cell it breaks "Honda N-BOX" across the
+     hyphen, which is a worse outcome than simply being smaller. */
+  .card__title {
+    font-size: var(--step-2);
+  }
+
+  .card__grade {
+    font-size: var(--step-0);
+  }
+
+  .card__body {
+    max-width: 22ch;
+  }
+}
+
+.card:hover .card__title,
+.card:focus-visible .card__title {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
+.card__frame {
+  position: relative;
+  aspect-ratio: 3 / 2;
+  background: var(--wash);
+  overflow: hidden;
+}
+
+.card__photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* An empty screen is an invitation, not an apology: the car is here, the photographs
+   are not yet, and the phone still works. */
+.card__nophoto {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-3);
+  text-align: center;
+  color: var(--road);
+  font-size: var(--step--1);
+}
+
+/* Sold and reserved. Top-left, over the photograph, the way a lot tapes a slip across
+   the windscreen -- it has to be readable before the price is. */
+.card__flag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: var(--flag);
+  color: #fff;
+  padding: 0.3rem 0.7rem;
+  font-size: var(--step--1);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* The windscreen card. Sits on the photograph, bottom left, where a real one sits. */
+.card__plate {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  background: var(--plate);
+  color: var(--ink);
+  border-radius: 0 var(--radius-plate) 0 0;
+  padding: 0.3rem 0.9rem 0.35rem 0.8rem;
+  font-size: var(--step-price);
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+}
+
+/* No price is not a lesser price, it is a different instruction -- so it stops being a
+   number and becomes the sentence it actually is, at the size of speech rather than
+   the size of a figure. */
+.card__plate--call {
+  font-size: var(--step-0);
+  font-weight: 700;
+  letter-spacing: 0;
+  padding-block: 0.55rem;
+}
+
+/* A car that cannot be bought should not advertise its price in the class colour.
+   The plate stays -- the number is still the answer to "how much was it" -- but it
+   goes to paper, so the yellow on the page always means "available". */
+.card--gone .card__plate {
+  background: var(--wash);
+  color: var(--road);
+}
+
+.card--gone .card__photo {
+  filter: saturate(0.55);
+}
+
+.card__body {
+  display: grid;
+  gap: 0.1rem;
+  align-content: start;
+  /* A column, not a stretched row. Without a cap the name runs the full width of the
+     cell and the eye has to travel back across empty space to reach the next line. */
+  max-width: 26ch;
+}
+
+.card__year {
+  color: var(--road);
+  font-size: var(--step-0);
+  font-weight: 500;
+}
+
+.card__title {
+  margin: 0;
+  font-size: var(--step-3);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+}
+
+.card__grade {
+  color: var(--road);
+  font-size: var(--step-1);
+  margin-top: 0.15rem;
+}
+
+.loadmore {
+  margin-top: var(--space-5);
+}

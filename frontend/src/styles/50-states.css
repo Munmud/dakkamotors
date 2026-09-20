@@ -1,0 +1,53 @@
+/* --------------------------------------------------------------------- states --- */
+
+/* An empty screen is an invitation to act and a failed one says what to do next, so
+   both get room rather than being tucked into a corner as a mood. */
+.state {
+  padding: var(--space-6) 0;
+  max-width: var(--measure);
+}
+
+.state__title {
+  margin: 0 0 0.4rem;
+  font-size: var(--step-2);
+  font-weight: 700;
+}
+
+.state__body {
+  margin: 0 0 1.25rem;
+  color: var(--road);
+}
+
+.btn {
+  appearance: none;
+  font: inherit;
+  font-weight: 700;
+  background: var(--ink);
+  color: #fff;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-control);
+  /* Every button on the site clears 44px. */
+  min-height: 44px;
+  padding: 0.55rem 1.2rem;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--ink-soft);
+  border-color: var(--ink-soft);
+}
+
+.btn--quiet {
+  background: transparent;
+  color: var(--ink);
+}
+
+.btn--quiet:hover {
+  background: var(--wash);
+  border-color: var(--ink);
+}
+
+.loadmore {
+  margin: var(--space-5) auto 0;
+  display: block;
+}

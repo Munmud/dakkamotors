@@ -148,7 +148,7 @@ def _render(*, language, head, body, initial_data=None):
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#1b2734" />
+    <meta name="theme-color" content="#1c2b33" />
     <link rel="icon" type="image/svg+xml" href="/plate.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

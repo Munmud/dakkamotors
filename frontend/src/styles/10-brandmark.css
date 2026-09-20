@@ -1,0 +1,52 @@
+/* ------------------------------------------------------------------- brandmark --- */
+
+/* The monogram keeps its dark ground, and that is the whole reason the masthead is
+   still an ink band on an otherwise white page. Chrome is a gradient from near-white
+   to mid-grey; on white it has nothing to be lighter than and the mark disappears.
+   The band is now only as tall as the bar needs, so the brand gets its ground without
+   the page being dark. */
+.brandmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: #fff;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-decoration: none;
+  /* A 44px row whatever the type does, because this is the link back to the lot and
+     it is tapped more than anything else in the bar. */
+  min-height: 44px;
+  padding-right: 0.25rem;
+}
+
+.brandmark__icon {
+  display: block;
+  height: 1.55rem;
+  width: auto;
+  flex: none;
+}
+
+.brandmark__word {
+  font-size: 1.02rem;
+}
+
+/* Below the first breakpoint the wordmark goes and the monogram carries it alone.
+   "Dakka Motors" is 12 characters of tracked-out 900 weight, and on a 320px bar it is
+   the single widest thing competing with the controls people actually came to use. */
+@media (max-width: 559px) {
+  .brandmark__word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .brandmark__icon {
+    height: 1.75rem;
+  }
+}

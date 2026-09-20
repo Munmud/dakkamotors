@@ -1,0 +1,105 @@
+/* ---------------------------------------------------------------------- header --- */
+
+/* A band, not a hero. It used to open with a 512px picture of the logo above the fold,
+   which meant the first thing a buyer saw on a six-car lot was not a car. The shop's
+   own window does not work that way: the stock is in it, and the phone number is on
+   the glass. So the band carries the mark, the controls, one line of what this is and
+   the number, and then it stops and the cars start. */
+.masthead {
+  background: var(--ink);
+  color: #fff;
+}
+
+.masthead__bar {
+  max-width: var(--shell);
+  margin: 0 auto;
+  padding: 0.5rem var(--gutter);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* The row wraps. Without this the bar needed about 420px of content in a 335px
+     phone viewport, the overflow was never clipped, and every page on the site got a
+     horizontal scrollbar because of the header. */
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+}
+
+.masthead__tools {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+/* Home only. One sentence and the number -- the two things a walk-up customer wants
+   before they look at anything. */
+.masthead__intro {
+  max-width: var(--shell);
+  margin: 0 auto;
+  padding: 0 var(--gutter) var(--space-4);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+}
+
+.masthead__tagline {
+  margin: 0;
+  max-width: 34ch;
+  color: #c3ccd2;
+  font-size: var(--step-1);
+  line-height: 1.55;
+}
+
+.masthead__account,
+.masthead__admin {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 0.5rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  text-decoration: none;
+  color: #c3ccd2;
+  border-radius: var(--radius-control);
+}
+
+/* Deliberately quiet: staff need to find it, customers should not be drawn to it. */
+.masthead__admin {
+  color: #8f9ca5;
+}
+
+.masthead__account:hover,
+.masthead__account:focus-visible,
+.masthead__admin:hover,
+.masthead__admin:focus-visible {
+  color: #fff;
+}
+
+.langswitch {
+  display: inline-flex;
+  border: 1px solid #44555f;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.langswitch__option {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #c3ccd2;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  /* 44px tall. It was 37, and it is the one control on the site that every Japanese
+     visitor uses before they do anything else. */
+  min-height: 44px;
+  padding: 0 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.langswitch__option[aria-pressed="true"] {
+  background: #fff;
+  color: var(--ink);
+}
