@@ -25,6 +25,9 @@
   font-size: var(--step-1);
   letter-spacing: -0.01em;
   text-decoration: none;
+  /* `start` by default, because that is what it wants inside the car page's price
+     column. The footer centres its own, since an item-level justify-self beats any
+     justify-items the container sets. */
   justify-self: start;
   /* The Japanese label is "{number} に電話する", five full-width characters longer
      than "Call {number}". On a 320px screen that is wider than the viewport, so the

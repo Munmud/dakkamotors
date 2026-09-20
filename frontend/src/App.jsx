@@ -19,8 +19,40 @@ function Footer() {
   return (
     <footer className="footer">
       <div className="footer__inner">
-        <p className="footer__prompt">{t("footer.callPrompt")}</p>
-        <CallButton onInk />
+        {/*
+          Two columns: where we are, and how to reach us. The address is duplicated into
+          the locale files rather than read from `seo.BUSINESS`, which is Python and has
+          no bridge to here -- and it genuinely differs by language, which is what the
+          locale files are for.
+
+          Each line is its own key, spelled out as a literal. `check-i18n` greps the
+          source for `t("...")`, so building these as `t(`footer.addressLine${n}`)` in a
+          loop would force the whole `footer` prefix into its dynamic exemption and stop
+          every footer key being checked at all.
+        */}
+        <div className="footer__cols">
+          <section className="footer__col">
+            <h2 className="footer__head">{t("footer.visit")}</h2>
+            <address className="footer__address">
+              {t("footer.addressLine1")}
+              <br />
+              {t("footer.addressLine2")}
+              <br />
+              <span className="u-nums">{t("footer.addressLine3")}</span>
+            </address>
+          </section>
+
+          <section className="footer__col">
+            <h2 className="footer__head">{t("footer.callPrompt")}</h2>
+            <CallButton onInk />
+            <p className="footer__hours">
+              {t("footer.hoursLabel")}
+              <br />
+              <span className="u-nums">{t("footer.hours")}</span>
+            </p>
+          </section>
+        </div>
+
         <p className="footer__legal u-nums">
           © {year} {t("footer.rights")}
         </p>

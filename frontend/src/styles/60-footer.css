@@ -11,8 +11,57 @@
   margin: 0 auto;
   padding: var(--space-5) var(--gutter) var(--space-5);
   display: grid;
-  gap: var(--space-3);
-  justify-items: start;
+  gap: var(--space-4);
+  justify-items: center;
+  text-align: center;
+}
+
+/* Two columns, each only as wide as it needs, and the pair centred as a block.
+   `1fr 1fr` would push the address to one edge of an 1180px shell and the phone to the
+   other, which is two columns but not a balanced one. */
+.footer__cols {
+  display: grid;
+  gap: var(--space-4) var(--space-6);
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+
+@media (min-width: 560px) {
+  .footer__cols {
+    grid-template-columns: repeat(2, minmax(0, max-content));
+    align-items: start;
+  }
+}
+
+/* No border and no background on a column. Two boxed panels here would be the card kit
+   in miniature -- the grouping is done by the heading and the space around it. */
+.footer__col {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: center;
+}
+
+.footer__head {
+  margin: 0;
+  font-size: var(--step-0);
+  font-weight: 700;
+  color: #fff;
+}
+
+/* Browsers italicise <address>, which is the right element and the wrong default. */
+.footer__address {
+  font-style: normal;
+  margin: 0;
+  line-height: 1.7;
+}
+
+.footer__col .callbtn {
+  justify-self: center;
+}
+
+.footer__hours {
+  margin: 0;
+  line-height: 1.7;
 }
 
 .footer__prompt {

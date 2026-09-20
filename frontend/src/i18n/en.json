@@ -59,8 +59,14 @@
   },
   "loading": "Loading cars",
   "footer": {
-    "rights": "Dakka Motors",
-    "callPrompt": "Questions about a car?"
+    "visit": "Come and see us",
+    "addressLine1": "Shinmeidai 1-16-2",
+    "addressLine2": "Shinmeidai Tempo C-1F",
+    "addressLine3": "Hamura, Tokyo 205-0023",
+    "callPrompt": "Questions about a car?",
+    "hoursLabel": "Open every day",
+    "hours": "6:00 – 24:00",
+    "rights": "Dakka Motors"
   },
   "auth": {
     "signIn": "Sign in",
