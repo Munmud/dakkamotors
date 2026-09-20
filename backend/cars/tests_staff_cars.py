@@ -377,17 +377,64 @@ class StaffCarPhotoTests(FakeCognito, DynamoReset, SimpleTestCase):
         card = car_store.get(self.car.car_id).primary_image
         self.assertIsNotNone(card)
 
-    def test_reordering_changes_which_photo_leads(self):
+    def test_moving_a_photo_up_changes_which_one_leads(self):
         first = attach_photo(self.car, 900, 600)
         second = attach_photo(self.car, 900, 600)
 
-        self.post(extra={
-            f"image-{first.image_id}-order": "5",
-            f"image-{second.image_id}-order": "1",
-        })
+        self.post(extra={"move": f"up:image:{second.image_id}"})
 
         self.assertEqual(car_store.get(self.car.car_id).primary_image.image_id,
                          second.image_id)
+
+    def test_moving_the_first_row_up_does_nothing(self):
+        """An arrow at the end of the list has nowhere to go, and that is not an error."""
+        first = attach_photo(self.car, 900, 600)
+        attach_photo(self.car, 900, 600)
+
+        response = self.post(extra={"move": f"up:image:{first.image_id}"})
+
+        self.assertContains(response, "Saved.")
+        self.assertEqual(car_store.get(self.car.car_id).primary_image.image_id,
+                         first.image_id)
+
+    def test_moving_a_row_deleted_in_the_same_save_does_nothing(self):
+        """Deletions run first, so the row the arrow named is already gone."""
+        first = attach_photo(self.car, 900, 600)
+        second = attach_photo(self.car, 900, 600)
+
+        response = self.post(extra={
+            f"image-{second.image_id}-delete": "on",
+            "move": f"up:image:{second.image_id}",
+        })
+
+        self.assertContains(response, "Saved.")
+        remaining = image_store.for_car(self.car.car_id)
+        self.assertEqual([i.image_id for i in remaining], [first.image_id])
+
+    def test_a_new_photo_lands_at_the_end_of_the_gallery(self):
+        """It used to land at the front.
+
+        Every new row was written at order 0, so a photo added to a car that already had
+        five jumped ahead of all of them and quietly became the listing card.
+        """
+        first = attach_photo(self.car, 900, 600)
+        attach_photo(self.car, 900, 600)
+
+        self.post(images={"images-0-image": a_jpeg()})
+
+        gallery = media_store.gallery(self.car.car_id)
+        self.assertEqual(len(gallery), 3)
+        self.assertEqual(gallery[0][1].image_id, first.image_id)
+        self.assertEqual(car_store.get(self.car.car_id).primary_image.image_id,
+                         first.image_id)
+
+    def test_a_blank_photo_row_is_ignored(self):
+        """Every save posts three empty photo rows, so blank ones must not be errors."""
+        response = self.post()
+
+        self.assertContains(response, "Saved.")
+        self.assertNotContains(response, "Added 1 photo")
+        self.assertEqual(image_store.for_car(self.car.car_id), [])
 
     def test_marking_a_photo_as_the_card_photo(self):
         first = attach_photo(self.car, 900, 600)
@@ -655,14 +702,12 @@ class StaffCarVideoTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.assertEqual(video_store.for_car(self.car.car_id), [])
         self.assertFalse(default_storage.exists(clip.video_name))
 
-    def test_a_video_can_be_ordered_ahead_of_a_photo(self):
-        photo = attach_photo(self.car, 900, 600)
+    def test_a_video_can_be_moved_ahead_of_a_photo(self):
+        """The swap is over the merged gallery, not within a type."""
+        attach_photo(self.car, 900, 600)
         clip = attach_video(self.car, "lead.mp4", order=9)
 
-        self.post(extra={
-            f"video-{clip.video_id}-order": "0",
-            f"image-{photo.image_id}-order": "1",
-        })
+        self.post(extra={"move": f"up:video:{clip.video_id}"})
 
         gallery = media_store.gallery(self.car.car_id)
         self.assertEqual([kind for kind, _ in gallery], ["video", "photo"])
@@ -672,10 +717,7 @@ class StaffCarVideoTests(FakeCognito, DynamoReset, SimpleTestCase):
         photo = attach_photo(self.car, 900, 600)
         clip = attach_video(self.car, "lead.mp4")
 
-        self.post(extra={
-            f"video-{clip.video_id}-order": "0",
-            f"image-{photo.image_id}-order": "1",
-        })
+        self.post(extra={"move": f"up:video:{clip.video_id}"})
 
         self.assertEqual(car_store.get(self.car.car_id).primary_image.image_id,
                          photo.image_id)

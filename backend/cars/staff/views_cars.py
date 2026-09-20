@@ -10,6 +10,8 @@ from `input.name` with `.replace(/image$/, "image_key")`, and a plain `formset_f
 names fields `form-0-image`, which that regex still matches.
 """
 
+import itertools
+
 from django.contrib import messages
 from django.core.files.storage import default_storage
 from django.forms import formset_factory
@@ -203,8 +205,11 @@ def _create(request, form, imageset, videoset, specset):
 
     # Not `_apply_existing_media`: there is nothing existing to reorder, the card-photo
     # radio is not on this page, and `images.create` refreshes the primary itself.
-    added = _apply_images(car, imageset, now)
-    clips = _apply_videos(car, videoset, now)
+    # Starts at 0 rather than asking `next_order`: `cars.create` returned three lines
+    # up, so the partition holds a car and nothing else.
+    position = itertools.count()
+    added = _apply_images(car, imageset, now, position)
+    clips = _apply_videos(car, videoset, now, position)
 
     parts = [f"Added {car.seo_title_plain}."]
     if added:
@@ -287,8 +292,12 @@ def _save(request, car):
         _blame_chassis(form, exc)
         return invalid()
 
-    added = _apply_images(car, formset, now)
-    clips = _apply_videos(car, videoset, now)
+    # Read before the writes, or it counts the rows it is about to add. New media then
+    # sorts past everything already there, which is what keeps it at the end when
+    # `_apply_existing_media` renumbers the whole gallery a moment later.
+    position = itertools.count(media_store.next_order(car.car_id))
+    added = _apply_images(car, formset, now, position)
+    clips = _apply_videos(car, videoset, now, position)
     _apply_existing_media(request, car)
 
     parts = ["Saved."]
@@ -300,8 +309,14 @@ def _save(request, car):
     return redirect(reverse("staff:car-edit", args=[car.car_id]))
 
 
-def _apply_images(car, formset, now):
-    """Create whatever new photo rows the formset carries."""
+def _apply_images(car, formset, now, position):
+    """Create whatever new photo rows the formset carries.
+
+    `position` is a shared counter, not a per-type one. Photos and videos live in one
+    sequence over one number space, so giving each type its own count would have them
+    collide and let the `IMG#` before `VID#` tiebreak in `store/media.py` pick the
+    leader instead of the person who uploaded them.
+    """
     added = 0
     for form in formset:
         if form in formset.deleted_forms:
@@ -314,7 +329,7 @@ def _apply_images(car, formset, now):
             car_id=car.car_id,
             image_name=name,
             is_primary=bool(form.cleaned_data.get("is_primary")),
-            order=form.cleaned_data.get("order") or 0,
+            order=next(position),
             now=now,
         )
         # Queue the resized copies. The ORM did this from CarImage.save(); the store
@@ -325,7 +340,7 @@ def _apply_images(car, formset, now):
     return added
 
 
-def _apply_videos(car, formset, now):
+def _apply_videos(car, formset, now, position):
     """Create whatever new video rows the formset carries.
 
     No `build_derivatives_task` twin, because nothing resizes or transcodes a video --
@@ -342,7 +357,7 @@ def _apply_videos(car, formset, now):
         video_store.create(
             car_id=car.car_id,
             video_name=name,
-            order=form.cleaned_data.get("order") or 0,
+            order=next(position),
             now=now,
         )
         added += 1
@@ -353,13 +368,40 @@ def _apply_videos(car, formset, now):
 _FIELD_PREFIX = {media_store.PHOTO: "image", media_store.VIDEO: "video"}
 
 
+def _moved(entries, move):
+    """One neighbour swap, from a `move` button: "up:image:<id>" or "down:video:<id>".
+
+    The swap is over the merged gallery rather than within a type, so Up on the first
+    photo below a video swaps it with the video -- photos and videos are one sequence,
+    which is the whole reason `store/media.py` exists.
+
+    Every way of being wrong is a no-op rather than an error: a row deleted earlier in
+    this same POST is no longer in the list, and a move off either end has nowhere to
+    go. Neither is worth an error message to somebody who just pressed an arrow.
+    """
+    direction, _, rest = move.partition(":")
+    kind, _, item_id = rest.partition(":")
+    if direction not in ("up", "down") or not item_id:
+        return entries
+    kind = media_store.VIDEO if kind == "video" else media_store.PHOTO
+    try:
+        here = entries.index((kind, item_id))
+    except ValueError:
+        return entries
+    there = here - 1 if direction == "up" else here + 1
+    if not 0 <= there < len(entries):
+        return entries
+    entries[here], entries[there] = entries[there], entries[here]
+    return entries
+
+
 def _apply_existing_media(request, car):
     """Reorder and delete the photos and videos already attached, and set the card photo.
 
-    Sent as `<kind>-<id>-order` / `<kind>-<id>-delete` / `primary` rather than through
-    more formsets: these rows are edited in place next to their thumbnails, and a
-    formset would put the fields somewhere else on the page. The photo field names are
-    unchanged from when this handled photos alone.
+    Sent as `<kind>-<id>-delete` / `primary` / a `move` button rather than through more
+    formsets: these rows are edited in place next to their thumbnails, and a formset
+    would put the fields somewhere else on the page. The photo field names are unchanged
+    from when this handled photos alone.
 
     Deletions run first and ordering second, over what survives. The other way round
     renumbers rows that are about to disappear, which leaves gaps in the sequence --
@@ -372,19 +414,14 @@ def _apply_existing_media(request, car):
         if request.POST.get(f"video-{video.video_id}-delete"):
             video_store.delete(car.car_id, video.video_id)
 
-    # Ordering goes through `media.set_order` rather than writing each row, because one
-    # position may now move a photo past a video. The current sequence is the tiebreak,
-    # so a row whose box was left blank keeps its place instead of jumping to the front
-    # the way treating a missing number as zero would send it.
+    # Ordering goes through `media.set_order` rather than writing each row, because a
+    # move may take a photo past a video and the two share one number space. It runs on
+    # every save whether or not anything moved, which is also what closes the gaps a
+    # deletion leaves.
     current = media_store.gallery(car.car_id)
-    keyed = []
-    for index, (kind, item) in enumerate(current):
-        item_id = item.video_id if kind == media_store.VIDEO else item.image_id
-        raw = request.POST.get(f"{_FIELD_PREFIX[kind]}-{item_id}-order")
-        posted = int(raw) if raw is not None and str(raw).strip().isdigit() else index
-        keyed.append(((posted, index), (kind, item_id)))
-    keyed.sort(key=lambda pair: pair[0])
-    media_store.set_order(car.car_id, [entry for _, entry in keyed])
+    entries = [(kind, item.video_id if kind == media_store.VIDEO else item.image_id)
+               for kind, item in current]
+    media_store.set_order(car.car_id, _moved(entries, request.POST.get("move") or ""))
 
     primary = request.POST.get("primary") or ""
     if primary:

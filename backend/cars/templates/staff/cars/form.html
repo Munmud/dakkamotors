@@ -3,8 +3,9 @@
 {% comment %}
 Add or edit one car, with its gallery of photos and videos.
 
-Photos and videos share one table and one order column because they share one number
-space in the store -- two tables would suggest two sequences, and there is only one.
+Photos and videos share one table and one set of Move buttons because they share one
+number space in the store -- two tables would suggest two sequences, and there is only
+one. Moving a photo up past a video swaps it with the video, for the same reason.
 Only photos get a "card photo" radio: a video can never be the listing card, and that is
 a property of the item type rather than a rule this page enforces.
 
@@ -111,7 +112,7 @@ matter will not fit through it, which is the whole reason the direct path exists
         {% if gallery %}
           <table>
             <thead>
-              <tr><th></th><th></th><th>Order</th><th>Card photo</th><th>Remove</th></tr>
+              <tr><th></th><th></th><th>Move</th><th>Card photo</th><th>Remove</th></tr>
             </thead>
             <tbody>
               {% for kind, item in gallery %}
@@ -122,10 +123,17 @@ matter will not fit through it, which is the whole reason the direct path exists
                              style="height:56px;border-radius:4px;background:#000;"></video>
                     </td>
                     <td><span class="pill">Video</span></td>
-                    <td style="width:6rem;">
-                      <input type="number" min="0"
-                             name="video-{{ item.video_id }}-order"
-                             value="{{ item.order }}">
+                    <td style="width:7rem;">
+                      <button type="submit" name="move" value="up:video:{{ item.video_id }}"
+                              class="secondary"{% if forloop.first %} disabled{% endif %}>
+                        <span aria-hidden="true">&uarr;</span>
+                        <span class="u-visually-hidden">Move this video up, to position {{ forloop.counter0 }}</span>
+                      </button>
+                      <button type="submit" name="move" value="down:video:{{ item.video_id }}"
+                              class="secondary"{% if forloop.last %} disabled{% endif %}>
+                        <span aria-hidden="true">&darr;</span>
+                        <span class="u-visually-hidden">Move this video down, to position {{ forloop.counter|add:1 }}</span>
+                      </button>
                     </td>
                     <td style="width:7rem;">
                       <span class="help">&mdash;</span>
@@ -145,10 +153,17 @@ matter will not fit through it, which is the whole reason the direct path exists
                         <span class="pill waiting">optimising…</span>
                       {% endif %}
                     </td>
-                    <td style="width:6rem;">
-                      <input type="number" min="0"
-                             name="image-{{ item.image_id }}-order"
-                             value="{{ item.order }}">
+                    <td style="width:7rem;">
+                      <button type="submit" name="move" value="up:image:{{ item.image_id }}"
+                              class="secondary"{% if forloop.first %} disabled{% endif %}>
+                        <span aria-hidden="true">&uarr;</span>
+                        <span class="u-visually-hidden">Move this photo up, to position {{ forloop.counter0 }}</span>
+                      </button>
+                      <button type="submit" name="move" value="down:image:{{ item.image_id }}"
+                              class="secondary"{% if forloop.last %} disabled{% endif %}>
+                        <span aria-hidden="true">&darr;</span>
+                        <span class="u-visually-hidden">Move this photo down, to position {{ forloop.counter|add:1 }}</span>
+                      </button>
                     </td>
                     <td style="width:7rem;">
                       <input type="radio" name="primary" value="{{ item.image_id }}"
@@ -163,10 +178,15 @@ matter will not fit through it, which is the whole reason the direct path exists
             </tbody>
           </table>
           <p class="help">
-            One order for the whole gallery, so a video can come first. The card photo is
-            always a photo: it is what the listing page shows, and a listing card cannot
-            play. Removing a row deletes the file behind it, and a photo's resized copies
-            with it.
+            Move a row up or down to change the order customers see. One order for the
+            whole gallery, so a video can come first. Moving saves the page as well,
+            because there is no way to move a row without keeping what you have typed
+            above it.
+          </p>
+          <p class="help">
+            The card photo is always a photo: it is what the listing page shows, and a
+            listing card cannot play. Removing a row deletes the file behind it, and a
+            photo's resized copies with it.
           </p>
         {% else %}
           <p class="empty">Nothing in the gallery yet.</p>
@@ -174,15 +194,16 @@ matter will not fit through it, which is the whole reason the direct path exists
       {% else %}
         <p class="help">
           Photos and videos can go on now, with the rest of the car. They are attached
-          once the car itself saves, so a refused save leaves nothing behind. Ordering
-          and the card photo are on the edit page, once there is something to order.
+          once the car itself saves, so a refused save leaves nothing behind. They land
+          in the order you add them; moving them and choosing the card photo are on the
+          edit page, once there is something to move.
         </p>
       {% endif %}
 
         <h3 style="font-size:.9rem;margin-bottom:.4rem;">Add photos</h3>
         {{ image_formset.management_form }}
         <table>
-          <thead><tr><th>Photo</th><th>Card photo</th><th>Order</th></tr></thead>
+          <thead><tr><th>Photo</th><th>Card photo</th></tr></thead>
           <tbody data-formset-rows="{{ image_formset.prefix }}">
             {% for subform in image_formset %}
               {% include "staff/cars/_image_row.html" %}
@@ -200,7 +221,7 @@ matter will not fit through it, which is the whole reason the direct path exists
         <h3 style="font-size:.9rem;margin-bottom:.4rem;">Add videos</h3>
         {{ video_formset.management_form }}
         <table>
-          <thead><tr><th>Video</th><th>Order</th></tr></thead>
+          <thead><tr><th>Video</th></tr></thead>
           <tbody data-formset-rows="{{ video_formset.prefix }}">
             {% for subform in video_formset %}
               {% include "staff/cars/_video_row.html" with subform=subform show_help=forloop.first %}

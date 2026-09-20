@@ -119,7 +119,14 @@ class CarImageForm(DirectUploadMixin, forms.Form):
         required=False,
         help_text="Shown on the listing card. Only the first one counts.",
     )
-    order = forms.IntegerField(required=False, initial=0, min_value=0)
+    # No `order`. Staff never type a position: a new photo goes on the end, and the
+    # gallery on the edit page is reordered with Move up / Move down.
+    #
+    # Removed rather than hidden, and that is the point. A hidden field posting an
+    # append index would make `_is_filled_in` below true for every untouched spare row,
+    # so all three would fail with "Choose a photo, or clear this row." A hidden `0`
+    # would be safe only because `bool(0)` is false -- a coincidence one `initial=`
+    # away from breaking. With the field gone the trap cannot be re-armed.
 
     def clean(self):
         cleaned = super().clean()
@@ -130,8 +137,12 @@ class CarImageForm(DirectUploadMixin, forms.Form):
 
     @staticmethod
     def _is_filled_in(cleaned):
-        """True when the row carries intent, so blank extra rows stay ignorable."""
-        return bool(cleaned.get("is_primary")) or bool(cleaned.get("order"))
+        """True when the row carries intent, so blank extra rows stay ignorable.
+
+        Ticking "card photo" on a row with no file is still a real mistake and still
+        worth saying so about.
+        """
+        return bool(cleaned.get("is_primary"))
 
 
 class CarVideoForm(DirectUploadMixin, forms.Form):
@@ -156,14 +167,10 @@ class CarVideoForm(DirectUploadMixin, forms.Form):
             "in Chrome or Firefox. Nothing downloads until a visitor presses play."
         ),
     )
-    order = forms.IntegerField(required=False, initial=0, min_value=0)
-
-    def clean(self):
-        cleaned = super().clean()
-        if not cleaned.get("video") and not self.uploaded_name("video"):
-            if cleaned.get("order"):
-                self.add_error("video", "Choose a video, or clear this row.")
-        return cleaned
+    # No `order`, and therefore no `clean`. `order` was this row's only signal that
+    # somebody meant to fill it in -- there is no `is_primary` twin to fall back on --
+    # so with it gone a blank video row is simply blank, and `_apply_videos` already
+    # skips any row with no file.
 
 
 class CarSpecForm(forms.Form):

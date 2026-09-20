@@ -37,6 +37,18 @@ def merge(photos, clips):
     return items
 
 
+def next_order(car_id):
+    """One past the last position, so a new row lands at the end of the gallery.
+
+    `max() + 1` rather than `len()`: positions are only contiguous immediately after
+    `set_order`, and `cars.create` never calls it. After a deletion `len()` would hand
+    back a position another row is still sitting on, and the `(order, sk)` tie would
+    then decide the sequence instead of the staff member.
+    """
+    items = gallery(car_id)
+    return max((int(item.order or 0) for _, item in items), default=-1) + 1
+
+
 def set_order(car_id, ordering):
     """Renumber the whole gallery. `ordering` is `[(kind, id), ...]` as staff arranged it.
 
