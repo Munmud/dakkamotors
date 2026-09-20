@@ -270,6 +270,13 @@ and a second Lambda sends it via Brevo (not SES). Brevo is reachable directly no
 the outbox is a choice rather than a constraint: it is fire-and-forget by design, and a
 customer's booking must never fail -- or wait 600ms -- because of an email.
 
+**The stylesheet is partials, and the order is the cascade.** `frontend/src/styles.css`
+is an import barrel and nothing else; the numbered files under `frontend/src/styles/`
+are the sheet. Reordering the imports changes what wins. Vite inlines them into one
+hashed stylesheet, which `pages.py` depends on -- it scrapes the asset tags out of the
+built `index.html`, so a stylesheet delivered any way other than a `<link>` in `<head>`
+would leave every server-rendered page unstyled for crawlers and link previews.
+
 **The frontend is bilingual.** Every user-visible string goes through `react-i18next`
 with keys in both `en.json` and `ja.json`. `npm run check-i18n` fails the build otherwise.
 It also warns about keys no component references -- comparing the two files only against
@@ -279,8 +286,10 @@ resolved statically and a check that cries wolf gets disabled.
 
 **The brand is two assets, used at two scales.** `docs/Logo.png` is the master artwork
 -- a kei car, a swoosh and a chrome DM, about 1167x600 once trimmed. It is an
-illustration, so it only goes where it is large enough to read: the home masthead and
-the Open Graph share card. At 32px it is a grey smudge and at 16px nothing survives, so
+illustration, so it only goes where it is large enough to read, which since the
+redesign is the Open Graph share card alone. It used to open the home masthead too, and
+that is what coupled `--ink` to the artwork's baked-in ground; the band now carries the
+monogram and nothing else, and the coupling is gone with it. At 32px it is a grey smudge and at 16px nothing survives, so
 the small sizes get the **DM monogram** instead -- the favicon and the 26px logo in an
 email masthead. `docs/brand/generate.py` bakes every raster from both and explains each
 format choice; nothing redraws the artwork, the cuts are a trim and a resize.
@@ -294,12 +303,16 @@ rebrand: the name is pinned in `infra/edge.yaml` as its own CloudFront behaviour
 renaming it is a distribution update that would have to land in step with a frontend
 deploy or the site serves a 404 for its own icon.
 
-`--ink` is `#1b2734` because that is what the artwork is painted on. The hero is a
-plain rectangle with no knockout, invisible against the masthead only because those two
-values match -- change one without the other and a faint block appears around the logo.
-The monogram brought no accent colour with it, so **the yellow stayed on as `--accent`**:
-it is the fill behind dark text on the Call Us button and on the selected day and slot,
-and silver at those sizes has almost no separation from `--paper`.
+`--ink` is `#1c2b33` and is free to move: nothing composites against it any more.
+`generate.py`'s own `INK` is still the artwork's `#1b2734`, and must stay that, because
+`share_card()` extends the canvas around pixels painted on it. The two are different
+numbers on purpose -- one is the page, one is the picture.
+
+**The yellow is `--plate`, and it is the kei number plate**, which is the legal marker
+of the class this shop sells rather than an accent picked for contrast. It says exactly
+two things: this is the price, and this is the one action on the screen. Selection is
+ink reversed out, not yellow -- the booking flow once had a yellow selected day, a
+yellow selected slot and a yellow button on one short screen, and none of them led.
 
 Email inverts the mark -- ink letters on a chrome tile, rather than chrome on ink --
 because the masthead band it sits in is already `--ink`. The tile is a table cell with a

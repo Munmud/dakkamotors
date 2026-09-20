@@ -4,18 +4,21 @@ import { useTranslation } from "react-i18next";
 import { formatPrice } from "../lib/format";
 import ResponsiveImage from "./ResponsiveImage";
 
-// One column on phones, roughly a quarter of the 1120px shell on desktop. Without this
-// the browser assumes the image spans the viewport and downloads the largest copy.
-const CARD_SIZES = "(max-width: 700px) 100vw, 300px";
+// Full width on a phone, a little under half the shell once the row splits in two.
+// The breakpoint has to be the one in 00-tokens.css; this asserted 700px for a year,
+// a number that was never in the stylesheet at all, so the browser was picking the
+// wrong copy on every tablet.
+const CARD_SIZES = "(max-width: 559px) 100vw, 440px";
 
 export default function CarCard({ car, priority = false }) {
   const { t, i18n } = useTranslation();
   const price = formatPrice(car.price_jpy, i18n.language);
   const photo = car.primary_image?.image;
+  const gone = car.status !== "available";
 
   return (
     <li>
-      <Link className="card" to={`/cars/${car.slug ?? car.id}`}>
+      <Link className={`card${gone ? " card--gone" : ""}`} to={`/cars/${car.slug ?? car.id}`}>
         <div className="card__frame">
           {photo ? (
             <ResponsiveImage
@@ -27,8 +30,17 @@ export default function CarCard({ car, priority = false }) {
           ) : (
             <span className="card__nophoto">{t("detail.noPhotos")}</span>
           )}
-          {car.status !== "available" && (
-            <span className="card__flag">{t(`status.${car.status}`)}</span>
+          {gone && <span className="card__flag">{t(`status.${car.status}`)}</span>}
+
+          {/* The price rides on the photograph, where a forecourt puts its windscreen
+              card. It is inside the frame rather than under it so the two read as one
+              object -- a number floating below a picture is a caption, not a price. */}
+          {price ? (
+            <span className="card__plate u-nums">
+              {t("price.yen", { amount: price })}
+            </span>
+          ) : (
+            <span className="card__plate card__plate--call">{t("price.callFor")}</span>
           )}
         </div>
 
@@ -38,12 +50,6 @@ export default function CarCard({ car, priority = false }) {
             {car.brand} {car.model_name}
           </h2>
           {car.grade && <span className="card__grade">{car.grade}</span>}
-
-          {price ? (
-            <span className="card__price u-nums">{t("price.yen", { amount: price })}</span>
-          ) : (
-            <span className="card__price card__price--call">{t("price.callFor")}</span>
-          )}
         </div>
       </Link>
     </li>

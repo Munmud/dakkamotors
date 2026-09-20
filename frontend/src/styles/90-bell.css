@@ -9,11 +9,15 @@
   appearance: none;
   background: none;
   border: 0;
-  padding: 0.2rem;
+  /* A 1.25rem icon with 0.2rem of padding is a 26px target. */
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
   cursor: pointer;
-  color: #ccd2da;
+  color: #c3ccd2;
   display: flex;
   align-items: center;
+  justify-content: center;
   position: relative;
 }
 
@@ -34,43 +38,64 @@
   min-width: 1.05rem;
   padding: 0 0.2rem;
   border-radius: 999px;
-  background: var(--accent);
-  color: var(--ink);
+  background: var(--flag);
+  color: #fff;
   font-size: 0.7rem;
   font-weight: 700;
   line-height: 1.05rem;
   text-align: center;
 }
 
+/* Anchored to the viewport on a phone, not to the bell.
+
+   It used to be `position: absolute; right: 0` on a button sitting about 160px from
+   the left edge of a 375px screen, with `width: min(20rem, 100vw - 2rem)`. The width
+   was right and the anchor was wrong, so the panel was sized to fit the screen and
+   then hung roughly 180px off the left of it. */
 .bell__panel {
-  position: absolute;
-  top: calc(100% + 0.6rem);
-  right: 0;
+  position: fixed;
+  top: auto;
+  left: var(--gutter);
+  right: var(--gutter);
   z-index: 20;
-  width: min(20rem, calc(100vw - 2rem));
-  background: var(--surface);
+  width: auto;
+  background: var(--paper);
   color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius-ui);
+  border-radius: var(--radius-control);
   box-shadow: 0 10px 30px rgb(27 36 48 / 18%);
-  padding: 0.6rem;
+  padding: var(--space-2);
 }
 
+/* Once there is room either side of it, it can hang off the bell the way a menu
+   should. */
+@media (min-width: 560px) {
+  .bell__panel {
+    position: absolute;
+    top: calc(100% + 0.4rem);
+    left: auto;
+    right: 0;
+    width: 22rem;
+    max-width: calc(100vw - 2 * var(--gutter));
+  }
+}
+
+/* Sentence case. It was tracked-out uppercase, which is a decoration that only works
+   in Latin -- `text-transform: uppercase` does nothing to the Japanese heading, so the
+   JA panel lost the device and kept the loose tracking it was there to compensate. */
 .bell__title {
-  margin: 0 0 0.4rem;
+  margin: 0 0 0.35rem;
   padding: 0 0.4rem;
-  font-size: 0.78rem;
+  font-size: var(--step--1);
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+  color: var(--road);
 }
 
 .bell__empty {
   margin: 0;
   padding: 0.5rem 0.4rem 0.7rem;
   font-size: 0.9rem;
-  color: var(--muted);
+  color: var(--road);
 }
 
 .bell__list {
@@ -101,15 +126,6 @@
   background: var(--paper);
 }
 
-.masthead__admin {
-  font-size: 0.9rem;
-  font-weight: 700;
-  text-decoration: none;
-  white-space: nowrap;
-  color: var(--accent);
-}
-
-.masthead__admin:hover,
-.masthead__admin:focus-visible {
-  color: #fff;
-}
+/* `.masthead__admin` lived here and, being later in the cascade, quietly overrode the
+   masthead's own rule for it. It is in 11-masthead.css now, where its name says it is.
+*/

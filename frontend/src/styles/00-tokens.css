@@ -1,26 +1,87 @@
+/* --------------------------------------------------------------------- tokens --- */
+/*
+   The design is grounded in the one thing every car on this lot has in common: it is
+   kei class, and in Japan that is not a marketing category but a legal one, marked by
+   a yellow number plate. So the yellow is not an accent chosen for contrast. It is the
+   subject, and it is spent in exactly one place -- the price, set as a plate.
+
+   That is also why the page is white now and not near-black. A dark ground with one
+   bright accent is the look this site already had, and it flattered the logo at the
+   expense of the cars. A used-car forecourt is a bright place; the photographs are the
+   content, and they sit on white the way they sit on a windscreen card.
+*/
+
 :root {
-  /* The ground the monogram is drawn on, sampled off the master artwork. It moved
-     nine hundredths of nothing from the old #1b2430, but the logo sits directly on it
-     in the masthead and a near-miss there is the one place it would show. */
-  --ink: #1b2734;
-  --ink-soft: #2b3747;
-  --paper: #f4f5f6;
-  --surface: #ffffff;
-  --accent: #fbd200;
-  --line: #d8dbde;
-  --muted: #61697a;
-  --flag: #b23a2e;
+  /* Slate, not a tinted near-black. It carries text and the single dark band in the
+     footer, and it is the ink on a number plate -- readable at any size, never pure
+     black, and cool enough to sit under the chrome monogram without arguing with it. */
+  --ink: #1c2b33;
+  --ink-soft: #3a4b55;
+  --road: #5f6b72;          /* secondary text: grades, labels, metadata */
 
-  --measure: 66ch;
-  --radius-photo: 3px;
-  --radius-ui: 6px;
+  --paper: #ffffff;         /* the page. The photographs need it. */
+  --wash: #eef1f2;          /* recessed areas: photo frames, disabled fields */
+  --line: #d7dbdd;
 
-  --step-0: 1rem;
-  --step-1: 1.15rem;
-  --step-2: 1.45rem;
-  --step-3: 1.9rem;
-  --step-4: 2.6rem;
+  /* The plate. #fbd200 was the old accent; this is a half-step warmer and slightly
+     deeper, which is what a real kei plate looks like in daylight and what keeps
+     `--ink` on it above 7:1. */
+  --plate: #f5c400;
+  --plate-deep: #d9ad00;    /* the plate's own edge, for press states */
+
+  --flag: #b2342a;          /* sold and reserved, and form errors */
+
+  /* Line length has to differ by script. 66ch is ~66 Latin characters but only ~33
+     full-width ones, because `ch` is the advance of `0`. Japanese set to the same
+     token reads at half the measure and feels cramped; `:lang(ja)` in 01-base.css
+     widens it. */
+  --measure: 68ch;
+
+  /* One shell width, named. It used to be the number 1120 written out at four
+     separate places, which is how three of them end up disagreeing. */
+  --shell: 1180px;
+  --gutter: clamp(1rem, 4vw, 2rem);
+
+  /* Fluid, so nothing is frozen at phone size on a 1920px display and nothing
+     overflows at 320px. The pair in each clamp is the 360px value and the 1440px
+     value; between them it tracks the viewport. */
+  --step--1: clamp(0.78rem, 0.74rem + 0.18vw, 0.88rem);
+  --step-0: clamp(0.95rem, 0.92rem + 0.16vw, 1.05rem);
+  --step-1: clamp(1.08rem, 1.01rem + 0.32vw, 1.28rem);
+  --step-2: clamp(1.3rem, 1.15rem + 0.66vw, 1.72rem);
+  --step-3: clamp(1.6rem, 1.3rem + 1.35vw, 2.45rem);
+  --step-4: clamp(2rem, 1.5rem + 2.2vw, 3.4rem);
+
+  /* The price, which is the one thing on the page allowed to be loud. Separate from
+     the text scale because it tracks the viewport harder than prose should. */
+  --step-price: clamp(1.45rem, 1.1rem + 1.6vw, 2.3rem);
+
+  --space-1: 0.35rem;
+  --space-2: 0.6rem;
+  --space-3: 1rem;
+  --space-4: 1.5rem;
+  --space-5: 2.25rem;
+  --space-6: 3.5rem;
+  --space-7: 5rem;
+
+  /* Two radii, and they mean different things. The plate has the number plate's own
+     soft corner; everything structural is square, because a photograph of a car does
+     not need rounding off and one radius on everything regardless of hierarchy is
+     what makes a page look assembled from a kit. */
+  --radius-plate: 4px;
+  --radius-control: 3px;
 
   --font: "Zen Kaku Gothic New", "Hiragino Kaku Gothic ProN", "Yu Gothic",
     "Segoe UI", system-ui, sans-serif;
+
+  /* Breakpoints cannot be custom properties -- a media query is resolved before the
+     cascade -- so they are written out below, but they are only ever these three, and
+     they are named here so the set is reviewable in one place:
+
+       560px   one column becomes two: the listing gets its photo beside its text
+       900px   the detail page splits, gallery beside summary
+       1200px  the shell stops growing and the margins take the rest
+
+     CarCard.jsx's `sizes` attribute has to agree with the first of these. It asserted
+     700px for a year, a number that was never in this stylesheet at all. */
 }

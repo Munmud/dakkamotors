@@ -7,11 +7,11 @@
 }
 
 .footer__inner {
-  max-width: 1120px;
+  max-width: var(--shell);
   margin: 0 auto;
-  padding: 2rem 1.25rem 2.5rem;
+  padding: var(--space-5) var(--gutter) var(--space-5);
   display: grid;
-  gap: 1rem;
+  gap: var(--space-3);
   justify-items: start;
 }
 
@@ -23,7 +23,8 @@
 
 .footer__legal {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: var(--step--1);
+  color: #8f9ca5;
 }
 
 @media (prefers-reduced-motion: reduce) {

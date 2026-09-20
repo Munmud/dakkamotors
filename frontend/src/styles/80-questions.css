@@ -7,7 +7,10 @@
 }
 
 .qa__pair {
-  border-left: 3px solid var(--accent);
+  /* A slate rule, not the plate yellow. On this site yellow means "this is the
+     price" or "this is how you reach us", and a Q&A thread is neither -- borrowing
+     the signal here is what makes an accent stop meaning anything. */
+  border-left: 3px solid var(--line);
   padding-left: 0.9rem;
 }
 
@@ -35,14 +38,14 @@
 
 .qa__mineitem {
   background: var(--paper);
-  border-radius: var(--radius-ui);
+  border-radius: var(--radius-control);
   padding: 0.8rem 1rem;
 }
 
 .qa__waiting {
   margin: 0.25rem 0 0;
   font-size: 0.85rem;
-  color: var(--muted);
+  color: var(--road);
 }
 
 .qa__form {
@@ -57,8 +60,8 @@
   width: 100%;
   padding: 0.6rem 0.7rem;
   border: 2px solid var(--line);
-  border-radius: var(--radius-ui);
-  background: var(--surface);
+  border-radius: var(--radius-control);
+  background: var(--paper);
   color: var(--ink);
   resize: vertical;
 }

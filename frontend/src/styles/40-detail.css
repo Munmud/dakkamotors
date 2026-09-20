@@ -1,30 +1,34 @@
 /* ------------------------------------------------------------------ detail page --- */
 
 .backlink {
-  display: inline-block;
-  margin-bottom: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-bottom: var(--space-2);
   font-weight: 700;
   color: var(--ink-soft);
 }
 
 .detail {
   display: grid;
-  gap: 2rem;
+  gap: var(--space-4);
 }
 
 @media (min-width: 900px) {
   .detail {
-    grid-template-columns: minmax(0, 1.35fr) minmax(300px, 1fr);
+    grid-template-columns: minmax(0, 1.45fr) minmax(19rem, 1fr);
+    gap: var(--space-6);
     align-items: start;
   }
 }
 
+/* No border. The photograph is the content on this page and a rule around it is one
+   more edge competing with the car's own. 3/2 matches the listing, so a car does not
+   appear to change shape between being clicked and arriving. */
 .gallery__frame {
   position: relative;
-  aspect-ratio: 4 / 3;
-  background: #e6e8ea;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-photo);
+  aspect-ratio: 3 / 2;
+  background: var(--wash);
   overflow: hidden;
 }
 
@@ -75,7 +79,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  color: var(--muted);
+  color: var(--road);
 }
 
 .gallery__thumbs {
@@ -87,19 +91,22 @@
   flex-wrap: wrap;
 }
 
+/* 74px wide gave a 55px-tall target, which is fine for a mouse and mean for a thumb.
+   Taller, and the selected one is marked by a plate-yellow bar under it rather than a
+   border, so the picture itself is never boxed in. */
 .gallery__thumb {
-  width: 74px;
-  aspect-ratio: 4 / 3;
+  width: 88px;
+  aspect-ratio: 3 / 2;
   padding: 0;
-  border: 2px solid transparent;
-  border-radius: 3px;
+  border: 0;
+  border-bottom: 4px solid transparent;
   overflow: hidden;
-  background: #e6e8ea;
+  background: var(--wash);
   cursor: pointer;
 }
 
 .gallery__thumb[aria-current="true"] {
-  border-color: var(--ink);
+  border-bottom-color: var(--ink);
 }
 
 .gallery__thumb img {
@@ -115,74 +122,88 @@
 }
 
 .summary__year {
-  color: var(--muted);
+  color: var(--road);
   font-weight: 500;
 }
 
 .summary__title {
   margin: 0;
-  font-size: var(--step-4);
+  font-size: var(--step-3);
   font-weight: 900;
-  line-height: 1.15;
-  letter-spacing: -0.01em;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
 }
 
 .summary__grade {
   margin: 0;
-  color: var(--muted);
+  color: var(--road);
 }
 
+/* Not a boxed panel any more. The price is the plate, the same device and the same
+   yellow as the windscreen card on the listing, so the number a buyer saw on the lot
+   page is the number that greets them here in the same shape. The actions sit under
+   it, unboxed -- the border was drawing a card around things that were already a
+   group. */
 .pricebox {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-photo);
-  padding: 1.1rem 1.25rem 1.35rem;
   display: grid;
-  gap: 0.9rem;
+  gap: var(--space-3);
+  justify-items: start;
 }
 
 .pricebox__amount {
-  font-size: var(--step-3);
+  background: var(--plate);
+  color: var(--ink);
+  border-radius: var(--radius-plate);
+  padding: 0.25rem 0.85rem 0.35rem;
+  font-size: var(--step-4);
   font-weight: 900;
-  line-height: 1.1;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
 }
 
 .pricebox__amount--call {
-  font-size: var(--step-2);
-  color: var(--muted);
+  font-size: var(--step-1);
+  font-weight: 700;
+  letter-spacing: 0;
+  padding-block: 0.5rem;
 }
 
 .pricebox__note {
   margin: 0;
-  color: var(--muted);
+  color: var(--road);
   font-size: 0.88rem;
 }
 
 .section {
-  margin-top: 2.5rem;
+  margin-top: var(--space-6);
 }
 
 .section__title {
-  margin: 0 0 0.9rem;
+  margin: 0 0 var(--space-3);
   font-size: var(--step-2);
   font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 /* Not `max-content` on the key column any more. Staff type their own labels now, and
    one long label would widen the column for every row on the page — a table shape
    decided by its worst entry. The 60-character cap in cars/specs.py is defence in
    depth, not the fix: 60 characters is still far too wide here. */
+/* A document, the way a Japanese car carries one: two columns, ruled, nothing
+   decorative. On a phone the key column has to be able to get genuinely narrow or a
+   two-line Japanese label pushes every value off the page. */
 .specs {
   margin: 0;
   display: grid;
-  grid-template-columns: minmax(6rem, 14rem) 1fr;
-  gap: 0 1.5rem;
+  grid-template-columns: minmax(5rem, 13rem) 1fr;
+  gap: 0 var(--space-4);
   border-top: 1px solid var(--line);
+  max-width: 46rem;
 }
 
 .specs__key {
   padding: 0.65rem 0 0.15rem;
-  color: var(--muted);
+  color: var(--road);
   font-size: 0.92rem;
   overflow-wrap: anywhere;
 }
@@ -211,5 +232,5 @@
 }
 
 .prose--muted {
-  color: var(--muted);
+  color: var(--road);
 }
