@@ -7,3 +7,11 @@
 # leaves the DynamoDB Local calls alone. `mock_aws` would patch botocore globally and
 # swallow those too.
 moto[cognitoidp,server]==5.2.3
+
+# Drives a real browser for the screenshot and layout passes, and is what the bundled
+# scripts in .claude/skills/webapp-testing expect. Here rather than in requirements.txt
+# for the same reason as moto: nothing at runtime opens a browser.
+#
+# Do NOT run `playwright install` -- it downloads ~150MB of Chromium that is not needed.
+# `channel="msedge"` (or "chrome") drives the browser already on the machine.
+playwright==1.63.0

@@ -40,4 +40,15 @@ desktop.ini
 npm-debug.log*
 
 # ---- Local agent tooling ----
-.claude/
+# Machine-local, except the skills, which are project tooling the same way
+# .github/workflows is -- they describe how this codebase wants to be worked on, so
+# they belong to everyone who clones it. Git will not descend into an excluded
+# directory, so this has to exclude the contents rather than the directory itself; a
+# bare `.claude/` would make the `!` below do nothing.
+.claude/*
+!.claude/skills/
+
+# ---- Design review ----
+# Regenerated on demand from a local fixture set. Forty full-page PNGs at 3x go stale
+# the moment a rule moves, and this repo's whole character is leanness.
+/screenshots/
