@@ -144,6 +144,24 @@ shove the page sideways.
     /* The way out, set apart from the sections. */
     .masthead nav a.masthead__out { margin-left: auto; color: #94a2ac; }
 
+    /* What is waiting, on the tab. White on the ink band and nothing else: the staff
+       pages carry no colour, and a digit where there was none is the whole signal. */
+    .nav__count {
+      display: inline-grid;
+      place-items: center;
+      min-width: 1.5em;
+      height: 1.5em;
+      padding: 0 0.4em;
+      margin-left: 0.15em;
+      border-radius: 999px;
+      background: #fff;
+      color: var(--ink);
+      font-size: var(--t-sm);
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+
     main {
       max-width: 72rem;
       margin: 0 auto;
@@ -483,11 +501,11 @@ shove the page sideways.
       <a class="brand" href="{% url 'staff:index' %}">Dakka Motors staff</a>
       <nav>
         <a href="{% url 'staff:car-list' %}">Cars</a>
-        <a href="{% url 'staff:booking-list' %}">Test drives</a>
+        <a href="{% url 'staff:booking-list' %}">Test drives{% if attention.bookings %} <span class="nav__count">{{ attention.bookings }}<span class="sr-only"> waiting</span></span>{% endif %}</a>
         <a href="{% url 'staff:slot-list' %}">Slots</a>
         <a href="{% url 'staff:schedule-list' %}">Availability</a>
-        <a href="{% url 'staff:question-list' %}">Questions</a>
-        <a href="{% url 'staff:request-list' %}">Requests</a>
+        <a href="{% url 'staff:question-list' %}">Questions{% if attention.questions %} <span class="nav__count">{{ attention.questions }}<span class="sr-only"> waiting</span></span>{% endif %}</a>
+        <a href="{% url 'staff:request-list' %}">Requests{% if attention.requests %} <span class="nav__count">{{ attention.requests }}<span class="sr-only"> waiting</span></span>{% endif %}</a>
         <a href="{% url 'staff:customer-list' %}">Customers</a>
         {% comment %}
           Owners only. A manager following this link gets a 403, not a broken page.

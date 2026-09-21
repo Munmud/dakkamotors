@@ -317,14 +317,14 @@ Resources:
       Principal: cognito-idp.amazonaws.com
       SourceArn: !GetAtt UserPool.Arn
 
-  # The emailed verification link doubles as a sign-in. Cognito has the password from
-  # the moment of sign-up and never hands it back, so once the link has confirmed the
+  # The emailed sign-up code doubles as a sign-in. Cognito has the password from the
+  # moment of sign-up and never hands it back, so once the code has confirmed the
   # address Django has nothing to authenticate with -- and the alternative, a sign-in
-  # form one screen after the link, lost the page the customer had come from. The
+  # form one screen after the code, lost the page the customer had come from. The
   # custom auth flow is the one way Cognito issues tokens without a password: this
-  # trigger defines a single challenge, "present the link token", and checks the answer
-  # against the same PENDTOK# item the link itself resolves through. Holding the link
-  # already confirms the account; letting it also open the session adds no new secret.
+  # trigger defines a single challenge, "present the code", and checks the answer
+  # against the same PENDING# item the code itself is verified through. Knowing the
+  # code already confirms the account; letting it also open the session adds no secret.
   LinkAuthRole:
     Type: AWS::IAM::Role
     Properties:
@@ -337,7 +337,7 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: read-pending-link-tokens
+        - PolicyName: read-pending-sign-ups
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -360,8 +360,9 @@ Resources:
           TABLE_NAME: !Ref Table
       Code:
         ZipFile: |
-          """Cognito custom-auth triggers: the verification link is the credential."""
+          """Cognito custom-auth triggers: the sign-up code is the credential."""
           import hashlib
+          import hmac
           import os
 
           import boto3
@@ -378,7 +379,7 @@ Resources:
               Never PASSWORD_VERIFIER or SRP_A. The customer app client has no
               password flow the browser can drive, and this trigger must not become
               one by the back door: the only thing this flow will ever ask for is the
-              link token, which is 256 bits and needs no second try.
+              sign-up code, and Django has already checked it before asking.
               """
               session = event["request"].get("session") or []
               response = event["response"]
@@ -399,33 +400,36 @@ Resources:
           def create(event):
               # Nothing to generate: the secret already exists, in the customer's
               # inbox. The public parameter only names the challenge for a caller.
-              event["response"]["publicChallengeParameters"] = {"kind": "email-link"}
+              event["response"]["publicChallengeParameters"] = {"kind": "email-code"}
               event["response"]["privateChallengeParameters"] = {}
               event["response"]["challengeMetadata"] = "EMAIL_LINK"
               return event
 
 
           def verify(event):
-              """The answer is the raw token from the email; the table holds its hash.
+              """The answer is the code from the email; the pending item holds its hash.
 
-              The pending item is matched on the address rather than on `userName`:
-              the pool uses email as the username attribute, so `userName` here is
-              the sub, and a token for one address must not open another's session.
+              Read by address -- PENDING#<email>, the key store/keys.py builds -- and
+              never by the code: six digits are not unique across customers. The
+              address comes from the user's attributes rather than from `userName`,
+              which is the sub, because the pool uses email as the username attribute.
+              Binding the lookup to the address is what makes one customer's code
+              useless for another's session.
               """
               answer = (event["request"].get("challengeAnswer") or "").strip()
               email = (event["request"].get("userAttributes") or {}).get("email", "")
               email = email.strip().lower()
               correct = False
               if answer and email:
-                  digest = hashlib.sha256(answer.encode("utf-8")).hexdigest()
                   item = ddb.get_item(
                       TableName=TABLE,
-                      Key={"pk": {"S": "PENDTOK#" + digest}, "sk": {"S": "META"}},
+                      Key={"pk": {"S": "PENDING#" + email}, "sk": {"S": "META"}},
                       ConsistentRead=True,
                   ).get("Item")
                   if item:
-                      stored = item.get("email", {}).get("S", "").strip().lower()
-                      correct = bool(stored) and stored == email
+                      digest = hashlib.sha256(answer.encode("utf-8")).hexdigest()
+                      stored = item.get("token_hash", {}).get("S", "")
+                      correct = bool(stored) and hmac.compare_digest(stored, digest)
               event["response"]["answerCorrect"] = correct
               return event
 
@@ -583,10 +587,10 @@ Resources:
       #
       # ALLOW_CUSTOM_AUTH is reachable from a browser with this public client id, and
       # that is acceptable because of what the flow is: LinkAuthFunction issues exactly
-      # one challenge, "present the verification link token", and never a password
-      # challenge. The only person who can answer it is the holder of the emailed link,
+      # one challenge, "present the sign-up code", and never a password
+      # challenge. The only person who can answer it is whoever has the emailed code,
       # who could already confirm the account with it. Django uses the flow through
-      # AdminInitiateAuth right after confirming the address, so the link signs the
+      # AdminInitiateAuth right after confirming the address, so the code signs the
       # customer in as well as verifying them.
       ExplicitAuthFlows:
         - ALLOW_ADMIN_USER_PASSWORD_AUTH

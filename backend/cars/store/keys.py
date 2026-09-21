@@ -235,10 +235,11 @@ def pending_pk(email):
 
 
 def pending_token_pk(token_hash):
-    """The emailed link, stored as a hash.
+    """The emailed link of the old sign-up flow, stored as a hash.
 
-    The raw token exists only in the email, so a database leak cannot hand somebody a
-    working activation link. Same reasoning as the column it replaces.
+    No longer written: sign-up moved to a six-digit code, which is checked against the
+    address (`pending_pk`) rather than looked up by itself. Kept so the link-era items
+    inside their TTL can still be deleted by name.
     """
     return f"PENDTOK#{token_hash}"
 

@@ -578,11 +578,15 @@ class LegacyCarPointer(BaseItem, discriminator="carid"):
 # --------------------------------------------------------------------------------------
 
 class PendingRegistration(BaseItem, discriminator="pending"):
-    """A sign-up waiting on its emailed link.
+    """A sign-up waiting on its emailed code.
 
     Cognito holds the UNCONFIRMED user and the password from step one, so unlike the
     table this replaces there is no password hash here at all. What is left is the
     things Cognito has nowhere to put.
+
+    `token_hash` is the hash of the six-digit code (it held the emailed link's token
+    before, and keeps the name so nothing that reads it had to move). `attempts`
+    counts wrong codes: a million-code space is only safe if a guess costs something.
     """
 
     email = UnicodeAttribute(null=True)
@@ -591,12 +595,17 @@ class PendingRegistration(BaseItem, discriminator="pending"):
     next_path = UnicodeAttribute(null=True)
     language = UnicodeAttribute(default="en")
     token_hash = UnicodeAttribute(null=True)
+    attempts = NumberAttribute(default=0)
     created_at = UTCDateTimeAttribute(null=True)
     ttl = NumberAttribute(null=True)
 
 
 class PendingToken(BaseItem, discriminator="pendtok"):
-    """Hash of the emailed link -> the address waiting on it."""
+    """Hash of an emailed link -> the address waiting on it.
+
+    No longer written: sign-up moved from a link to a code, and a six-digit code is
+    not unique across customers, so it cannot key a partition. Declared still so the
+    few link-era items inside their three-day TTL can be deleted by name."""
 
     email = UnicodeAttribute(null=True)
     ttl = NumberAttribute(null=True)

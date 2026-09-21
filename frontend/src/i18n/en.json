@@ -78,19 +78,23 @@
     "creating": "Creating your account…",
     "failed": "Could not sign you in. Please try again.",
     "checkEmail": "Check your email",
-    "sentTo": "We have sent a link to {{email}}. Open it to finish creating your account — until you do, no account exists.",
-    "resend": "Send the link again",
+    "sentTo": "We have emailed a code to {{email}}. Type it below to finish creating your account — until you do, no account exists.",
+    "resend": "Send a new code",
     "resent": "Sent. It can take a minute to arrive.",
-    "verifying": "Confirming your email…",
-    "verified": "Email confirmed. Please sign in to finish.",
-    "verifyFailed": "That link has expired or has already been used.",
+    "verifying": "Confirming…",
+    "verifyFailed": "We could not confirm that code.",
     "forgot": "Forgot your password?",
     "resetTitle": "Reset your password",
     "resetIntro": "Enter your email and we will send you a link.",
     "resetSent": "If we have an account for that address, we have sent a link.",
     "newPassword": "New password",
     "setPassword": "Set new password",
-    "backToSignIn": "Back to sign in"
+    "backToSignIn": "Back to sign in",
+    "code": "Six-digit code",
+    "codeHelp": "It works for three days. Check the spam folder if it does not arrive in a minute.",
+    "verify": "Confirm",
+    "codeWrong": "That code is not right. Check the email and try again.",
+    "enterEmail": "The email you signed up with"
   },
   "booking": {
     "book": "Book a test drive",
@@ -101,7 +105,6 @@
     "seatsLeft_other": "{{count}} places left",
     "confirm": "Confirm booking",
     "booking": "Booking…",
-    "registerToBook": "Create an account to book this time",
     "myBookings": "My test drives",
     "none": "You have no test drives booked.",
     "cancel": "Cancel",
@@ -118,7 +121,9 @@
     "timesAvailable_other": "{{count}} times",
     "dateGone": "The last place on that date has just gone. Please pick another.",
     "previousMonth": "Previous month",
-    "nextMonth": "Next month"
+    "nextMonth": "Next month",
+    "signUpFirst": "Create an account to book",
+    "signUpFirstBody": "It takes a minute — we email you a code, you type it in, and you come straight back to this calendar."
   },
   "account": {
     "yourDetails": "Your details",

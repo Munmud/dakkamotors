@@ -1,4 +1,4 @@
-"""The Cognito custom-auth trigger that turns the verification link into a sign-in.
+"""The Cognito custom-auth trigger that turns the sign-up code into a sign-in.
 
 Extracted from `infra/data.yaml` like the migration trigger, and for the same reason:
 the thing that will run is the thing that was checked. What matters here is narrower
@@ -55,7 +55,7 @@ class DefineChallengeTests(SimpleTestCase):
         super().setUpClass()
         cls.trigger = load_trigger("LinkAuthFunction")
 
-    def test_a_fresh_session_is_asked_for_the_link_token(self):
+    def test_a_fresh_session_is_asked_for_the_code(self):
         out = self.trigger.handler(event(SOURCE["define"]), None)["response"]
         self.assertEqual(out["challengeName"], "CUSTOM_CHALLENGE")
         self.assertFalse(out["issueTokens"])
@@ -103,55 +103,61 @@ class CreateChallengeTests(SimpleTestCase):
         """The secret is already in the customer's inbox. Anything put in the public
         parameters would be handed to whoever started the flow."""
         out = self.trigger.handler(event(SOURCE["create"]), None)["response"]
-        self.assertEqual(out["publicChallengeParameters"], {"kind": "email-link"})
+        self.assertEqual(out["publicChallengeParameters"], {"kind": "email-code"})
         self.assertEqual(out["privateChallengeParameters"], {})
 
 
 class VerifyAnswerTests(SimpleTestCase):
+    """The answer is the sign-up code; the pending item, read by address, holds its
+    hash. Never a lookup by the code: six digits are not unique across customers."""
 
-    RAW = "the-raw-token-from-the-email"
+    CODE = "482913"
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         cls.trigger = load_trigger("LinkAuthFunction")
 
-    def pending_item(self, email="buyer@example.com"):
-        return {"pk": {"S": keys.pending_token_pk(
-                    hashlib.sha256(self.RAW.encode()).hexdigest())},
-                "sk": {"S": "META"}, "email": {"S": email}}
+    def pending_item(self, email="buyer@example.com", code=None):
+        digest = hashlib.sha256((code or self.CODE).encode()).hexdigest()
+        return {"pk": {"S": keys.pending_pk(email)}, "sk": {"S": "META"},
+                "email": {"S": email}, "token_hash": {"S": digest}}
 
-    def verify(self, ddb, **kwargs):
+    def verify(self, ddb, answer=None, **kwargs):
         self.trigger.ddb = ddb
         return self.trigger.handler(
-            event(SOURCE["verify"], answer=self.RAW, **kwargs), None
+            event(SOURCE["verify"], answer=answer or self.CODE, **kwargs), None
         )["response"]["answerCorrect"]
 
-    def test_the_link_holder_is_let_in(self):
+    def test_the_right_code_is_let_in(self):
         self.assertTrue(self.verify(RecordingDdb(self.pending_item())))
 
-    def test_the_lookup_is_by_hash_and_the_key_the_store_uses(self):
-        """The raw token is never stored, so the trigger must hash it, and it must build
-        the same key `store/keys.py` does -- a Lambda cannot import the package, so
-        this is the only thing keeping the two spellings together."""
+    def test_the_lookup_is_by_address_with_the_key_the_store_uses(self):
+        """A Lambda cannot import store/keys.py, so this is the only thing keeping
+        the two spellings of PENDING# together. The address is lowercased first,
+        as `pending_pk` lowercases it."""
         ddb = RecordingDdb(self.pending_item())
-        self.verify(ddb)
-        digest = hashlib.sha256(self.RAW.encode("utf-8")).hexdigest()
-        self.assertEqual(ddb.keys, [{"pk": {"S": keys.pending_token_pk(digest)},
+        self.verify(ddb, email="Buyer@Example.com")
+        self.assertEqual(ddb.keys, [{"pk": {"S": keys.pending_pk("buyer@example.com")},
                                      "sk": {"S": keys.META}}])
-        self.assertNotIn(self.RAW, ddb.keys[0]["pk"]["S"])
+        self.assertNotIn(self.CODE, ddb.keys[0]["pk"]["S"])
 
-    def test_a_token_for_another_address_is_refused(self):
-        """A real link, presented for the wrong account. The match is on the address
-        in the user's attributes, not on `userName`, which is the sub."""
-        self.assertFalse(self.verify(RecordingDdb(self.pending_item()),
-                                     email="someone-else@example.com"))
+    def test_a_wrong_code_is_refused(self):
+        self.assertFalse(self.verify(RecordingDdb(self.pending_item()), answer="000000"))
 
-    def test_the_address_comparison_is_case_insensitive(self):
-        self.assertTrue(self.verify(RecordingDdb(self.pending_item("Buyer@Example.com")),
-                                    email="buyer@example.com"))
+    def test_the_code_is_compared_as_a_hash(self):
+        """The item holds a hash. A raw code stored by mistake must not match itself."""
+        item = self.pending_item()
+        item["token_hash"] = {"S": self.CODE}
+        self.assertFalse(self.verify(RecordingDdb(item)))
 
-    def test_an_unknown_token_is_refused(self):
+    def test_another_customers_code_is_useless_here(self):
+        """The item read is the *signing-in* address's, so a code issued to somebody
+        else is simply not the hash on it -- there is no comparison to get wrong."""
+        ddb = RecordingDdb(self.pending_item("buyer@example.com", code="111111"))
+        self.assertFalse(self.verify(ddb, answer=self.CODE, email="buyer@example.com"))
+
+    def test_no_pending_sign_up_is_refused(self):
         self.assertFalse(self.verify(RecordingDdb(None)))
 
     def test_an_empty_answer_never_reaches_the_table(self):

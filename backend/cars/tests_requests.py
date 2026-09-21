@@ -204,4 +204,4 @@ class StaffRequestPageTests(FakeCognito, DynamoReset, SimpleTestCase):
 
     def test_the_masthead_links_to_requests(self):
         html = self.client.get(reverse("staff:request-list")).content.decode()
-        self.assertIn(">Requests<", html)
+        self.assertIn(">Requests <span class=\"nav__count\">1", html)

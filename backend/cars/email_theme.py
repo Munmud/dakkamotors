@@ -136,6 +136,23 @@ def callout(html):
 </table>"""
 
 
+def code_block(code):
+    """A one-time code, set large enough to read off a phone across the room.
+
+    A table cell rather than a styled <p>, for the usual reason: Outlook honours
+    padding and background on cells and on little else. Letter-spaced so the six
+    digits read as digits rather than as a number.
+    """
+    return f"""
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 20px;">
+  <tr>
+    <td align="center" bgcolor="{PAPER}" style="padding:18px 28px;border-radius:6px;
+        border-left:4px solid {ACCENT};font-family:{FONT};font-size:34px;
+        font-weight:bold;letter-spacing:0.28em;line-height:1;color:{INK};">{code}</td>
+  </tr>
+</table>"""
+
+
 def note(html):
     """Small print: what to do if this email was not expected."""
     return (

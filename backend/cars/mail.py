@@ -291,65 +291,83 @@ def notify_customer_of_cancellation(booking, customer=None):
 # --------------------------------------------------------------------------------------
 
 
-def send_verification_email(pending, link):
+def send_verification_email(pending, code):
+    """The six-digit code that finishes a sign-up.
+
+    A code, not a link. A link opened in the phone's mail app lost the page the
+    customer had open on the laptop; a code is typed into the page they are already
+    on, and that page then takes them where they were going.
+    """
     b = seo.BUSINESS
     if pending.language == "ja":
-        subject = "メールアドレスのご確認 - ダッカモータース"
+        subject = f"確認コード {code} - ダッカモータース"
         html = theme.render(
             language="ja",
             heading="メールアドレスのご確認",
-            preheader="下のボタンで登録が完了します。3日間有効です。",
+            preheader=f"確認コードは {code} です。3日間有効です。",
             body="".join([
                 theme.lead(f"{_esc(pending.name)} 様 — ご登録ありがとうございます。"),
                 theme.paragraph(
-                    "下のボタンを押すと、アカウントの作成が完了します。"
-                    "<strong>押していただくまで、アカウントは作成されません。</strong>"
+                    "サイトの画面にこのコードを入力すると、アカウントの作成が完了します。"
+                    "<strong>入力いただくまで、アカウントは作成されません。</strong>"
                 ),
-                theme.button("メールアドレスを確認する", link),
-                theme.fallback_link(link, "ja"),
+                theme.code_block(code),
                 theme.note(
-                    "このリンクは3日間有効です。心当たりがない場合は、このメールを破棄してください。"
-                    "アカウントは作成されません。"
+                    "このコードは3日間、5回まで有効です。心当たりがない場合は、このメールを"
+                    "破棄してください。アカウントは作成されません。"
                 ),
             ]),
         )
-        text = (
-            f"{pending.name} 様\n\n"
-            "ダッカモータースへのご登録ありがとうございます。\n"
-            "下のリンクを開くと、アカウントの作成が完了します。\n\n"
-            f"{link}\n\n"
-            "このリンクは3日間有効です。心当たりがない場合は破棄してください。"
-            "アカウントは作成されません。\n\n"
-            f"{b['name_ja']}\n{b['telephone_display']}\n"
-        )
+        text = "\n".join([
+            f"{pending.name} 様",
+            "",
+            "ダッカモータースへのご登録ありがとうございます。",
+            "サイトの画面に下のコードを入力すると、アカウントの作成が完了します。",
+            "",
+            f"確認コード: {code}",
+            "",
+            "このコードは3日間、5回まで有効です。心当たりがない場合は破棄してください。"
+            "アカウントは作成されません。",
+            "",
+            f"{b['name_ja']}",
+            f"{b['telephone_display']}",
+            "",
+        ])
     else:
-        subject = "Confirm your email - Dakka Motors"
+        subject = f"Your code is {code} - Dakka Motors"
         html = theme.render(
             heading="Confirm your email",
-            preheader="One click finishes your account. The link works for three days.",
+            preheader=f"Your code is {code}. It works for three days.",
             body="".join([
                 theme.lead(f"Hello {_esc(pending.name)} — thanks for signing up."),
                 theme.paragraph(
-                    "One click finishes your account and you can book a test drive. "
-                    "<strong>Until you do, no account exists.</strong>"
+                    "Type this code into the page you have open and your account is "
+                    "ready. <strong>Until you do, no account exists.</strong>"
                 ),
-                theme.button("Confirm my email address", link),
-                theme.fallback_link(link),
+                theme.code_block(code),
                 theme.note(
-                    "The link works for three days. If you did not sign up, ignore this "
-                    "email — nothing has been created and nothing will be."
+                    "The code works for three days and for five tries. If you did not "
+                    "sign up, ignore this email — nothing has been created and nothing "
+                    "will be."
                 ),
             ]),
         )
-        text = (
-            f"Hello {pending.name},\n\n"
-            f"Thanks for signing up with {b['name']}. Open the link below to finish\n"
-            "creating your account - until you do, no account exists.\n\n"
-            f"{link}\n\n"
-            "The link works for three days. If you did not request this, ignore this\n"
-            "email and nothing will be created.\n\n"
-            f"{b['name']}\n{b['telephone_display']}\n"
-        )
+        text = "\n".join([
+            f"Hello {pending.name},",
+            "",
+            f"Thanks for signing up with {b['name']}. Type the code below into the page",
+            "you have open to finish creating your account - until you do, no account",
+            "exists.",
+            "",
+            f"Your code: {code}",
+            "",
+            "The code works for three days and for five tries. If you did not request",
+            "this, ignore this email and nothing will be created.",
+            "",
+            f"{b['name']}",
+            f"{b['telephone_display']}",
+            "",
+        ])
 
     return queue_email(to=pending.email, subject=subject, html=html, text=text)
 

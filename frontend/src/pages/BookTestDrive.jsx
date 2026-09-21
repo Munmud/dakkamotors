@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import SlotPicker from "../components/SlotPicker";
@@ -19,7 +19,6 @@ export default function BookTestDrive() {
   const { slug } = useParams();
   const { t, i18n } = useTranslation();
   const { customer, state } = useAuth();
-  const navigate = useNavigate();
 
   const [car, setCar] = useState(null);
   const [slots, setSlots] = useState([]);
@@ -44,13 +43,7 @@ export default function BookTestDrive() {
   }, [slug]);
 
   async function confirm() {
-    if (!selected) return;
-    if (!customer) {
-      // The register page, not sign-in: a first-time visitor has no account yet, and
-      // the form's switch link is there for the ones who do. `next` keeps their place.
-      navigate(`/account/register?next=${encodeURIComponent(`/cars/${slug}/test-drive`)}`);
-      return;
-    }
+    if (!selected || !customer) return;
     setError(null);
     setStatus("saving");
     try {
@@ -74,6 +67,34 @@ export default function BookTestDrive() {
         <h2 className="state__title">{t("error.title")}</h2>
         <p className="state__body">{t("error.body")}</p>
       </div>
+    );
+  }
+
+  // A guest is asked before the calendar, not after picking a time. Choosing a slot
+  // and only then being sent away to sign up lost the choice and, until the code
+  // flow, the page; asking first means the calendar they come back to is the one
+  // they can actually book on. The register page, not sign-in: a first-time visitor
+  // has no account yet, and the form's switch link is there for the ones who do.
+  if (state === "anonymous") {
+    const here = encodeURIComponent(`/cars/${slug}/test-drive`);
+    return (
+      <section>
+        <Link className="backlink" to={`/cars/${slug}`}>
+          {car ? carTitle(car, i18n.language) : t("nav.back")}
+        </Link>
+        <h1 className="section__title">{t("booking.heading")}</h1>
+        {car && <p className="state__body">{t("booking.forCar", { car: carTitle(car, i18n.language) })}</p>}
+        <div className="state">
+          <h2 className="state__title">{t("booking.signUpFirst")}</h2>
+          <p className="state__body">{t("booking.signUpFirstBody")}</p>
+          <Link className="callbtn bookbtn" to={`/account/register?next=${here}`}>
+            {t("auth.register")}
+          </Link>
+          <p className="state__body">
+            <Link to={`/account/login?next=${here}`}>{t("auth.haveAccount")}</Link>
+          </p>
+        </div>
+      </section>
     );
   }
 
@@ -116,11 +137,7 @@ export default function BookTestDrive() {
           disabled={!selected || status === "saving"}
           onClick={confirm}
         >
-          {status === "saving"
-            ? t("booking.booking")
-            : customer || state === "unknown"
-              ? t("booking.confirm")
-              : t("booking.registerToBook")}
+          {status === "saving" ? t("booking.booking") : t("booking.confirm")}
         </button>
       )}
     </section>

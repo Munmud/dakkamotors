@@ -14,8 +14,10 @@ from django.urls import reverse
 
 from .store import cars as car_store
 from .store import questions as question_store
+from .store import requests as request_store
 from .tests import (
-    DynamoReset, MAIL_SETTINGS, make_car, make_customer, make_manager, make_question,
+    DynamoReset, MAIL_SETTINGS, future_slot, make_booking, make_car, make_customer,
+    make_manager, make_question,
 )
 from . import cognito
 from . import tests_fake_cognito as fake_cognito
@@ -276,3 +278,45 @@ class StaffPublishingTests(FakeCognito, DynamoReset, SimpleTestCase):
 
         self.assertContains(response, "disabled")
         self.assertContains(response, "Write an answer first")
+
+
+class MastheadCountTests(FakeCognito, DynamoReset, SimpleTestCase):
+    """The number on the tab is the same number the page shows, on every page."""
+
+    def setUp(self):
+        super().setUp()
+        self.car = make_car("COUNT-1")
+        self.customer, _ = make_customer("buyer@example.com")
+        self.staff, _ = make_manager()
+        sign_in(self.client, self.staff, staff=True)
+
+    def nav(self, route="staff:car-list"):
+        html = self.client.get(reverse(route)).content.decode()
+        return html.split("<nav>")[1].split("</nav>")[0]
+
+    def test_nothing_waiting_means_no_numbers(self):
+        self.assertNotIn("nav__count", self.nav())
+
+    def test_each_tab_counts_its_own_backlog_from_any_page(self):
+        make_question(self.car, customer=self.customer, question="Unanswered one")
+        make_question(self.car, customer=self.customer, question="Unanswered two")
+        make_question(self.car, customer=self.customer, question="Answered",
+                      answer="Yes", answered=True)
+        make_booking(self.customer, future_slot(), car=self.car)
+        request_store.create(name="Hana", email="h@example.com", phone="1",
+                             details="A Tanto")
+
+        for route in ("staff:car-list", "staff:schedule-list"):
+            nav = self.nav(route)
+            self.assertIn('Questions <span class="nav__count">2', nav)
+            self.assertIn('Test drives <span class="nav__count">1', nav)
+            self.assertIn('Requests <span class="nav__count">1', nav)
+
+    def test_dealing_with_it_takes_the_number_off_the_tab(self):
+        wish = request_store.create(name="Hana", email="h@example.com", phone="1",
+                                    details="A Tanto")
+        self.assertIn('Requests <span class="nav__count">1', self.nav())
+
+        request_store.resolve(wish, staff_sub="x")
+
+        self.assertNotIn("nav__count", self.nav())

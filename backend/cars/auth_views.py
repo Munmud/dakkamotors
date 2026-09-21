@@ -7,19 +7,19 @@ Cognito's *internal* username is then a UUID and the address is an attribute.
 
 **No usable account exists until the address has been proved.** A sign-up creates an
 UNCONFIRMED Cognito user, which cannot sign in, and stores the name and phone alongside
-it; clicking the emailed link confirms it. That is why nothing downstream asks whether a
+it; typing the emailed code confirms it. That is why nothing downstream asks whether a
 customer is verified -- an unverified person cannot get a token.
 
 **Cognito sends nothing.** Every message here still goes out through `mail.queue_email`
 -> S3 -> Brevo, bilingual and branded. Handing verification to Cognito would mean plain
 English against a 50/day cap, or SES; see `cognito.py` for why neither is wanted.
 
-**The link signs them in as well as verifying them.** Cognito holds the password from
+**The code signs them in as well as verifying them.** Cognito holds the password from
 sign-up and never hands it back, so for a while verification stopped at "confirmed" and
 sent people to the sign-in form -- one more screen, and the page they had come from
 lost along the way. The pool's custom auth flow closes that gap: `LinkAuthFunction`
-issues a single challenge whose answer is the link token itself, and
-`cognito.sign_in_with_link` answers it right after `confirm`. Holding the link already
+issues a single challenge whose answer is the code itself, and
+`cognito.sign_in_with_link` answers it right after `confirm`. Knowing the code already
 proved the address; letting it open the session adds no secret and stores no password.
 
 If that sign-in is refused -- the flow not yet enabled on the client, Cognito having a
@@ -144,7 +144,7 @@ class RegisterSerializer(serializers.Serializer):
 
 
 class RegisterView(APIView):
-    """Step one: create the unconfirmed account and email a link.
+    """Step one: create the unconfirmed account and email a code.
 
     Returns 202 and no session - there is nothing to sign in to yet.
     """
@@ -180,40 +180,53 @@ class RegisterView(APIView):
                             status=status.HTTP_400_BAD_REQUEST)
 
         language = "ja" if (data.get("language") or "").startswith("ja") else "en"
-        raw_token = auth_store.start_registration(
+        code = auth_store.start_registration(
             email=email, name=data["name"], phone=data["phone"],
             next_path=safe_next(data.get("next")), language=language,
             now=timezone.now(),
         )
 
-        mail.send_verification_email(
-            auth_store.find_registration(email),
-            f"{seo.SITE_URL}/account/verify?token={raw_token}",
-        )
+        mail.send_verification_email(auth_store.find_registration(email), code)
         return Response(
-            {"detail": "Check your email to finish creating your account.",
+            {"detail": "Check your email for the code to finish creating your account.",
              "email": email},
             status=status.HTTP_202_ACCEPTED,
         )
 
 
 class VerifyView(APIView):
-    """Step two: the link. This is what makes the account usable."""
+    """Step two: the code. This is what makes the account usable.
+
+    A code rather than a link, at the owner's request: a link opened in the phone's
+    mail app lost the page the customer had open on the laptop, and a code is typed
+    into the page they are already on. The code is checked against the address, never
+    looked up on its own -- six digits are not unique across customers -- and a wrong
+    one counts (`store.auth.MAX_ATTEMPTS`).
+    """
 
     permission_classes = [AllowAny]
     throttle_classes = [AuthThrottle]
 
     def post(self, request):
-        raw_token = (request.data.get("token") or "").strip()
-        if not raw_token:
-            return Response({"detail": "That link is not valid."},
+        email = (request.data.get("email") or "").strip().lower()
+        code = (request.data.get("code") or "").strip()
+        if not (email and code):
+            return Response({"detail": "Enter the code from the email."},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        pending = auth_store.registration_for_token(raw_token)
-        if pending is None:
+        try:
+            pending = auth_store.check_code(email, code)
+        except auth_store.CodeDead:
             return Response(
-                {"detail": "That link has already been used, or is not valid. "
-                           "Try signing in, or register again."},
+                {"detail": "Too many tries. Please register again and we will send "
+                           "a new code."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if pending is None:
+            # One answer for "no such sign-up" and "wrong code", so the form cannot be
+            # used to find out which addresses are mid-sign-up.
+            return Response(
+                {"detail": "That code is not right. Check the email and try again."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -234,7 +247,7 @@ class VerifyView(APIView):
 
         # Before `finish_registration`, not after: the custom-auth trigger recognises
         # the token by reading the same pending item, so the order is the correctness.
-        tokens = cognito.sign_in_with_link(email=pending.email, raw_token=raw_token)
+        tokens = cognito.sign_in_with_link(email=pending.email, raw_token=code)
         auth_store.finish_registration(pending)
 
         body = {
@@ -254,7 +267,7 @@ class VerifyView(APIView):
 
 
 class ResendVerificationView(APIView):
-    """Send the link again.
+    """Send a new code.
 
     Answers identically whether or not a pending sign-up exists, so it cannot be used to
     discover addresses or to bomb someone's inbox.
@@ -268,18 +281,15 @@ class ResendVerificationView(APIView):
         pending = auth_store.find_registration(email)
 
         if pending is not None and cognito.status_of(email) == "UNCONFIRMED":
-            raw_token = auth_store.start_registration(
+            code = auth_store.start_registration(
                 email=email, name=pending.name, phone=pending.phone,
                 next_path=pending.next_path, language=pending.language,
                 now=timezone.now(),
             )
-            mail.send_verification_email(
-                auth_store.find_registration(email),
-                f"{seo.SITE_URL}/account/verify?token={raw_token}",
-            )
+            mail.send_verification_email(auth_store.find_registration(email), code)
 
         return Response(
-            {"detail": "If that sign-up is waiting, we have sent the link again."},
+            {"detail": "If that sign-up is waiting, we have sent a new code."},
             status=status.HTTP_202_ACCEPTED,
         )
 

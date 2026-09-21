@@ -8,7 +8,7 @@ Brevo, and none of that survives being handed to Cognito's own mailer.
 So three small things live in DynamoDB instead:
 
 * a pending sign-up, holding the name and phone Cognito has no field for, plus where to
-  send the customer once the link is clicked
+  send the customer once the emailed code is typed in
 * a reset token, plus a per-customer epoch counter
 * a carried-over Django password hash, read once by the migration trigger
 
@@ -18,6 +18,7 @@ because a scheduled job would have kept the database awake; that is DynamoDB's j
 
 import datetime as dt
 import hashlib
+import hmac
 import secrets
 
 from . import keys
@@ -26,8 +27,13 @@ from .models import (
 )
 from .txn import Txn
 
-#: How long a sign-up link is good for. Matches the old PendingRegistration window.
+#: How long a sign-up code is good for. Matches the old PendingRegistration window.
 PENDING_DAYS = 3
+
+#: Wrong codes before the sign-up is dead and they start again. A six-digit code is a
+#: million possibilities; five guesses against it, behind a 20/hour throttle, is not a
+#: search anybody can run.
+MAX_ATTEMPTS = 5
 
 #: Matches the old PASSWORD_RESET_TIMEOUT of 24 hours.
 RESET_HOURS = 24
@@ -40,6 +46,15 @@ LEGACY_DAYS = 90
 def new_token():
     """The raw value that goes in the email and nowhere else."""
     return secrets.token_urlsafe(32)
+
+
+def new_code():
+    """Six digits, zero-padded, for typing off a phone into a box.
+
+    Short enough to copy by eye, which is the whole reason it replaced the link -- a
+    link opened on the phone lost the page the customer had on the laptop.
+    """
+    return f"{secrets.randbelow(10 ** 6):06d}"
 
 
 def hash_token(raw):
@@ -55,32 +70,25 @@ def _ttl(now, **delta):
 # --------------------------------------------------------------------------------------
 
 def start_registration(*, email, name, phone, next_path="", language="en", now):
-    """Record a sign-up waiting on its link. Returns the raw token to email.
+    """Record a sign-up waiting on its code. Returns the raw code to email.
 
     Overwrites any previous attempt for the same address, which is both how "resend"
     works and why a typo on the first try does not lock an address out for three days.
+    The old code dies with the overwrite: one live code per address, and a fresh count
+    of tries.
+
+    No PendingToken item any more. The link's token was unique and could key its own
+    partition; a code is checked only ever against an address, and the pending item
+    is already keyed by that.
     """
     email = email.strip().lower()
-    raw = new_token()
-    token_hash = hash_token(raw)
-    ttl = _ttl(now, days=PENDING_DAYS)
-
-    previous = find_registration(email)
-
-    tx = Txn()
-    tx.save("pending", PendingRegistration(
+    raw = new_code()
+    PendingRegistration(
         pk=keys.pending_pk(email), sk=keys.META, email=email, name=name.strip(),
         phone=phone.strip(), next_path=next_path or "", language=language,
-        token_hash=token_hash, created_at=now, ttl=ttl))
-    tx.save("token", PendingToken(
-        pk=keys.pending_token_pk(token_hash), sk=keys.META, email=email, ttl=ttl))
-    if previous is not None and previous.token_hash != token_hash:
-        # The old link stops working the moment a new one is sent. Otherwise a resend
-        # would leave two live activation links for one address.
-        tx.delete("old_token",
-                  PendingToken(pk=keys.pending_token_pk(previous.token_hash),
-                               sk=keys.META))
-    tx.commit()
+        token_hash=hash_token(raw), attempts=0, created_at=now,
+        ttl=_ttl(now, days=PENDING_DAYS),
+    ).save()
     return raw
 
 
@@ -92,25 +100,43 @@ def find_registration(email):
         return None
 
 
-def registration_for_token(raw):
-    """The pending sign-up a link belongs to, or None.
+class CodeDead(Exception):
+    """Too many wrong codes. The sign-up is gone; they register again."""
 
-    Expiry needs no check of its own: the TTL removes both items, so an expired link
-    simply does not resolve. That is one fewer branch than the `has_expired` property it
-    replaces -- though DynamoDB's TTL sweep is best-effort within ~48 hours, so a
-    belt-and-braces check on `created_at` is still worth having for anything security
-    sensitive. A sign-up link is not: worst case somebody confirms an address they
-    proved three days and a bit ago.
+
+def check_code(email, raw):
+    """The pending sign-up if `raw` is its code, else None -- and a wrong guess counts.
+
+    Expiry needs no check of its own: the TTL removes the item, so an expired code
+    simply does not resolve. DynamoDB's sweep is best-effort within ~48 hours, which
+    for a sign-up code is fine: worst case somebody confirms an address they proved
+    three days and a bit ago.
+
+    The miss is recorded with a guarded update -- an unguarded one would upsert a stub
+    with no discriminator for an address that has no pending sign-up, which is the
+    trap the store rules warn about. On the last allowed miss the item is deleted, so
+    the code cannot be worn down by patience.
     """
-    try:
-        token = PendingToken.get(keys.pending_token_pk(hash_token(raw)), keys.META)
-    except PendingToken.DoesNotExist:
+    pending = find_registration(email)
+    if pending is None:
         return None
-    return find_registration(token.email)
+    if hmac.compare_digest(pending.token_hash or "", hash_token((raw or "").strip())):
+        return pending
+
+    if (pending.attempts or 0) + 1 >= MAX_ATTEMPTS:
+        pending.delete()
+        raise CodeDead(email)
+    pending.update(actions=[PendingRegistration.attempts.add(1)],
+                   condition=PendingRegistration.pk.exists())
+    return None
 
 
 def finish_registration(pending):
-    """Clear both items once the account exists."""
+    """Clear the pending item once the account exists.
+
+    Still deletes the PendingToken by the same hash: a delete of a missing item in a
+    transaction succeeds, and it is what cleans up a link-era sign-up that finishes
+    inside its three-day window."""
     tx = Txn()
     tx.delete("pending", PendingRegistration(pk=pending.pk, sk=keys.META))
     tx.delete("token", PendingToken(

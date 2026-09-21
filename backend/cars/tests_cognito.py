@@ -365,11 +365,11 @@ class AuthStateTests(DynamoTestCase):
         self.now = timezone.now()
 
     def test_a_pending_sign_up_holds_what_cognito_cannot(self):
-        raw = auth_store.start_registration(
+        code = auth_store.start_registration(
             email="Buyer@Example.com", name="Aiko Tanaka", phone="080-1111-2222",
             next_path="/cars/x/test-drive", language="ja", now=self.now)
 
-        pending = auth_store.registration_for_token(raw)
+        pending = auth_store.check_code("buyer@example.com", code)
 
         self.assertEqual(pending.email, "buyer@example.com")
         self.assertEqual(pending.phone, "080-1111-2222")
@@ -378,35 +378,68 @@ class AuthStateTests(DynamoTestCase):
         # And, unlike the table it replaces, no password hash at all.
         self.assertFalse(hasattr(pending, "password_hash"))
 
-    def test_only_the_hash_of_the_link_is_stored(self):
-        raw = auth_store.start_registration(
+    def test_only_the_hash_of_the_code_is_stored(self):
+        code = auth_store.start_registration(
             email="a@example.com", name="A", phone="1", now=self.now)
 
         pending = auth_store.find_registration("a@example.com")
 
-        self.assertNotEqual(pending.token_hash, raw)
-        self.assertEqual(pending.token_hash, auth_store.hash_token(raw))
+        self.assertRegex(code, r"^\d{6}$")
+        self.assertNotEqual(pending.token_hash, code)
+        self.assertEqual(pending.token_hash, auth_store.hash_token(code))
 
-    def test_resending_invalidates_the_previous_link(self):
-        """Otherwise a resend leaves two working activation links for one address."""
+    def test_resending_replaces_the_code_and_the_count_of_tries(self):
+        """One live code per address, however many times it is sent."""
         first = auth_store.start_registration(
             email="a@example.com", name="A", phone="1", now=self.now)
+        wrong = "000000" if first != "000000" else "111111"
+        auth_store.check_code("a@example.com", wrong)
+        self.assertEqual(auth_store.find_registration("a@example.com").attempts, 1)
+
         second = auth_store.start_registration(
             email="a@example.com", name="A", phone="1", now=self.now)
 
-        self.assertIsNone(auth_store.registration_for_token(first))
-        self.assertIsNotNone(auth_store.registration_for_token(second))
+        self.assertEqual(auth_store.find_registration("a@example.com").attempts, 0)
+        self.assertIsNotNone(auth_store.check_code("a@example.com", second))
+        if first != second:
+            self.assertIsNone(auth_store.check_code("a@example.com", first))
 
-    def test_an_unknown_link_resolves_to_nothing(self):
-        self.assertIsNone(auth_store.registration_for_token("made-up"))
-
-    def test_finishing_clears_both_items_so_the_link_is_single_use(self):
-        raw = auth_store.start_registration(
+    def test_a_code_is_checked_against_its_address_only(self):
+        """Two customers, the same code by chance: neither opens the other's sign-up."""
+        code = auth_store.start_registration(
             email="a@example.com", name="A", phone="1", now=self.now)
 
-        auth_store.finish_registration(auth_store.registration_for_token(raw))
+        self.assertIsNone(auth_store.check_code("nobody@example.com", code))
+        self.assertIsNotNone(auth_store.check_code("a@example.com", code))
 
-        self.assertIsNone(auth_store.registration_for_token(raw))
+    def test_a_wrong_code_counts_and_the_fifth_kills_the_sign_up(self):
+        code = auth_store.start_registration(
+            email="a@example.com", name="A", phone="1", now=self.now)
+        wrong = "000000" if code != "000000" else "111111"
+
+        for expected in range(1, auth_store.MAX_ATTEMPTS):
+            self.assertIsNone(auth_store.check_code("a@example.com", wrong))
+            self.assertEqual(auth_store.find_registration("a@example.com").attempts,
+                             expected)
+        with self.assertRaises(auth_store.CodeDead):
+            auth_store.check_code("a@example.com", wrong)
+
+        self.assertIsNone(auth_store.find_registration("a@example.com"))
+        self.assertIsNone(auth_store.check_code("a@example.com", code))
+
+    def test_a_wrong_code_for_no_sign_up_writes_nothing(self):
+        """The miss is recorded with a guarded update: an unguarded one would upsert
+        a discriminator-less stub for an address with no sign-up at all."""
+        self.assertIsNone(auth_store.check_code("nobody@example.com", "123456"))
+        self.assertIsNone(auth_store.find_registration("nobody@example.com"))
+
+    def test_finishing_clears_the_item_so_the_code_is_single_use(self):
+        code = auth_store.start_registration(
+            email="a@example.com", name="A", phone="1", now=self.now)
+
+        auth_store.finish_registration(auth_store.check_code("a@example.com", code))
+
+        self.assertIsNone(auth_store.check_code("a@example.com", code))
         self.assertIsNone(auth_store.find_registration("a@example.com"))
 
     # -- resets ---------------------------------------------------------------------

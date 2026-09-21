@@ -125,22 +125,23 @@ Instead the importer writes a `LEGACYPW#<email>` item per customer and a Cognito
 items carry a 90-day TTL regardless. The trigger is inline in `infra/data.yaml` and needs
 no Django: the hash format is verifiable in about fifteen lines of stdlib `hashlib`.
 
-### The verification link signs a customer in
+### The sign-up code signs a customer in
 
-The second inline trigger, **LinkAuth**, is the three custom-auth steps in one function.
-Cognito never hands a password back, so once the emailed link has confirmed an address
-Django has nothing to sign the customer in with -- and for a while the link ended on the
-sign-in form, one screen short of the car they had come from. The custom auth flow is
-the one way Cognito issues tokens without a password: the trigger defines a single
-challenge, "present the link token", and checks the answer against the same `PENDTOK#`
-item the link resolves through. Django answers it with `AdminInitiateAuth` immediately
-after confirming the address and before deleting the item. Holding the link already
-proved the address; letting it also open the session adds no new secret.
+The second inline trigger, **LinkAuth** (named when it was a link), is the three
+custom-auth steps in one function. Cognito never hands a password back, so once the
+emailed code has confirmed an address Django has nothing to sign the customer in with
+-- and for a while verification ended on the sign-in form, one screen short of the car
+they had come from. The custom auth flow is the one way Cognito issues tokens without
+a password: the trigger defines a single challenge, "present the code", and checks the
+answer against the `PENDING#<email>` item, read by the signing-in address and compared
+as a hash. Django answers it with `AdminInitiateAuth` immediately after confirming the
+address and before deleting the item. Knowing the code already proved the address;
+letting it also open the session adds no new secret.
 
 `ALLOW_CUSTOM_AUTH` is therefore enabled on the customer app client, which a browser
 can reach with the public client id. That is acceptable because the flow can only ever
-ask for the link token -- the trigger never issues a password challenge, and there is a
-test for that -- so the one person who can pass it is the one holding the email.
+ask for the code -- the trigger never issues a password challenge, and there is a test
+for that -- and Django has already refused five wrong ones before it ever asks.
 
 **Adding it was a stack update**, the same command as step 1 of the cutover:
 

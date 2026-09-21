@@ -343,3 +343,14 @@
   color: var(--road);
   cursor: not-allowed;
 }
+
+/* The six-digit code: big and spaced, so a person reading it off a phone can check
+   it against the box at a glance. Six characters wide, not the form's width -- a box
+   that looks like it wants a sentence invites one. */
+.authform__code {
+  max-width: 11ch;
+  font-size: var(--step-2);
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-align: center;
+}

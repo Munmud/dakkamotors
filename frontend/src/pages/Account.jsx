@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import SlotPicker from "../components/SlotPicker";
 import { formatSlotFull } from "../lib/datetime";
 import { useAuth } from "../lib/AuthContext";
+import VerifyCode from "../components/VerifyCode";
 import {
   cancelBooking,
   errorMessage,
@@ -15,7 +16,6 @@ import {
   register,
   rescheduleBooking,
   updateProfile,
-  resendVerification,
 } from "../lib/auth";
 import { phoneDisplay } from "../lib/format";
 
@@ -143,7 +143,6 @@ function AuthForm({ mode, onDone, next }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [sentTo, setSentTo] = useState(null);
-  const [resent, setResent] = useState(false);
 
   const set = (field) => (event) =>
     setValues((current) => ({ ...current, [field]: event.target.value }));
@@ -154,7 +153,7 @@ function AuthForm({ mode, onDone, next }) {
     setError(null);
     try {
       if (registering) {
-        // No account exists yet; the link in the email is what creates it.
+        // No account exists yet; the code in the email is what creates it.
         await register({ ...values, next, language: i18n.language });
         setSentTo(values.email);
       } else {
@@ -168,27 +167,9 @@ function AuthForm({ mode, onDone, next }) {
     }
   }
 
-  async function resend() {
-    setResent(false);
-    try {
-      await resendVerification(sentTo);
-    } finally {
-      setResent(true);
-    }
-  }
-
-  if (sentTo) {
-    return (
-      <section className="authcard">
-        <h1 className="section__title">{t("auth.checkEmail")}</h1>
-        <p className="state__body">{t("auth.sentTo", { email: sentTo })}</p>
-        <button type="button" className="btn btn--quiet" onClick={resend}>
-          {t("auth.resend")}
-        </button>
-        {resent && <p className="state__body">{t("auth.resent")}</p>}
-      </section>
-    );
-  }
+  // The code screen replaces the form in place: same page, same `next`, and the
+  // customer never leaves the tab they were asked to sign up in.
+  if (sentTo) return <VerifyCode email={sentTo} next={next} />;
 
   return (
     <section className="authcard">

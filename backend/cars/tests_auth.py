@@ -3,7 +3,7 @@
 Replaces the classes deleted from `tests.py` -- they asserted Django's auth internals
 (`User.objects`, `PendingRegistration`, `check_password`, the session), none of which the
 app uses any more. What they were *protecting* is asserted here against the real
-endpoints: no usable account until the link is clicked, the raw token never stored, one
+endpoints: no usable account until the code is typed, the raw code never stored, one
 answer for every sign-in failure, the address not editable, and a reset link that dies
 the moment the password changes.
 """
@@ -49,9 +49,19 @@ class AuthFlowTestCase(CognitoBackend, DynamoReset, ClearsThrottleMixin, SimpleT
         return response
 
     def link_token(self):
-        """The raw token out of the email, which is the only place it exists."""
+        """The raw token out of a reset email, which is the only place it exists."""
         body = self.sent[-1]["text"]
         return body.split("token=")[1].split()[0].strip()
+
+    def code(self):
+        """The six digits out of the sign-up email, which is the only place they are."""
+        body = self.sent[-1]["text"]
+        return body.split("code: ")[1].split()[0].strip()
+
+    def verify(self, code=None, email="new@example.com"):
+        return self.client.post("/api/auth/verify/",
+                                {"email": email, "code": code or self.code()},
+                                content_type="application/json")
 
     def sign_in(self, email="new@example.com", password="simple"):
         return self.client.post("/api/auth/login/",
@@ -94,13 +104,16 @@ class RegistrationTests(AuthFlowTestCase):
         self.register()
         self.assertEqual(self.client.get("/api/auth/me/").status_code, 403)
 
-    def test_the_link_is_emailed_and_only_its_hash_is_stored(self):
+    def test_the_code_is_emailed_and_only_its_hash_is_stored(self):
         self.register()
 
-        raw = self.link_token()
+        raw = self.code()
         pending = auth_store.find_registration("new@example.com")
 
         self.assertEqual(self.recipients(self.sent[-1]), ["new@example.com"])
+        self.assertRegex(raw, r"^\d{6}$")
+        self.assertIn(raw, self.sent[-1]["subject"])
+        self.assertNotIn("token=", self.sent[-1]["text"])
         self.assertNotEqual(pending.token_hash, raw)
         self.assertEqual(pending.token_hash, auth_store.hash_token(raw))
 
@@ -127,14 +140,16 @@ class RegistrationTests(AuthFlowTestCase):
     def test_registering_twice_replaces_the_unconfirmed_attempt(self):
         """A typo on the first try must not lock the address out for three days."""
         self.register()
-        first = self.link_token()
+        first = self.code()
 
         self.register()
-        second = self.link_token()
+        second = self.code()
 
-        self.assertNotEqual(first, second)
-        self.assertIsNone(auth_store.registration_for_token(first))
-        self.assertIsNotNone(auth_store.registration_for_token(second))
+        # Codes are six digits, so two draws can collide; what matters is that the
+        # first no longer opens the sign-up, whatever the second happens to be.
+        self.assertIsNotNone(auth_store.check_code("new@example.com", second))
+        if first != second:
+            self.assertIsNone(auth_store.check_code("new@example.com", first))
 
     def test_a_short_password_is_refused_with_a_reason(self):
         response = self.register(password="abc")
@@ -172,9 +187,7 @@ class VerificationTests(AuthFlowTestCase):
     def test_the_link_confirms_the_account(self):
         self.register()
 
-        response = self.client.post("/api/auth/verify/",
-                                    {"token": self.link_token()},
-                                    content_type="application/json")
+        response = self.verify()
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -187,9 +200,7 @@ class VerificationTests(AuthFlowTestCase):
         the customer lands signed in rather than one screen short of it."""
         self.register()
 
-        response = self.client.post("/api/auth/verify/",
-                                    {"token": self.link_token()},
-                                    content_type="application/json")
+        response = self.verify()
 
         body = response.json()
         self.assertTrue(body["signed_in"])
@@ -204,9 +215,7 @@ class VerificationTests(AuthFlowTestCase):
         back to the sign-in form. A confirmed account is never lost to a convenience."""
         with mock.patch.object(cognito, "sign_in_with_link", return_value=None):
             self.register()
-            response = self.client.post("/api/auth/verify/",
-                                        {"token": self.link_token()},
-                                        content_type="application/json")
+            response = self.verify()
 
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["signed_in"])
@@ -214,54 +223,82 @@ class VerificationTests(AuthFlowTestCase):
         self.assertEqual(self.client.get("/api/auth/me/").status_code, 403)
         self.assertEqual(cognito.status_of("new@example.com"), "CONFIRMED")
 
-    def test_the_sign_in_is_attempted_while_the_token_still_exists(self):
-        """The trigger recognises the token by reading the pending item, so the
-        sign-in has to happen before `finish_registration` deletes it."""
+    def test_the_sign_in_is_attempted_while_the_pending_item_still_exists(self):
+        """The trigger recognises the code by reading the pending item, so the
+        sign-in has to happen before `finish_registration` deletes it -- and it is
+        handed the code, which is what the trigger will hash and compare."""
         seen = {}
 
         def stand_in(*, email, raw_token):
-            seen["pending"] = auth_store.registration_for_token(raw_token)
+            seen["pending"] = auth_store.find_registration(email)
+            seen["answer"] = raw_token
             return None
 
         with mock.patch.object(cognito, "sign_in_with_link", stand_in):
             self.register()
-            self.client.post("/api/auth/verify/", {"token": self.link_token()},
-                             content_type="application/json")
+            code = self.code()
+            self.verify(code)
 
         self.assertIsNotNone(seen["pending"])
         self.assertEqual(seen["pending"].email, "new@example.com")
+        self.assertEqual(seen["answer"], code)
 
     def test_the_customer_can_sign_in_afterwards(self):
         self.register()
-        self.client.post("/api/auth/verify/", {"token": self.link_token()},
-                         content_type="application/json")
+        self.verify()
 
         response = self.sign_in()
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["email"], "new@example.com")
 
-    def test_the_same_link_cannot_be_used_twice(self):
+    def test_the_same_code_cannot_be_used_twice(self):
         self.register()
-        token = self.link_token()
-        self.client.post("/api/auth/verify/", {"token": token},
-                         content_type="application/json")
+        code = self.code()
+        self.verify(code)
 
-        again = self.client.post("/api/auth/verify/", {"token": token},
-                                 content_type="application/json")
+        again = self.verify(code)
 
         self.assertEqual(again.status_code, 400)
 
-    def test_an_unknown_link_is_refused(self):
-        response = self.client.post("/api/auth/verify/", {"token": "made-up"},
-                                    content_type="application/json")
+    def test_a_wrong_code_is_refused_and_counted(self):
+        self.register()
+        wrong = "000000" if self.code() != "000000" else "111111"
+
+        response = self.verify(wrong)
+
         self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"],
+                         "That code is not right. Check the email and try again.")
+        self.assertEqual(auth_store.find_registration("new@example.com").attempts, 1)
+        self.assertEqual(self.client.get("/api/auth/me/").status_code, 403)
+
+    def test_five_wrong_codes_kill_the_sign_up(self):
+        """A million-code space is only safe if a guess costs something."""
+        self.register()
+        right = self.code()
+        wrong = "000000" if right != "000000" else "111111"
+
+        for _ in range(auth_store.MAX_ATTEMPTS - 1):
+            self.assertEqual(self.verify(wrong).status_code, 400)
+        last = self.verify(wrong)
+
+        self.assertEqual(last.status_code, 400)
+        self.assertIn("Too many tries", last.json()["detail"])
+        self.assertIsNone(auth_store.find_registration("new@example.com"))
+        # Even the right code is dead now; they register again for a new one.
+        self.assertEqual(self.verify(right).status_code, 400)
+
+    def test_a_code_for_an_unknown_address_is_refused_the_same_way(self):
+        response = self.verify("123456", email="nobody@example.com")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"],
+                         "That code is not right. Check the email and try again.")
 
     def test_they_are_returned_to_the_booking_they_started(self):
         self.register(next="/cars/a-car/test-drive")
 
-        body = self.client.post("/api/auth/verify/", {"token": self.link_token()},
-                                content_type="application/json").json()
+        body = self.verify().json()
 
         self.assertEqual(body["next"], "/cars/a-car/test-drive")
 
@@ -272,16 +309,13 @@ class VerificationTests(AuthFlowTestCase):
                 auth_store.discard_registration("new@example.com")
                 self.register(next=hostile)
 
-                body = self.client.post("/api/auth/verify/",
-                                        {"token": self.link_token()},
-                                        content_type="application/json").json()
+                body = self.verify().json()
 
                 self.assertEqual(body["next"], "/account")
 
     def test_verifying_creates_the_counter_the_booking_limit_uses(self):
         self.register()
-        self.client.post("/api/auth/verify/", {"token": self.link_token()},
-                         content_type="application/json")
+        self.verify()
 
         attrs = cognito.attributes_of("new@example.com")
         customer = customer_store.find(attrs["sub"])
@@ -289,9 +323,9 @@ class VerificationTests(AuthFlowTestCase):
         self.assertIsNotNone(customer)
         self.assertEqual(customer.active_bookings, 0)
 
-    def test_resending_sends_a_fresh_link(self):
+    def test_resending_sends_a_fresh_code_and_retires_the_old_one(self):
         self.register()
-        first = self.link_token()
+        first = self.code()
 
         with mock.patch("cars.mail.boto3.client") as client:
             self.client.post("/api/auth/resend/", {"email": "new@example.com"},
@@ -299,7 +333,10 @@ class VerificationTests(AuthFlowTestCase):
             calls = client.return_value.put_object.call_args_list
         self.sent = [json.loads(c.kwargs["Body"].decode("utf-8")) for c in calls]
 
-        self.assertNotEqual(self.link_token(), first)
+        second = self.code()
+        self.assertIsNotNone(auth_store.check_code("new@example.com", second))
+        if first != second:
+            self.assertIsNone(auth_store.check_code("new@example.com", first))
 
     def test_resending_for_an_unknown_address_says_the_same_thing_and_emails_nobody(self):
         with mock.patch("cars.mail.boto3.client") as client:

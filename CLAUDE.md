@@ -80,16 +80,30 @@ Django hash on a customer's first sign-in. `tests_user_migration.py` extracts th
 source from the template and tests it against hashes Django actually produces, so the
 thing that will run is the thing that was checked.
 
-**The verification link signs the customer in.** Cognito never hands a password back,
-so a second inline trigger, `LinkAuthFunction`, runs the pool's custom auth flow with
-one challenge: present the link token. `cognito.sign_in_with_link` answers it right
-after `confirm` and **before** `finish_registration`, because the trigger recognises
-the token by reading the `PENDTOK#` item itself -- it builds that key by hand, as a
-Lambda cannot import `store/keys.py`, and `tests_link_auth.py` holds the two spellings
-together. A refused sign-in still verifies; the response says `signed_in: false` and
-the app falls back to the sign-in form. `ALLOW_CUSTOM_AUTH` on the customer client is
-deliberate and the template comment says why it is safe; do not add a password
-challenge to that trigger.
+**Sign-up is confirmed by a six-digit code typed into the page, and the code signs
+the customer in.** A link was tried first and lost the page: opened in the phone's mail
+app, it left the laptop tab behind. The code is checked against the *address*
+(`store/auth.check_code`, `PENDING#<email>`), never looked up by itself -- six digits
+are not unique across customers -- and a wrong one counts, five and the sign-up is
+dead (`MAX_ATTEMPTS`). Cognito never hands a password back, so a second inline
+trigger, `LinkAuthFunction`, runs the pool's custom auth flow with one challenge:
+present the code. `cognito.sign_in_with_link` answers it right after `confirm` and
+**before** `finish_registration`, because the trigger recognises the code by reading
+the same pending item -- it builds that key by hand, as a Lambda cannot import
+`store/keys.py`, and `tests_link_auth.py` holds the two spellings together. A refused
+sign-in still verifies; the response says `signed_in: false` and the app falls back
+to the sign-in form. `ALLOW_CUSTOM_AUTH` on the customer client is deliberate and the
+template comment says why it is safe; do not add a password challenge to that trigger.
+`PendingToken`/`PENDTOK#` are no longer written and exist only to delete link-era items.
+
+**A guest is asked to sign up before the calendar**, not after picking a time, and
+the register form shows the code screen in place with `next` intact, so they come
+back to the page they were on, signed in.
+
+**The staff masthead counts what is waiting** -- unanswered questions, open requests,
+bookings awaiting confirmation -- through the `cars.staff.context.attention` context
+processor: three Queries per staff page, uncached because a count that lags lies, and
+each the same definition the section's own page uses.
 
 Ids are strings, so URL patterns take `<str:pk>`. A slot's id is derived from (schedule,
 start time) -- that is what makes materialising slots idempotent, and why two fixtures
