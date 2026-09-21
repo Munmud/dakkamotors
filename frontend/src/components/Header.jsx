@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import NotificationBell from "./NotificationBell";
@@ -29,13 +29,31 @@ function LanguageSwitch() {
 function AccountLink() {
   const { t } = useTranslation();
   const { customer, state } = useAuth();
+  const { pathname } = useLocation();
   // Nothing until the session check finishes, so a signed-in visitor never sees
   // "Sign in" flash first.
   if (state === "unknown") return null;
+  if (customer) {
+    return (
+      <Link className="masthead__account" to="/account">
+        {t("booking.myBookings")}
+      </Link>
+    );
+  }
+  // Both ways in, on every page. Most people arriving here have no account yet, and a
+  // lone "Sign in" reads as a door for members. `next` is the page they are on, so a
+  // customer who signs in from a car comes back to that car -- except from the
+  // account pages themselves, which would only loop.
+  const next = pathname.startsWith("/account") ? "" : `?next=${encodeURIComponent(pathname)}`;
   return (
-    <Link className="masthead__account" to="/account">
-      {customer ? t("booking.myBookings") : t("auth.signIn")}
-    </Link>
+    <>
+      <Link className="masthead__account" to={`/account/login${next}`}>
+        {t("auth.signIn")}
+      </Link>
+      <Link className="masthead__account masthead__account--primary" to={`/account/register${next}`}>
+        {t("auth.signUp")}
+      </Link>
+    </>
   );
 }
 
@@ -113,6 +131,11 @@ export default function Header() {
           <span className="brandmark__word">{t("brand")}</span>
         </Link>
         <div className="masthead__tools">
+          {/* The monogram already goes home, but a monogram is a logo, not a word:
+              a first-time visitor on a car page cannot be expected to know that. */}
+          <Link className="masthead__account masthead__home" to="/">
+            {t("nav.home")}
+          </Link>
           <NotificationBell />
           <AdminLink />
           <AccountLink />

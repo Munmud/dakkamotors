@@ -1,6 +1,7 @@
 {
   "brand": "Dakka Motors",
   "nav": {
+    "home": "Home",
     "back": "All cars",
     "admin": "Admin"
   },
@@ -94,7 +95,8 @@
     "codeHelp": "It works for three days. Check the spam folder if it does not arrive in a minute.",
     "verify": "Confirm",
     "codeWrong": "That code is not right. Check the email and try again.",
-    "enterEmail": "The email you signed up with"
+    "enterEmail": "The email you signed up with",
+    "signUp": "Sign up"
   },
   "booking": {
     "book": "Book a test drive",

@@ -54,6 +54,22 @@
   color: #fff;
 }
 
+/* The invitation of the pair: a pill beside the plain "Sign in", white on the ink band.
+   Never the plate yellow -- on a car page the one yellow action is the booking button,
+   and a yellow control in the masthead would compete with it on every page. */
+.masthead__account--primary {
+  padding: 0 0.85rem;
+  border: 1px solid #c3ccd2;
+  border-radius: 999px;
+  color: #fff;
+}
+
+.masthead__account--primary:hover,
+.masthead__account--primary:focus-visible {
+  border-color: #fff;
+  background: #ffffff1a;
+}
+
 .langswitch {
   display: inline-flex;
   border: 1px solid #44555f;

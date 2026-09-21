@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { formatSlotFull } from "../lib/datetime";
+import { useAuth } from "../lib/AuthContext";
 import { useNotifications } from "../lib/NotificationContext";
 
 function BellIcon() {
@@ -45,6 +46,7 @@ export default function NotificationBell() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { items, unread, state, markAllRead } = useNotifications();
+  const { customer } = useAuth();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const buttonRef = useRef(null);
@@ -70,7 +72,10 @@ export default function NotificationBell() {
 
   // Nothing for anonymous visitors, and nothing during the session check — the same
   // reasoning as AccountLink, so a signed-in visitor never sees the wrong thing first.
-  if (state !== "loaded") return null;
+  // The customer check is belt and braces on top of the provider's own state: a fetch
+  // still in flight when somebody signs out would otherwise land as "loaded" a moment
+  // after the session is gone, and a guest would be looking at a bell.
+  if (!customer || state !== "loaded") return null;
 
   function toggle() {
     const next = !open;
