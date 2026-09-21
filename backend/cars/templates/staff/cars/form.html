@@ -77,7 +77,7 @@ matter will not fit through it, which is the whole reason the direct path exists
         </ul>
       {% endif %}
       <div class="scroll">
-        <table class="stack">
+        <table class="stack"{% if not spec_formset.forms %} hidden{% endif %}>
         <thead>
           <tr>
             <th>Label (English)</th><th>Label (Japanese)</th>
@@ -101,6 +101,7 @@ matter will not fit through it, which is the whole reason the direct path exists
         <button type="button" class="secondary" hidden
                 data-formset-add="{{ spec_formset.prefix }}">+ Add a detail</button>
       </div>
+      <noscript><p class="help">Turn on JavaScript to add rows here. If it was working a moment ago, wait a few seconds and reload -- a deploy is finishing.</p></noscript>
     </div>
 
     {% comment %}
@@ -209,7 +210,7 @@ matter will not fit through it, which is the whole reason the direct path exists
         <h3>Add photos</h3>
         {{ image_formset.management_form }}
         <div class="scroll">
-          <table>
+          <table{% if not image_formset.forms %} hidden{% endif %}>
           <thead><tr><th>Photo</th><th>Card photo</th></tr></thead>
           <tbody data-formset-rows="{{ image_formset.prefix }}">
             {% for subform in image_formset %}
@@ -223,17 +224,23 @@ matter will not fit through it, which is the whole reason the direct path exists
         </template>
         <div class="actions">
           <button type="button" class="secondary" hidden
-                  data-formset-add="{{ image_formset.prefix }}">+ Add another photo</button>
+                  data-formset-add="{{ image_formset.prefix }}">+ Add a photo</button>
         </div>
+        <noscript><p class="help">Turn on JavaScript to add rows here. If it was working a moment ago, wait a few seconds and reload -- a deploy is finishing.</p></noscript>
 
         <h3>Add videos</h3>
         {{ video_formset.management_form }}
+        {% comment %}
+          The format note lives here rather than in the first row, because there is no
+          first row until somebody asks for one.
+        {% endcomment %}
+        <p class="help">{{ video_formset.empty_form.video.help_text }}</p>
         <div class="scroll">
-          <table>
+          <table{% if not video_formset.forms %} hidden{% endif %}>
           <thead><tr><th>Video</th></tr></thead>
           <tbody data-formset-rows="{{ video_formset.prefix }}">
             {% for subform in video_formset %}
-              {% include "staff/cars/_video_row.html" with subform=subform show_help=forloop.first %}
+              {% include "staff/cars/_video_row.html" %}
             {% endfor %}
           </tbody>
           </table>
@@ -243,8 +250,9 @@ matter will not fit through it, which is the whole reason the direct path exists
         </template>
         <div class="actions">
           <button type="button" class="secondary" hidden
-                  data-formset-add="{{ video_formset.prefix }}">+ Add another video</button>
+                  data-formset-add="{{ video_formset.prefix }}">+ Add a video</button>
         </div>
+        <noscript><p class="help">Turn on JavaScript to add rows here. If it was working a moment ago, wait a few seconds and reload -- a deploy is finishing.</p></noscript>
       </div>
 
     </div>

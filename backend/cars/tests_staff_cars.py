@@ -64,12 +64,12 @@ def formset_fields(images=0, videos=0, specs=0):
     error rather than a validation error, so leaving one out fails every posting test at
     once with a message about formsets instead of about the car.
 
-    The floors are "at least what the page renders", not the exact counts. Posting more
-    blank rows than the page has is harmless -- they clean to blanks that `specs.clean`
-    drops -- so these do not have to move every time an `extra` does.
+    A floor of one on each, though the page renders none: a test can post its first row
+    as `images-0-image` without also declaring the count. Over-posting a blank row is
+    harmless -- it cleans to nothing and `_apply_images` skips a row with no file.
     """
     return {
-        "images-TOTAL_FORMS": str(max(images, 3)),
+        "images-TOTAL_FORMS": str(max(images, 1)),
         "images-INITIAL_FORMS": "0",
         "images-MIN_NUM_FORMS": "0",
         "images-MAX_NUM_FORMS": "1000",
@@ -354,11 +354,26 @@ class StaffCarPhotoTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.assertEqual(image_store.for_car(self.car.car_id), [])
 
     def test_the_add_page_offers_the_media_inputs(self):
+        """The means of adding a row, not a row.
+
+        What the page renders is a template row for the script to clone and a button
+        that clones it. The first file input exists only once somebody has asked for it.
+        """
         page = self.client.get(reverse("staff:car-add"))
 
-        self.assertContains(page, "images-0-image")
-        self.assertContains(page, "videos-0-video")
+        self.assertContains(page, "images-__prefix__-image")
+        self.assertContains(page, "videos-__prefix__-video")
+        self.assertContains(page, 'data-formset-add="images"')
+        self.assertContains(page, 'data-formset-add="videos"')
         self.assertNotContains(page, "Nothing in the gallery yet")
+
+    def test_no_blank_media_rows_are_rendered(self):
+        """Three empty file inputs on a car with no photos were never a feature."""
+        for name in ("staff:car-add",):
+            page = self.client.get(reverse(name))
+            self.assertNotContains(page, "images-0-image")
+            self.assertNotContains(page, "videos-0-video")
+            self.assertNotContains(page, "specs-0-label_en")
 
     def test_uploading_a_photo_attaches_it_and_builds_its_copies(self):
         response = self.post(images={"images-0-image": a_jpeg()})
@@ -490,17 +505,16 @@ class StaffCarSpecTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.staff, _ = make_staff()
         sign_in(self.client, self.staff, staff=True)
 
-    def test_the_add_page_renders_one_blank_row(self):
-        """One row, not three.
+    def test_the_add_page_renders_no_blank_rows(self):
+        """A row appears when asked for, and not before.
 
-        Three rows nobody asked for were also the whole allowance, because there was no
-        way to ask for a fourth -- which is how a cap of forty came to read as a cap of
-        three.
+        The blank rows were never a feature; they were the allowance from before the
+        button existed, and three of them were the most anybody could add per save.
         """
         page = self.client.get(reverse("staff:car-add"))
 
-        self.assertContains(page, "specs-0-label_en")
-        self.assertNotContains(page, "specs-1-label_en")
+        self.assertNotContains(page, "specs-0-label_en")
+        self.assertContains(page, "specs-__prefix__-label_en")
 
     def test_the_spec_table_carries_a_template_row(self):
         """What the "+ Add a detail" button clones.
@@ -732,14 +746,19 @@ class StaffCarVideoTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.assertEqual(video_store.for_car(self.car.car_id), [])
 
     def test_the_edit_page_lists_photos_and_videos_together(self):
-        attach_photo(self.car, 900, 600)
-        attach_video(self.car, "shown.mp4")
+        photo = attach_photo(self.car, 900, 600)
+        clip = attach_video(self.car, "shown.mp4")
 
         page = self.client.get(self.url)
 
         self.assertContains(page, "Gallery")
-        self.assertContains(page, "videos-0-video")
-        self.assertContains(page, "images-0-image")
+        # The attached media, in the gallery table; and the means of adding more.
+        self.assertContains(page, f"video-{clip.video_id}-delete")
+        self.assertContains(page, f"image-{photo.image_id}-delete")
+        self.assertContains(page, 'data-formset-add="videos"')
+        self.assertContains(page, 'data-formset-add="images"')
+        self.assertNotContains(page, "videos-0-video")
+        self.assertNotContains(page, "images-0-image")
 
 
 @override_settings(**MAIL_SETTINGS)

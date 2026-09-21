@@ -51,6 +51,11 @@
     }
     if (!added) return false;
 
+    // A table with no rows ships hidden, so its header does not sit on the page as a
+    // stray line of labels above nothing. The first row is what makes it a table.
+    var table = body.closest("table");
+    if (table) table.hidden = false;
+
     // Only once the row is actually in the document. A management form claiming a row
     // that is not on the page posts an index Django cannot match to any input.
     total.value = index + 1;

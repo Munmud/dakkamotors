@@ -35,23 +35,26 @@ from ..store.errors import ConditionFailed, NotFound
 from ..store.models import Car
 from .auth import requires, staff_required
 
-ImageFormSet = formset_factory(CarImageForm, extra=3, can_delete=True)
-#: One extra row, not three: a video is a rare addition next to a batch of photos, and
-#: three empty file inputs for it made the panel read as though videos were expected.
-VideoFormSet = formset_factory(CarVideoForm, extra=1, can_delete=True)
-#: One blank row, not three.
+#: No blank rows on any of the three. A row appears when its "+ Add" button is pressed
+#: and not before -- three empty file inputs on a page that had no photos yet were never
+#: a feature, they were the allowance from before the button existed, and they made a
+#: form for one car open with a screen of things to skip past.
 #:
-#: Three rows nobody asked for were pretending to be a feature, and they were also the
-#: whole allowance: with no way to ask for more, three was the most anybody could add
-#: per save, which is why a cap of twenty read as a cap of three. The "+ Add a detail"
-#: button asks for a row when there is something to put in it.
-#:
-#: `max_num` is here to publish the ceiling through the management form's MAX_NUM_FORMS
-#: field, which `formset-rows.js` reads to know when to stop. `validate_max` stays False
-#: -- stated rather than left to the default, because it matters: `specs.clean` is the
-#: one place that refuses row 41, and turning this on would add a second wording for the
+#: The trade-off is stated here because it is real: the add buttons ship `hidden` and
+#: `formset-rows.js` reveals them, so a browser with no JavaScript now has no way to
+#: attach a photo at all. That was the reason photos kept three rows for as long as
+#: they did. In practice the no-JS case is the few-second window on each deploy where
+#: collectstatic has not yet caught up with zappa update; the templates say so in a
+#: <noscript> beside each button rather than leaving somebody staring at a page with
+#: nowhere to put a file.
+ImageFormSet = formset_factory(CarImageForm, extra=0, can_delete=True)
+VideoFormSet = formset_factory(CarVideoForm, extra=0, can_delete=True)
+#: `max_num` publishes the ceiling through the management form's MAX_NUM_FORMS field,
+#: which `formset-rows.js` reads to know when to stop. `validate_max` stays False --
+#: stated rather than left to the default, because it matters: `specs.clean` is the one
+#: place that refuses row 41, and turning this on would add a second wording for the
 #: same rule.
-SpecFormSet = formset_factory(CarSpecForm, extra=1, max_num=spec_rules.MAX_PAIRS,
+SpecFormSet = formset_factory(CarSpecForm, extra=0, max_num=spec_rules.MAX_PAIRS,
                               validate_max=False, can_delete=True)
 
 
