@@ -45,11 +45,6 @@ function Footer() {
           <section className="footer__col">
             <h2 className="footer__head">{t("footer.callPrompt")}</h2>
             <CallButton onInk />
-            <p className="footer__hours">
-              {t("footer.hoursLabel")}
-              <br />
-              <span className="u-nums">{t("footer.hours")}</span>
-            </p>
           </section>
         </div>
 

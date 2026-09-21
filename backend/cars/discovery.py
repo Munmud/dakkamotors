@@ -91,7 +91,6 @@ def llms_txt(request):
         f"- Phone: {b['telephone_display']} (international: {b['telephone']})",
         f"- Address: {b['street_address']}, {b['locality']}, {b['region']} "
         f"{b['postal_code']}, Japan",
-        f"- Opening hours: every day, {b['opens']}–{b['closes']} JST",
         "- Languages: English and Japanese",
         "",
         "## How buying works",

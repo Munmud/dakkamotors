@@ -181,14 +181,12 @@ def _footer(language):
     if language == "ja":
         name = b["name_ja"]
         address = f"〒{b['postal_code']} {b['region_ja']}{b['locality_ja']}{b['street_address_ja']}"
-        hours = f"営業時間 {b['opens']}〜{b['closes']}"
     else:
         name = b["name"]
         address = (
             f"{b['street_address']}, {b['locality']}, "
             f"{b['region']} {b['postal_code']}, Japan"
         )
-        hours = f"Open {b['opens']}–{b['closes']} daily"
 
     return f"""
 <tr>
@@ -196,7 +194,7 @@ def _footer(language):
     <p style="margin:0 0 6px;font-family:{FONT};font-size:13px;font-weight:bold;
        color:{INK};">{name}</p>
     <p style="margin:0 0 10px;font-family:{FONT};font-size:12px;line-height:1.7;
-       color:{MUTED};">{address}<br>{hours}</p>
+       color:{MUTED};">{address}</p>
     <p style="margin:0;font-family:{FONT};font-size:12px;line-height:1.7;color:{MUTED};">
       <a href="tel:{b['telephone']}" style="color:{INK_SOFT};text-decoration:none;">
         {b['telephone_display']}</a>

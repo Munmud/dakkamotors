@@ -29,8 +29,10 @@ BUSINESS = {
     # from the Google Business Profile listing once it exists.
     "latitude": "",
     "longitude": "",
-    "opens": "06:00",
-    "closes": "24:00",
+    # No opening hours. There were some -- 06:00 to 24:00, every day -- and they were
+    # published in four places before anyone confirmed them. Hours belong here only
+    # once the shop has said what they are; until then a claim in structured data is a
+    # claim Google repeats as fact.
 }
 
 #: Where customers realistically come from. Hamura sits in western Tokyo, so the
@@ -55,7 +57,7 @@ def _postal_address():
 
 
 def dealer_schema():
-    """AutoDealer: who the business is, where it is, and when it is open.
+    """AutoDealer: who the business is and where it is.
 
     Emitted on every page. `AutoDealer` is a LocalBusiness subtype, so it carries the
     local-search signals while also telling an engine what the business actually sells.
@@ -68,17 +70,6 @@ def dealer_schema():
         "url": SITE_URL,
         "telephone": BUSINESS["telephone"],
         "address": _postal_address(),
-        "openingHoursSpecification": [
-            {
-                "@type": "OpeningHoursSpecification",
-                "dayOfWeek": [
-                    "Monday", "Tuesday", "Wednesday", "Thursday",
-                    "Friday", "Saturday", "Sunday",
-                ],
-                "opens": BUSINESS["opens"],
-                "closes": BUSINESS["closes"],
-            }
-        ],
         "areaServed": [
             {"@type": "City", "name": area} for area in SERVICE_AREAS
         ],

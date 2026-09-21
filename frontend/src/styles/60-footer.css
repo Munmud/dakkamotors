@@ -59,11 +59,6 @@
   justify-self: center;
 }
 
-.footer__hours {
-  margin: 0;
-  line-height: 1.7;
-}
-
 .footer__prompt {
   margin: 0;
   font-size: var(--step-1);
