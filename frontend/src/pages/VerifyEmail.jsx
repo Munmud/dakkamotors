@@ -50,7 +50,7 @@ export default function VerifyEmail() {
         setState("failed");
         setError(errorMessage(err, t("auth.verifyFailed")));
       });
-  }, [navigate, refresh, t]);
+  }, [navigate, t]);
 
   if (state === "failed") {
     return (
