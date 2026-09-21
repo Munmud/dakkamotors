@@ -53,7 +53,7 @@ if (missingFromJa.length || missingFromEn.length) {
 }
 
 /** Sections reached as `t(`prefix.${variable}`)`, which no static check can resolve. */
-const DYNAMIC = ["status", "language", "notifications", "spec"];
+const DYNAMIC = ["status", "language", "notifications", "spec", "fuel"];
 
 function sourceFiles(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

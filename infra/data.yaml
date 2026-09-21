@@ -23,6 +23,11 @@ Parameters:
     Default: dakkamotors-staff
     Description: Prefix for the free Cognito hosted-UI domain. Must be globally unique.
 
+  DistributionId:
+    Type: String
+    Default: E2IW2C27CUGP1D
+    Description: The CloudFront distribution from the edge stack, for invalidations.
+
   LambdaRoleName:
     Type: String
     Default: dakkamotors-production-ZappaLambdaExecutionRole
@@ -171,6 +176,15 @@ Resources:
           - Effect: Allow
             Action: kms:Decrypt
             Resource: !Sub arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/aws/ssm
+
+          # A staff save tells the edge to forget the car (cars/cdn.py). The public
+          # pages are cached for up to fifteen minutes with the car's JSON embedded,
+          # which is how a status change came to stay invisible for a quarter of an
+          # hour. The distribution is in the edge stack in us-east-1, so this is an
+          # id rather than a !Ref; docs/INFRA.md lists it.
+          - Effect: Allow
+            Action: cloudfront:CreateInvalidation
+            Resource: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${DistributionId}
 
   # --------------------------------------------------- password carry-over ---
   #

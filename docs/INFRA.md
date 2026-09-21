@@ -298,6 +298,20 @@ Then the project's own dead weight:
   thing in the account that grew without bound.
 * `remote_env` retired in favour of `config/ssm.py` -- see above.
 
+### Staff saves invalidate the CDN
+
+`PageCachePolicy` keeps `/cars/<slug>` at the edge for five minutes by default and up
+to fifteen, with the car's JSON embedded in the page, and `ApiCachePolicy` keeps
+`/api/cars*` for one to five. A status changed in the staff pages could stay invisible
+for a quarter of an hour, and did. `cars/cdn.py` now asks CloudFront to forget the
+car's page and JSON, the listing and the home page after every staff create, save and
+delete. Fire-and-forget: a lost invalidation means the old window, never a failed
+save. The grant is `cloudfront:CreateInvalidation` on the distribution in
+`BackendPolicy` (`infra/data.yaml`, parameter `DistributionId`); the id reaches the
+Lambda as `CLOUDFRONT_DISTRIBUTION_ID` in `zappa_settings.json`. The first thousand
+paths a month are free and a save spends six; a shop editing cars a few times a day
+stays well inside that.
+
 ### Still outstanding
 
 **Move derivative generation to a real asynchronous invoke** and delete the inline time

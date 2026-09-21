@@ -10,6 +10,7 @@ number.
 import io
 import pathlib
 import re
+from unittest import mock
 
 from django.contrib.staticfiles import finders
 from django.core.files.storage import default_storage
@@ -227,6 +228,46 @@ class StaffCarEditTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.assertEqual(
             ChassisGuard.get(keys.chassis_guard_pk("KEEP-1"), keys.GUARD).car_id,
             car.car_id)
+
+    def test_the_japanese_name_and_gasoline_round_trip(self):
+        car = make_car("JA-2")
+
+        self.client.post(reverse("staff:car-edit", args=[car.car_id]),
+                         {**car_fields(brand_ja="ダイハツ", model_name_ja="タント",
+                                       color_ja="パールホワイト", fuel_type="gasoline"),
+                          **formset_fields()}, follow=True)
+
+        saved = car_store.get(car.car_id)
+        self.assertEqual(saved.brand_ja, "ダイハツ")
+        self.assertEqual(saved.model_name_ja, "タント")
+        self.assertEqual(saved.color_ja, "パールホワイト")
+        self.assertEqual(saved.fuel_type, "gasoline")
+        self.assertEqual(saved.get_fuel_type_display(), "Gasoline")
+        self.assertEqual(saved.name_in("ja"), "2018 ダイハツ タント")
+        self.assertEqual(saved.name_in("en"), "2018 Daihatsu Tanto")
+
+    def test_saving_a_car_tells_the_edge_to_forget_it(self):
+        """The public page is cached with the car's JSON embedded, for up to fifteen
+        minutes. A status change that nobody could see for a quarter of an hour is the
+        bug this exists for; and a CDN that is down must not fail the save."""
+        car = make_car("CDN-1")
+
+        with mock.patch("cars.cdn.invalidate") as invalidate:
+            self.client.post(reverse("staff:car-edit", args=[car.car_id]),
+                             {**car_fields(status="reserved"), **formset_fields()},
+                             follow=True)
+        (paths,), _ = invalidate.call_args
+        self.assertIn(f"/cars/{car.slug}*", paths)
+        self.assertIn("/", paths)
+        self.assertIn("/api/cars/", paths)
+
+        with (mock.patch("cars.cdn.boto3.client", side_effect=RuntimeError("down")),
+              self.settings(CLOUDFRONT_DISTRIBUTION_ID="E123")):
+            response = self.client.post(
+                reverse("staff:car-edit", args=[car.car_id]),
+                {**car_fields(status="available"), **formset_fields()}, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(car_store.get(car.car_id).status, "available")
 
     def test_a_car_added_here_has_no_chassis_number(self):
         """The form does not ask for one, so a new car simply has none.

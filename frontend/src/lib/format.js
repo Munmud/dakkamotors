@@ -27,8 +27,30 @@ export function formatPrice(amount, locale) {
 }
 
 /** Full name of a car as one string: "2018 Daihatsu Tanto". */
-export function carTitle(car) {
-  return [car.manufacture_year, car.brand, car.model_name].filter(Boolean).join(" ");
+/**
+ * A car field with an optional Japanese twin: `brand` and `brand_ja`, `color` and
+ * `color_ja`. Unlike the `_en`/`_ja` pairs on specs, the bare field *is* the English
+ * -- it is the identifier the slug and the JSON-LD are built from -- so an English
+ * reader never sees the Japanese, and a Japanese reader sees it only when staff typed
+ * one. Falls back field by field: a Japanese make with no Japanese model reads
+ * "ダイハツ Tanto" rather than losing the model.
+ */
+export function carField(car, base, language) {
+  const ja = (car?.[`${base}_ja`] || "").trim();
+  return (language === "ja" && ja) || (car?.[base] ?? "");
+}
+
+/** Year, make and model in the reader's language. */
+export function carName(car, language) {
+  return [
+    car.manufacture_year,
+    carField(car, "brand", language),
+    carField(car, "model_name", language),
+  ].filter(Boolean).join(" ");
+}
+
+export function carTitle(car, language = "en") {
+  return carName(car, language);
 }
 
 /**

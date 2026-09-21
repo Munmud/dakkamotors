@@ -13,6 +13,10 @@ from django.db import models
 
 class FuelType(models.TextChoices):
     PETROL = "petrol", "Petrol"
+    # Beside Petrol rather than instead of it, at the owner's choice. The two are the
+    # same fuel; existing cars say "petrol", and the shop wanted the word its customers
+    # use available for new ones without a backfill.
+    GASOLINE = "gasoline", "Gasoline"
     DIESEL = "diesel", "Diesel"
     HYBRID = "hybrid", "Hybrid"
     ELECTRIC = "electric", "Electric"
@@ -48,6 +52,12 @@ class BookingStatus(models.TextChoices):
 
 #: Statuses that occupy a seat and count towards a customer's limit.
 ACTIVE_STATUSES = (BookingStatus.PENDING, BookingStatus.CONFIRMED)
+
+
+class RequestStatus(models.TextChoices):
+    """A car request is a lead. Open until somebody has dealt with it."""
+    OPEN = "open", "Open"
+    RESOLVED = "resolved", "Resolved"
 
 
 class QuestionLanguage(models.TextChoices):

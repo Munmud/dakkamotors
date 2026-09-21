@@ -20,6 +20,7 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 
+from .. import cdn
 from ..choices import DERIVATIVE_WIDTHS
 from ..forms import CarFilterForm, CarForm, CarImageForm, CarSpecForm, CarVideoForm
 from .. import specs as spec_rules
@@ -71,6 +72,7 @@ def _spec_rows(formset):
 EDITABLE = (
     "brand", "model_name", "manufacture_year", "fuel_type", "seat_capacity",
     "color", "price_jpy", "status", "description_en", "description_ja",
+    "brand_ja", "model_name_ja", "color_ja",
 )
 
 #: Blank means absent here, not empty.
@@ -212,6 +214,7 @@ def _create(request, form, imageset, videoset, specset):
         parts.append(f"Added {clips} video(s).")
     if not (added or clips):
         parts.append("Now add its photos and videos.")
+    cdn.invalidate(cdn.paths_for_car(car))
     messages.success(request, " ".join(parts))
     return redirect(reverse("staff:car-edit", args=[car.car_id]))
 
@@ -299,6 +302,10 @@ def _save(request, car):
         parts.append(f"Added {added} photo(s).")
     if clips:
         parts.append(f"Added {clips} video(s).")
+    # After every write above, so the edge refetches the car as it is now. This is
+    # what makes a status or price change show on the public page in seconds rather
+    # than in the cache policy's fifteen minutes.
+    cdn.invalidate(cdn.paths_for_car(car))
     messages.success(request, " ".join(parts))
     return redirect(reverse("staff:car-edit", args=[car.car_id]))
 
@@ -473,5 +480,6 @@ def _delete(request, car):
         video_store.delete(car.car_id, video.video_id)
 
     car_store.delete(car)
+    cdn.invalidate(cdn.paths_for_car(car))
     messages.success(request, f"Deleted {label}.")
     return redirect(reverse("staff:car-list"))

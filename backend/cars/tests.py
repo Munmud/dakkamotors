@@ -171,17 +171,43 @@ class ClearsThrottleMixin:
 
 
 class CarListApiTests(DynamoReset, SimpleTestCase):
-    def test_list_returns_only_available_cars(self):
-        make_car("AVAIL-1", status=CarStatus.AVAILABLE)
-        make_car("RESERVED-1", status=CarStatus.RESERVED)
+    def test_list_is_the_stock_available_first_and_never_sold(self):
+        """Reserved cars are stock -- somebody may still be deciding -- and for a year
+        the front page hid them because the listing asked for one status."""
+        reserved = make_car("RESERVED-1", status=CarStatus.RESERVED)
+        available = make_car("AVAIL-1", status=CarStatus.AVAILABLE)
         make_car("SOLD-1", status=CarStatus.SOLD)
 
         response = self.client.get(reverse("car-list"))
 
         self.assertEqual(response.status_code, 200)
-        chassis = {c["id"] for c in response.json()["results"]}
-        self.assertEqual(len(chassis), 1)
-        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual([c["id"] for c in response.json()["results"]],
+                         [available.car_id, reserved.car_id])
+        self.assertEqual(response.json()["count"], 2)
+
+    def test_the_sold_shelf_lists_sold_cars_only(self):
+        make_car("AVAIL-1", status=CarStatus.AVAILABLE)
+        sold = make_car("SOLD-1", status=CarStatus.SOLD)
+
+        results = self.client.get(reverse("car-list"), {"status": "sold"}).json()["results"]
+
+        self.assertEqual([c["id"] for c in results], [sold.car_id])
+
+    def test_an_unknown_status_filter_is_the_default_listing(self):
+        make_car("AVAIL-1", status=CarStatus.AVAILABLE)
+        make_car("SOLD-1", status=CarStatus.SOLD)
+
+        results = self.client.get(reverse("car-list"), {"status": "nope"}).json()["results"]
+
+        self.assertEqual(len(results), 1)
+
+    def test_the_japanese_name_rides_beside_the_english(self):
+        make_car("JA-1", brand_ja="ダイハツ", model_name_ja="タント")
+
+        result = self.client.get(reverse("car-list")).json()["results"][0]
+
+        self.assertEqual(result["brand_ja"], "ダイハツ")
+        self.assertEqual(result["model_name_ja"], "タント")
 
     def test_blank_price_serialises_as_null_not_zero(self):
         make_car("NO-PRICE", price_jpy=None)

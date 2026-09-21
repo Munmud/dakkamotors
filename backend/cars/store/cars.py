@@ -16,6 +16,7 @@ raced, and we simply retry with a bumped suffix.
 
 import itertools
 
+from ..choices import CarStatus
 from . import keys
 from .errors import ConditionFailed, NotFound
 from .models import (
@@ -181,6 +182,18 @@ def detail_by_slug(slug):
     if not car_id:
         raise NotFound(f"no car with slug {slug!r}")
     return detail(car_id)
+
+
+def stock(limit=None):
+    """What the shop has: available cars, then reserved ones, each newest first.
+
+    Two Queries rather than one, because status is the partition key of GSI1 and there
+    is no "either" in a key condition. Reserved cars are stock -- somebody may still be
+    deciding -- and the front page hid them for a year because the listing asked for
+    one status. Sold cars are not stock; they have their own shelf.
+    """
+    rows = (list_by_status(CarStatus.AVAILABLE) + list_by_status(CarStatus.RESERVED))
+    return rows[:limit] if limit else rows
 
 
 def list_by_status(status, limit=None):

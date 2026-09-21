@@ -29,6 +29,7 @@ from pynamodb.attributes import (
 from pynamodb.constants import STRING
 
 from ..choices import (
+    RequestStatus,
     ACTIVE_STATUSES,
     BookingStatus,
     CarStatus,
@@ -94,12 +95,19 @@ class Car(BaseItem, discriminator="car"):
     brand = UnicodeAttribute(null=True)
     grade = UnicodeAttribute(null=True)
     model_name = UnicodeAttribute(null=True)
+    # The name in Japanese, the way specs carry a `_ja` beside every `_en`. Optional:
+    # a reader whose language has no value sees the English, which the client's
+    # `pickLocalized` already does for specs. Slugs, JSON-LD, emails and the staff
+    # pages keep the English name -- it is the identifier, this is the display.
+    brand_ja = UnicodeAttribute(null=True)
+    model_name_ja = UnicodeAttribute(null=True)
     model_code = UnicodeAttribute(null=True)
     chassis_number = UnicodeAttribute(null=True)
     manufacture_year = NumberAttribute(null=True)
     fuel_type = UnicodeAttribute(default=FuelType.PETROL)
     seat_capacity = NumberAttribute(default=5)
     color = UnicodeAttribute(null=True)
+    color_ja = UnicodeAttribute(null=True)
 
     # Left unset for "call for price" -- deliberately distinct from a price of zero.
     # PynamoDB omits a null attribute entirely rather than writing {"NULL": true}, so
@@ -185,8 +193,17 @@ class Car(BaseItem, discriminator="car"):
         roughly double that read, on every page, to serve a search nobody has asked for.
         """
         parts = [self.brand, self.grade, self.model_name, self.model_code,
-                 self.chassis_number]
+                 self.chassis_number, self.brand_ja, self.model_name_ja]
         return " ".join(p for p in parts if p).casefold()
+
+    def name_in(self, language):
+        """Year, make and model for a reader -- Japanese when the car has it."""
+        if language == "ja":
+            brand = self.brand_ja or self.brand
+            model = self.model_name_ja or self.model_name
+        else:
+            brand, model = self.brand, self.model_name
+        return " ".join(str(p) for p in (self.manufacture_year, brand, model) if p)
 
     @property
     def primary_image(self):
@@ -617,3 +634,43 @@ class LegacyPassword(BaseItem, discriminator="legacypw"):
     name = UnicodeAttribute(null=True)
     phone = UnicodeAttribute(null=True)
     ttl = NumberAttribute(null=True)
+
+
+# --------------------------------------------------------------------------------------
+# Car requests
+# --------------------------------------------------------------------------------------
+
+class CarRequest(BaseItem, discriminator="req"):
+    """Somebody asking the shop to find them a car.
+
+    A lead, not a customer record: a guest leaves a name, an address and a number with
+    nothing to attach them to, and a signed-in customer's are copied in from Cognito at
+    the time so the request still reads whole if the account later changes or goes.
+    `customer_sub` is kept when there is one, for the day a customer wants to see their
+    own requests. No TTL -- the owner reuses these for advertising, and a lead is worth
+    keeping until somebody decides otherwise.
+    """
+
+    request_id = UnicodeAttribute(null=True)
+    name = UnicodeAttribute(null=True)
+    email = UnicodeAttribute(null=True)
+    phone = UnicodeAttribute(null=True)
+    details = UnicodeAttribute(null=True)
+    language = UnicodeAttribute(default="en")
+    customer_sub = UnicodeAttribute(null=True)
+    status = UnicodeAttribute(default=RequestStatus.OPEN)
+    resolved_at = UTCDateTimeAttribute(null=True)
+    resolved_by = UnicodeAttribute(null=True)
+    resolution_note = UnicodeAttribute(null=True)
+    created_at = UTCDateTimeAttribute(null=True)
+    updated_at = UTCDateTimeAttribute(null=True)
+
+    def __str__(self):
+        return f"{self.name} - {(self.details or '')[:40]}"
+
+    def get_status_display(self):
+        return _display(RequestStatus, self.status)
+
+    @property
+    def is_open(self):
+        return self.status == RequestStatus.OPEN

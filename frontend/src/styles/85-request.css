@@ -1,0 +1,36 @@
+/* -------------------------------------------------------------- request a car --- */
+
+/* One column, the reading measure, the form's controls on the shared rule in
+   70-account-booking.css. The page is a question and a box; nothing here should
+   look like more work than the booking flow. */
+.request {
+  max-width: var(--measure);
+}
+
+.request__intro {
+  margin: 0 0 var(--space-4);
+  color: var(--road);
+  line-height: 1.6;
+}
+
+.request__form {
+  max-width: 34rem;
+}
+
+/* Six rows: a car described in a person's own words is a short paragraph, and a box
+   that looks like it wants one line gets one line. */
+.request__details {
+  width: 100%;
+  min-height: 11rem;
+  resize: vertical;
+}
+
+.request__aside {
+  margin: 0;
+  color: var(--road);
+  font-size: 0.92rem;
+}
+
+.request__form .callbtn {
+  justify-self: start;
+}

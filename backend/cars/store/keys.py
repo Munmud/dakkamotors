@@ -117,6 +117,15 @@ def dedupe_sk(dedupe_key):
 # Guard items -- uniqueness enforced by the primary key
 # --------------------------------------------------------------------------------------
 
+def request_pk(request_id):
+    """A car request -- somebody asking the shop to find them a car.
+
+    Its own partition, like a customer: it belongs to no car, and a guest may leave one
+    with no account to hang it on. Listed through GSI1 under REQUEST_GSI1PK.
+    """
+    return f"REQ#{request_id}"
+
+
 def slug_pk(slug):
     """Doubles as the slug -> car lookup, so uniqueness costs nothing extra."""
     return f"SLUG#{slug}"
@@ -176,6 +185,7 @@ def booking_gsi1sk(slot_starts_at, sid, booking_id):
 
 
 QUESTION_GSI1PK = "QUESTION"
+REQUEST_GSI1PK = "REQUEST"
 SCHEDULE_GSI1PK = "SCHEDULE"
 CUSTOMER_GSI1PK = "CUSTOMER"
 IMAGE_PENDING_GSI1PK = "IMG#PENDING"
@@ -183,6 +193,10 @@ IMAGE_PENDING_GSI1PK = "IMG#PENDING"
 
 def question_gsi1sk(created_at, car_id, question_id):
     return f"{iso(created_at)}#{car_id}#{question_id}"
+
+
+def request_gsi1sk(created_at, request_id):
+    return f"{iso(created_at)}#{request_id}"
 
 
 def schedule_gsi1sk(weekday, start_time, schedule_id):

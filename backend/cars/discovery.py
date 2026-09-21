@@ -64,6 +64,7 @@ def sitemap_xml(request):
         out.append("  </url>")
 
     entry(f"{seo.SITE_URL}/", priority="1.0")
+    entry(f"{seo.SITE_URL}/request-a-car", priority="0.6")
     for car in cars:
         entry(f"{seo.SITE_URL}{car.get_absolute_url()}", car.updated_at)
 

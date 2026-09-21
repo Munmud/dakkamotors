@@ -35,11 +35,18 @@ export default function CarDetail() {
   const [status, setStatus] = useState(seeded ? "ready" : "loading");
 
   useEffect(() => {
-    if (seeded && seeded.slug === slug) return undefined;
-
     const controller = new AbortController();
-    setStatus("loading");
-    window.scrollTo(0, 0);
+    const fresh = seeded && seeded.slug === slug;
+
+    // Seeded: paint from the server's copy and refetch quietly behind it. The page
+    // HTML is cached at the edge for up to fifteen minutes with the car's status
+    // inside it, and a car reserved (or freed) in that window would otherwise stay
+    // wrong until the cache turned over. The JSON is cached for one minute, so this
+    // corrects the page within about that, and a staff save invalidates both anyway.
+    if (!fresh) {
+      setStatus("loading");
+      window.scrollTo(0, 0);
+    }
 
     fetchCar(slug, { signal: controller.signal })
       .then((data) => {
@@ -48,6 +55,10 @@ export default function CarDetail() {
       })
       .catch((error) => {
         if (error.name === "CanceledError") return;
+        // A quiet refetch that fails leaves the seeded page alone: the copy on
+        // screen was good enough to render, and an error state over it would be a
+        // regression for the sake of a refresh nobody asked for.
+        if (fresh) return;
         setStatus(error.response?.status === 404 ? "missing" : "error");
       });
 
@@ -73,7 +84,7 @@ export default function CarDetail() {
 
   const price = formatPrice(car.price_jpy, i18n.language);
   const description = pickDescription(car, i18n.language);
-  const title = carTitle(car);
+  const title = carTitle(car, i18n.language);
 
   return (
     <>

@@ -149,5 +149,38 @@
     "booking_cancelled": "Your test drive on {{when}} was cancelled.",
     "question_answered": "We answered your question about the {{car}}.",
     "generic": "Something has changed on your account."
+  },
+  "fuel": {
+    "petrol": "Petrol",
+    "gasoline": "Gasoline",
+    "diesel": "Diesel",
+    "hybrid": "Hybrid",
+    "electric": "Electric",
+    "lpg": "LPG"
+  },
+  "home": {
+    "askTitle": "Not seeing the car you want?",
+    "askBody": "Tell us what you are after — make, model, year, budget — and we will look for it. Anyone can ask.",
+    "askAction": "Ask us to find it",
+    "sold": "Recently sold",
+    "soldBody": "Cars that found a home. If one of these is what you wanted, ask us for another."
+  },
+  "request": {
+    "title": "Ask us to find your car",
+    "intro": "Tell us what you are looking for. We check auctions and dealers every week, and we will get in touch when something turns up.",
+    "details": "The car you want",
+    "placeholder": "e.g. A white Tanto, 2018 or newer, under ¥900,000. Both sliding doors.",
+    "name": "Your name",
+    "email": "Email",
+    "phone": "Phone",
+    "replyTo": "We will reply to {{email}}.",
+    "haveAccount": "Have an account?",
+    "signIn": "Sign in",
+    "submit": "Send request",
+    "sending": "Sending…",
+    "doneTitle": "Got it — we will be in touch",
+    "doneBody": "We will call or email when we find something. Meanwhile, the lot is always open.",
+    "backToLot": "Back to the cars",
+    "failed": "We could not send that. Please try again, or call us."
   }
 }

@@ -73,9 +73,19 @@ class CarForm(DirectUploadMixin, forms.Form):
     # behind would have been a quiet data loss.
     manufacture_year = forms.IntegerField(min_value=1900, max_value=2100, label="Year")
 
+    # The same three, in Japanese, for Japanese readers. All optional: a blank one
+    # shows the English, so a car is never nameless in either language, and a car
+    # entered in a hurry is still a car.
+    brand_ja = forms.CharField(max_length=60, required=False, label="Make (Japanese)",
+                               help_text="Shown to Japanese readers instead of the "
+                                         "English. Leave blank to show the English.")
+    model_name_ja = forms.CharField(max_length=80, required=False,
+                                    label="Model (Japanese)")
+
     fuel_type = forms.ChoiceField(choices=FuelType.choices, initial=FuelType.PETROL)
     seat_capacity = forms.IntegerField(min_value=1, max_value=20, initial=5)
     color = forms.CharField(max_length=40, required=False)
+    color_ja = forms.CharField(max_length=40, required=False, label="Colour (Japanese)")
 
     price_jpy = forms.IntegerField(
         required=False, min_value=0, label="Price (JPY)",
@@ -97,6 +107,7 @@ class CarForm(DirectUploadMixin, forms.Form):
     #: Rendered as groups, in this order. Same shape as the admin's fieldsets.
     GROUPS = (
         ("Vehicle", ["brand", "model_name", "manufacture_year"]),
+        ("Japanese", ["brand_ja", "model_name_ja", "color_ja"]),
         ("Specification", ["fuel_type", "seat_capacity", "color"]),
         ("Listing", ["price_jpy", "status"]),
         ("Description", ["description_en", "description_ja"]),

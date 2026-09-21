@@ -187,7 +187,7 @@ def home(request):
     language = _language_from(request)
     # One Query. The listing card's photo comes from the denormalised reference on the
     # car itself, which is what `prefetch_related("images")` used to buy.
-    cars = car_store.list_by_status(CarStatus.AVAILABLE, limit=24)
+    cars = car_store.stock(limit=24)
 
     if language == "ja":
         title = f"{seo.BUSINESS['region_ja']}{seo.BUSINESS['locality_ja']}の中古車販売｜ダッカモータース"
@@ -267,13 +267,16 @@ def car_detail(request, slug):
 
     canonical = f"{seo.SITE_URL}{car.get_absolute_url()}"
     price = _price_text(car, language)
-    name = car.seo_title_plain
+    # The reader's name for the car in the title and description; the English one stays
+    # in the JSON-LD below, where it is the identifier search engines match on.
+    name = car.name_in(language)
 
     if language == "ja":
+        color = car.color_ja or car.color
         title = f"{name}｜{seo.BUSINESS['locality_ja']}の中古車 ダッカモータース"
         description = (
             f"{name}（{car.get_fuel_type_display()}・{car.seat_capacity}人乗り"
-            + (f"・{car.color}" if car.color else "")
+            + (f"・{color}" if color else "")
             + f"）{price}。{seo.BUSINESS['locality_ja']}の中古車販売ダッカモータース。"
             f"お問い合わせは{seo.BUSINESS['telephone_display']}。"
         )
@@ -399,6 +402,31 @@ def account_page(request, rest=None):
         request,
         "Your account | Dakka Motors",
         "Sign in to book or manage a test drive at Dakka Motors.",
+    )
+
+
+def request_car_page(request):
+    """The one app route that is indexable: a person searching for a car the shop does
+    not have listed is exactly who should find this page."""
+    language = _language_from(request)
+    if language == "ja":
+        title = f"探している車をお伝えください｜{seo.BUSINESS['locality_ja']}の中古車 ダッカモータース"
+        description = ("在庫にない車もお探しします。ご希望の車種・年式・ご予算をお知らせください。"
+                       f"{seo.BUSINESS['region_ja']}{seo.BUSINESS['locality_ja']}のダッカモータース。")
+        heading = "探している車をお伝えください"
+    else:
+        title = f"Ask us to find your car | Dakka Motors, {seo.BUSINESS['locality']}"
+        description = ("Not seeing the car you want? Tell us the make, model, year and "
+                       f"budget and Dakka Motors in {seo.BUSINESS['locality']} will look "
+                       "for it.")
+        heading = "Ask us to find your car"
+    return HttpResponse(
+        _render(
+            language=language,
+            head=_head(title=title, description=description,
+                       canonical=f"{seo.SITE_URL}/request-a-car", language=language),
+            body=f"<h1>{_esc(heading)}</h1><p>{_esc(description)}</p>",
+        )
     )
 
 

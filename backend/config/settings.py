@@ -46,6 +46,9 @@ env = environ.Env(
     MAIL_FROM_NAME=(str, "Dakka Motors"),
     MAIL_REPLY_TO=(str, ""),
     STAFF_ALERT_EMAIL=(str, ""),
+    # The CloudFront distribution a staff save tells to forget a changed car. Blank
+    # everywhere but production, where cars/cdn.py becomes a no-op.
+    CLOUDFRONT_DISTRIBUTION_ID=(str, ""),
     # DynamoDB. The table name is fixed by CloudFormation; the endpoint override is
     # empty everywhere except local development and CI, where it points at
     # DynamoDB Local. Never set it in production.
@@ -222,6 +225,9 @@ MAIL_FROM_NAME = env("MAIL_FROM_NAME")
 MAIL_REPLY_TO = env("MAIL_REPLY_TO")
 STAFF_ALERT_EMAIL = env("STAFF_ALERT_EMAIL")
 AWS_S3_REGION_NAME = env("AWS_S3_REGION_NAME")
+# Blank locally and under test, which makes `cdn.invalidate` a no-op. Set in
+# zappa_settings.json; the distribution lives in infra/edge.yaml and docs/INFRA.md.
+CLOUDFRONT_DISTRIBUTION_ID = env("CLOUDFRONT_DISTRIBUTION_ID")
 
 STATIC_URL = "/static/"
 MEDIA_URL = "/media/"

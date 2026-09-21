@@ -414,6 +414,67 @@ def send_password_reset_email(user, link, language="en"):
 # --------------------------------------------------------------------------------------
 
 
+def notify_staff_of_request(request):
+    """Somebody wants a car the shop does not have listed.
+
+    The person's details are on the request itself, whether they were typed in as a
+    guest or copied from Cognito at the time -- so nothing here needs the user.
+    """
+    recipients = _config("STAFF_ALERT_EMAIL")
+    if not recipients:
+        return False
+
+    admin_url = f"{seo.SITE_URL}/api/staff/requests/{request.request_id}/"
+    phone_link = (f'<a href="tel:{_esc(request.phone)}" style="color:{theme.INK};">'
+                  f"{_esc(request.phone)}</a>")
+    email_link = (f'<a href="mailto:{_esc(request.email)}" style="color:{theme.INK};">'
+                  f"{_esc(request.email)}</a>")
+    written_in = "Japanese" if request.language == "ja" else "English"
+
+    html = theme.render(
+        heading="Someone is looking for a car",
+        preheader=f"{request.name} — {request.details[:80]}",
+        body="".join([
+            theme.lead(f"<strong>{_esc(request.name)}</strong> would like the shop "
+                       "to find them a car."),
+            theme.callout(_esc(request.details).replace("\n", "<br>")),
+            theme.details([
+                ("Name", _esc(request.name)),
+                ("Phone", phone_link),
+                ("Email", email_link),
+                ("Written in", written_in),
+            ]),
+            theme.paragraph(
+                "Nothing has been sent to them. Call or email when there is something "
+                "to say, then mark the request resolved so it leaves the list."
+            ),
+            theme.button("Open the request", admin_url),
+            theme.fallback_link(admin_url),
+        ]),
+    )
+
+    text = "\n".join([
+        f"{request.name} would like the shop to find them a car.",
+        "",
+        request.details,
+        "",
+        f"Phone: {request.phone}",
+        f"Email: {request.email}",
+        f"Written in: {written_in}",
+        "",
+        f"Open the request: {admin_url}",
+        "",
+    ])
+
+    return queue_email(
+        to=[address.strip() for address in recipients.split(",")],
+        subject=f"Car request from {request.name}",
+        html=html,
+        text=text,
+        reply_to=request.email or None,
+    )
+
+
 def notify_staff_of_question(question, customer=None):
     """Someone has asked something about a car and is waiting on an answer.
 

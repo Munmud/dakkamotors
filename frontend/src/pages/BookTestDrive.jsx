@@ -17,7 +17,7 @@ import { carTitle, phoneDisplay } from "../lib/format";
  */
 export default function BookTestDrive() {
   const { slug } = useParams();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { customer, state } = useAuth();
   const navigate = useNavigate();
 
@@ -94,11 +94,11 @@ export default function BookTestDrive() {
   return (
     <section>
       <Link className="backlink" to={`/cars/${slug}`}>
-        {car ? carTitle(car) : t("nav.back")}
+        {car ? carTitle(car, i18n.language) : t("nav.back")}
       </Link>
 
       <h1 className="section__title">{t("booking.heading")}</h1>
-      {car && <p className="state__body">{t("booking.forCar", { car: carTitle(car) })}</p>}
+      {car && <p className="state__body">{t("booking.forCar", { car: carTitle(car, i18n.language) })}</p>}
 
       {error && <p className="authform__error" role="alert">{error}</p>}
 

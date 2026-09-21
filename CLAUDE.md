@@ -159,6 +159,26 @@ The `video` field on the car API is a shim for the JS bundle CloudFront is still
 serving, not an interface. Remove it, and `detail.video` from both locale files, once
 that cache has turned over.
 
+### Names in Japanese
+
+`brand_ja`, `model_name_ja` and `color_ja` are optional twins of the English fields.
+The bare field **is** the English -- slugs, JSON-LD, emails and the staff pages are
+built from it -- so `frontend/src/lib/format.js` `carField` shows the Japanese only to a
+Japanese reader and only when staff typed one, field by field. Do not run these
+through `pickLocalized`, which expects `_en`/`_ja` pairs and would show a Japanese
+name to an English reader as its "fallback"; that shipped for about a minute.
+
+### Car requests
+
+`cars/requests.py` is the domain module, `store/requests.py` the store, `POST
+/api/requests/` the one public write on the site that needs no account -- a person
+looking for a car the shop does not have is exactly who has none. `AllowAny` with the
+registration throttle. A guest gives name, email and phone; a signed-in customer's are
+copied from Cognito onto the request at the time and the posted ones are ignored.
+Staff see them at `/api/staff/requests/` and mark them resolved; the detail page has a
+"Copy for a post" block with the wish and nothing personal, because the owner reuses
+them for advertising.
+
 ### Free-form specs
 
 `Car.specs` is a JSON list of `{label_en, label_ja, value_en, value_ja}`; list order is
@@ -394,6 +414,12 @@ it**: messages delivered before the rebrand still fetch it when they are opened.
   item from the cutover. `vpc_config` in `zappa_settings.json` holds empty lists and
   **the key must stay**: Zappa only sends `VpcConfig` when it is present, so deleting the
   key leaves a deployed function attached to subnets nothing mentions.
+* **A staff save invalidates the CDN** (`cars/cdn.py`, called from `staff/views_cars.py`).
+  The public pages are cached at the edge for up to fifteen minutes with the car's JSON
+  embedded as initial data, and a status change once stayed invisible for a quarter
+  of an hour. The call is fire-and-forget and a no-op without
+  `CLOUDFRONT_DISTRIBUTION_ID`; the grant is in `BackendPolicy` in `infra/data.yaml`.
+  `CarDetail.jsx` also refetches quietly behind the seeded first paint.
 * **Static files are collected from the CI runner, before `zappa update`, under
   content-hashed names** (`S3ManifestStaticStorage`). Never run `collectstatic` through
   `zappa manage`: Zappa's package gives every file a 1980 timestamp, so inside the

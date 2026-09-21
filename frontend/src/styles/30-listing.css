@@ -130,8 +130,10 @@
   font-size: var(--step--1);
 }
 
-/* Sold and reserved. Top-left, over the photograph, the way a lot tapes a slip across
-   the windscreen -- it has to be readable before the price is. */
+/* The status slip. Top-left, over the photograph, the way a lot tapes a slip across
+   the windscreen -- it has to be readable before the price is. Every card has one:
+   green for available, the flag red for reserved and sold. The green is a marker and
+   nothing else -- the site's one action colour stays the plate yellow. */
 .card__flag {
   position: absolute;
   top: 0;
@@ -142,6 +144,10 @@
   font-size: var(--step--1);
   font-weight: 700;
   letter-spacing: 0.01em;
+}
+
+.card__flag--available {
+  background: var(--go);
 }
 
 /* The windscreen card. Sits on the photograph, bottom left, where a real one sits. */
@@ -179,6 +185,78 @@
 
 .card--gone .card__photo {
   filter: saturate(0.55);
+}
+
+/* The sold shelf. Faded as a whole rather than greyed piece by piece: these cars are
+   a record of what the shop sells, not stock, and they should sit behind the ones
+   that are. Full opacity back on hover, because the page is still there to be read. */
+.card--sold {
+  opacity: 0.62;
+  transition: opacity 0.15s ease;
+}
+
+.card--sold:hover,
+.card--sold:focus-visible {
+  opacity: 1;
+}
+
+/* ------------------------------------------------------------ home sections --- */
+
+.lot-section {
+  margin-top: var(--space-6);
+}
+
+.lot-section__head {
+  margin: 0 0 var(--space-3);
+  font-size: var(--step-2);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.lot-section__body {
+  margin: 0 0 var(--space-4);
+  max-width: 60ch;
+  color: var(--road);
+}
+
+/* The band between the stock and the sold shelf: one question, one action. Ink
+   reversed out, so it reads as a different kind of thing from the cards above and
+   below it, and the plate yellow inside it is the page's one action. */
+.ask {
+  margin-top: var(--space-6);
+  padding: var(--space-5) var(--space-4);
+  background: var(--ink);
+  color: #fff;
+  border-radius: var(--radius-plate);
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+
+.ask__title {
+  margin: 0;
+  font-size: var(--step-3);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.ask__body {
+  margin: 0;
+  max-width: 52ch;
+  color: #c3ccd2;
+  line-height: 1.55;
+}
+
+@media (min-width: 900px) {
+  .ask {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    padding: var(--space-5) var(--space-6);
+  }
+
+  .ask__title { grid-column: 1; }
+  .ask__body { grid-column: 1; }
+  .ask .callbtn { grid-column: 2; grid-row: 1 / span 2; }
 }
 
 .card__body {

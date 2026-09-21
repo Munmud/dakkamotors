@@ -22,6 +22,7 @@ from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 
+from .store import requests as request_store
 from .tests import (
     DynamoReset, MAIL_SETTINGS, attach_photo, attach_video, future_slot, make_booking,
     make_car, make_customer, make_question, make_schedule,
@@ -73,6 +74,13 @@ class StaffSnapshot(FakeCognito, DynamoReset, SimpleTestCase):
 
         schedule = make_schedule()
         booking = make_booking(customer, future_slot(), car=car)
+        wish = request_store.create(
+            name="Hana Sato", email="hana@example.com", phone="080-1234-5678",
+            details="A white Tanto, 2018 or newer, under 900,000. Both sliding doors.")
+        request_store.resolve(
+            request_store.create(name="Old One", email="old@example.com", phone="1",
+                                 details="A van"),
+            staff_sub="x", note="Found them one")
 
         pages = [
             ("cars-list", reverse("staff:car-list")),
@@ -86,6 +94,8 @@ class StaffSnapshot(FakeCognito, DynamoReset, SimpleTestCase):
             ("questions-list", reverse("staff:question-list")),
             ("questions-detail", reverse("staff:question-detail",
                                          args=[question.question_id])),
+            ("requests-list", reverse("staff:request-list")),
+            ("requests-detail", reverse("staff:request-detail", args=[wish.request_id])),
             ("customers-list", reverse("staff:customer-list")),
             ("accounts-list", reverse("staff:staff-list")),
             ("accounts-add", reverse("staff:staff-add")),

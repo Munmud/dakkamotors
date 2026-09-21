@@ -26,8 +26,16 @@ class CarListView(APIView):
 
     page_size = 12
 
+    #: `?status=` may ask for one of these. Anything else is the default, which is the
+    #: stock: available then reserved. Sold is a separate shelf on the home page.
+    FILTERS = {CarStatus.AVAILABLE, CarStatus.RESERVED, CarStatus.SOLD}
+
     def get(self, request):
-        cars = car_store.list_by_status(CarStatus.AVAILABLE)
+        wanted = request.query_params.get("status") or ""
+        if wanted in self.FILTERS:
+            cars = car_store.list_by_status(wanted)
+        else:
+            cars = car_store.stock()
 
         try:
             page = max(int(request.query_params.get("page") or 1), 1)

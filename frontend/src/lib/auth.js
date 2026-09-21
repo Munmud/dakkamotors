@@ -99,6 +99,14 @@ export async function fetchMe() {
   }
 }
 
+/**
+ * Ask the shop to find a car. Open to guests, who send their details; a signed-in
+ * customer sends only the wish and the server fills the rest in from their account.
+ */
+export async function requestCar({ name, email, phone, details, language }) {
+  return post("/requests/", { name, email, phone, details, language });
+}
+
 export async function fetchSlots() {
   const { data } = await api.get("/test-drive/slots/");
   return data.results ?? [];

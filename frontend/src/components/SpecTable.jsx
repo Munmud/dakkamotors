@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 
-import { pickLocalized } from "../lib/format";
+import { carField, pickLocalized } from "../lib/format";
 
 /**
  * Specification rows. Blank fields are dropped rather than shown empty — an
@@ -14,14 +14,22 @@ import { pickLocalized } from "../lib/format";
 export default function SpecTable({ car }) {
   const { t, i18n } = useTranslation();
 
+  const language = i18n.language;
+  // Fuel is a fixed vocabulary, so it is translated here rather than sent translated:
+  // the reader switches language without a refetch. The display string from the API
+  // is the fallback for a value this build has no word for.
+  const fuel = car.fuel_type && i18n.exists(`fuel.${car.fuel_type}`)
+    ? t(`fuel.${car.fuel_type}`)
+    : car.fuel_type_display;
+
   const rows = [
-    ["brand", car.brand],
-    ["model", car.model_name],
+    ["brand", carField(car, "brand", language)],
+    ["model", carField(car, "model_name", language)],
     ["grade", car.grade],
     ["year", car.manufacture_year],
-    ["fuel", car.fuel_type_display],
+    ["fuel", fuel],
     ["seats", car.seat_capacity],
-    ["color", car.color],
+    ["color", carField(car, "color", language)],
     ["modelCode", car.model_code],
     ["chassisNumber", car.chassis_number],
   ].filter(([, value]) => value !== null && value !== undefined && value !== "");

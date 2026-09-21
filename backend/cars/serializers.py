@@ -67,6 +67,8 @@ class CarListSerializer(serializers.Serializer):
     brand = serializers.CharField(read_only=True)
     grade = serializers.CharField(read_only=True)
     model_name = serializers.CharField(read_only=True)
+    brand_ja = serializers.CharField(read_only=True, allow_null=True)
+    model_name_ja = serializers.CharField(read_only=True, allow_null=True)
     manufacture_year = serializers.IntegerField(read_only=True)
     price_jpy = serializers.IntegerField(read_only=True, allow_null=True)
     status = serializers.CharField(read_only=True)
@@ -98,6 +100,11 @@ class CarDetailSerializer(serializers.Serializer):
                                               read_only=True)
     seat_capacity = serializers.IntegerField(read_only=True)
     color = serializers.CharField(read_only=True)
+    # The Japanese names ride beside the English ones, unlocalised, for the same reason
+    # `specs` does below: the client switches language without a refetch.
+    brand_ja = serializers.CharField(read_only=True, allow_null=True)
+    model_name_ja = serializers.CharField(read_only=True, allow_null=True)
+    color_ja = serializers.CharField(read_only=True, allow_null=True)
     price_jpy = serializers.IntegerField(read_only=True, allow_null=True)
     status = serializers.CharField(read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)

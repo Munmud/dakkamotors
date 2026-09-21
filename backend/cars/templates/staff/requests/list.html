@@ -1,0 +1,72 @@
+{% extends "staff/base.html" %}
+
+{% comment %}
+Cars people are looking for. Open ones by default: this list is for acting on, and a
+resolved request is a record, one filter away.
+
+Stacked on a phone rather than scrolled sideways: the contact details are the point of
+the row, and they were the columns that would fall off the edge.
+{% endcomment %}
+
+{% block content %}
+  <div class="pagehead">
+    <h1>Car requests</h1>
+    {% if open_count %}<span class="pill waiting">{{ open_count }} open</span>{% endif %}
+  </div>
+
+  <form class="filters" method="get">
+    <div class="field">
+      <label for="{{ form.state.id_for_label }}">{{ form.state.label }}</label>
+      {{ form.state }}
+    </div>
+    <div>
+      <button type="submit" class="secondary">Show</button>
+    </div>
+  </form>
+
+  <div class="sheet">
+    {% if requests %}
+      <table class="stack">
+        <thead>
+          <tr>
+            <th>Received</th>
+            <th>Who</th>
+            <th>Looking for</th>
+            <th>State</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for req in requests %}
+            <tr>
+              <td data-label="Received">{{ req.created_at|date:"j M Y, H:i" }}</td>
+              <td data-label="Who">
+                <strong>{{ req.name }}</strong><br>
+                <a href="tel:{{ req.phone }}">{{ req.phone }}</a><br>
+                <a href="mailto:{{ req.email }}">{{ req.email }}</a>
+              </td>
+              <td data-label="Looking for">
+                <a href="{% url 'staff:request-detail' req.request_id %}">
+                  {{ req.details|truncatechars:90 }}
+                </a>
+                {% if req.language == "ja" %}<span class="pill">日本語</span>{% endif %}
+              </td>
+              <td data-label="State">
+                {% if req.is_open %}
+                  <span class="pill waiting">Open</span>
+                {% else %}
+                  <span class="pill public">Resolved</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      {% if state == "open" %}
+        <p class="empty"><strong>Nothing open</strong> When somebody asks for a car the site does not have, it lands here.</p>
+      {% else %}
+        <p class="empty"><strong>No requests</strong> Nothing matches that filter.</p>
+      {% endif %}
+    {% endif %}
+  </div>
+{% endblock %}

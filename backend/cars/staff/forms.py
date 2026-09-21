@@ -206,3 +206,26 @@ class StaffAccountForm(forms.Form):
         if self.editing_self and not active:
             raise forms.ValidationError("You cannot deactivate your own account.")
         return active
+
+
+class RequestFilterForm(forms.Form):
+    """Open, resolved, or everything. There is nothing else worth filtering a lead by."""
+
+    STATE_CHOICES = [
+        ("open", "Open"),
+        ("resolved", "Resolved"),
+        ("", "Everything"),
+    ]
+
+    state = forms.ChoiceField(required=False, choices=STATE_CHOICES, label="Show")
+
+
+class ResolveRequestForm(forms.Form):
+    """What was done about it, for whoever reads the list next."""
+
+    note = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3}),
+        label="What happened",
+        help_text="Optional. \"Found them a 2019 Tanto\" or \"No longer looking\" is plenty.",
+    )

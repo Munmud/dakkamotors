@@ -9,6 +9,7 @@ import VerifyEmail from "./pages/VerifyEmail";
 import BookTestDrive from "./pages/BookTestDrive";
 import CarDetail from "./pages/CarDetail";
 import Home from "./pages/Home";
+import RequestCar from "./pages/RequestCar";
 import { AuthProvider } from "./lib/AuthContext";
 import { NotificationProvider } from "./lib/NotificationContext";
 
@@ -74,6 +75,7 @@ export default function App() {
               <Route path="/" element={<Home />} />
               <Route path="/cars/:slug" element={<CarDetail />} />
               <Route path="/cars/:slug/test-drive" element={<BookTestDrive />} />
+              <Route path="/request-a-car" element={<RequestCar />} />
               <Route path="/account" element={<Account />} />
               <Route path="/account/login" element={<Account mode="login" />} />
               <Route path="/account/register" element={<Account mode="register" />} />

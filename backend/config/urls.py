@@ -61,6 +61,8 @@ urlpatterns = [
     path("cars/<slug:slug>/", pages.car_detail),
     # App-only routes. They need a shell or the URL 404s, but they carry noindex.
     path("cars/<slug:slug>/test-drive", pages.book_test_drive_page),
+    path("request-a-car", pages.request_car_page, name="request-car"),
+    path("request-a-car/", pages.request_car_page),
     path("account", pages.account_page),
     path("account/", pages.account_page),
     path("account/<path:rest>", pages.account_page),

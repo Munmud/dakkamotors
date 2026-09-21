@@ -26,6 +26,7 @@ GROUP_ACTIONS = {
         # appointment somebody was told about; cancelling is the reversible verb.
         "booking.view", "booking.change",
         "question.view", "question.add", "question.change", "question.delete",
+        "request.view", "request.change",
         "customer.view",
         # Staff administration is deliberately *not* here. See below.
     },

@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import auth_views, booking_views, notification_views, qa_views
+from . import auth_views, booking_views, notification_views, qa_views, request_views
 from .views import CarDetailView, CarListView
 
 urlpatterns = [
@@ -27,6 +27,8 @@ urlpatterns = [
     # only GET, HEAD and OPTIONS, so a POST there is rejected by the CDN before Django
     # ever sees it - while working fine locally.
     path("questions/", qa_views.QuestionListCreateView.as_view(), name="question-list"),
+    path("requests/", request_views.CarRequestCreateView.as_view(),
+         name="request-create"),
 
     path("notifications/", notification_views.NotificationListView.as_view(),
          name="notification-list"),

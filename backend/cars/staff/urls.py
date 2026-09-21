@@ -13,6 +13,7 @@ from . import views_bookings
 from . import views_cars
 from . import views_customers
 from . import views_questions
+from . import views_requests
 from . import views_schedules
 from . import views_staff
 
@@ -34,6 +35,9 @@ urlpatterns = [
     path("questions/", views_questions.question_list, name="question-list"),
     path("questions/<str:question_id>/", views_questions.question_detail,
          name="question-detail"),
+    path("requests/", views_requests.request_list, name="request-list"),
+    path("requests/<str:request_id>/", views_requests.request_detail,
+         name="request-detail"),
     path("bookings/", views_bookings.booking_list, name="booking-list"),
     path("bookings/<str:booking_id>/", views_bookings.booking_detail,
          name="booking-detail"),

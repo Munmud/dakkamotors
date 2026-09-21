@@ -30,6 +30,7 @@
   --plate-deep: #d9ad00;    /* the plate's own edge, for press states */
 
   --flag: #b2342a;          /* sold and reserved, and form errors */
+  --go: #1d7a4e;            /* available: a green marker, never a green button */
 
   /* Line length has to differ by script. 66ch is ~66 Latin characters but only ~33
      full-width ones, because `ch` is the advance of `0`. Japanese set to the same

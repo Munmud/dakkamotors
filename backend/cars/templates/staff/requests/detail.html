@@ -1,0 +1,79 @@
+{% extends "staff/base.html" %}
+
+{% comment %}
+One request. The wish is printed whole, the contact is one tap away, and there is one
+button for what happens next.
+
+"Copy for a post" holds the wish and nothing else. The owner reuses these on social
+media -- "someone is looking for a 2019 Tanto in white, up to 800,000" -- and the block
+exists so the person's name and number are never in what gets copied.
+{% endcomment %}
+
+{% block content %}
+  <div class="pagehead">
+    <h1>{{ req.name }} is looking for a car</h1>
+    {% if req.is_open %}
+      <span class="pill waiting">Open</span>
+    {% else %}
+      <span class="pill public">Resolved</span>
+    {% endif %}
+  </div>
+
+  <div class="sheet">
+    <div class="panel">
+      <h2>What they want</h2>
+      <p class="wish">{{ req.details|linebreaksbr }}</p>
+      <p class="help">
+        Received {{ req.created_at|date:"j M Y, H:i" }},
+        written in {% if req.language == "ja" %}Japanese{% else %}English{% endif %}{% if req.customer_sub %}, by a customer with an account{% endif %}.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2>Get in touch</h2>
+      <table class="stack">
+        <tr><th>Name</th><td data-label="Name">{{ req.name }}</td></tr>
+        <tr><th>Phone</th><td data-label="Phone"><a href="tel:{{ req.phone }}">{{ req.phone }}</a></td></tr>
+        <tr><th>Email</th><td data-label="Email"><a href="mailto:{{ req.email }}">{{ req.email }}</a></td></tr>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h2>Copy for a post</h2>
+      <p class="help">The wish only. Nothing here identifies the person.</p>
+      <textarea readonly rows="4">Looking for: {{ req.details }}</textarea>
+    </div>
+
+    <div class="panel">
+      {% if req.is_open %}
+        <h2>Done with it?</h2>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="resolve">
+          <div class="field">
+            <label for="{{ form.note.id_for_label }}">{{ form.note.label }}</label>
+            {{ form.note }}
+            <p class="help">{{ form.note.help_text }}</p>
+          </div>
+          <div class="actions">
+            <button type="submit">Mark resolved</button>
+          </div>
+        </form>
+      {% else %}
+        <h2>Resolved</h2>
+        <p>
+          {{ req.resolved_at|date:"j M Y, H:i" }}{% if req.resolution_note %} &mdash; {{ req.resolution_note }}{% endif %}
+        </p>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="reopen">
+          <div class="actions actions--tight">
+            <button type="submit" class="secondary">Reopen</button>
+          </div>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <a class="backlink" href="{% url 'staff:request-list' %}">&larr; All requests</a>
+{% endblock %}
