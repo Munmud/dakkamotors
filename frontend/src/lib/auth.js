@@ -42,7 +42,12 @@ async function patch(path, body) {
 
 /** Returns 202 and NO session: no account exists until the emailed link is clicked. */
 export async function register({ name, email, phone, password, next, language }) {
-  return post("/auth/register/", { name, email, phone, password, next, language });
+  // `next ?? undefined`: JSON.stringify drops an undefined key and keeps a null one,
+  // and the server treats the two differently. A visitor with no `?next=` has null
+  // here, and posting it literally is what broke registration for them.
+  return post("/auth/register/", {
+    name, email, phone, password, next: next ?? undefined, language,
+  });
 }
 
 export async function resendVerification(email) {

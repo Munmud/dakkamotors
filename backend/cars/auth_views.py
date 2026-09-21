@@ -113,8 +113,16 @@ class RegisterSerializer(serializers.Serializer):
     email = serializers.EmailField()
     phone = serializers.CharField(max_length=32)
     password = serializers.CharField(write_only=True)
-    next = serializers.CharField(required=False, allow_blank=True)
-    language = serializers.CharField(required=False, allow_blank=True)
+    # `allow_null` as well as `allow_blank`, and the difference is the whole bug this
+    # fixed. The form reads `next` from the query string, and `URLSearchParams.get`
+    # returns null when the parameter is absent -- which axios then serialises as a
+    # literal null. DRF skips a *missing* optional key but refuses an explicit null
+    # unless told otherwise, so every registration that did not start from a booking
+    # link was answered with "This field may not be null." about a field the form does
+    # not show. `safe_next` already treated None as blank; the serializer just never let
+    # it get that far.
+    next = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    language = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     def validate_email(self, value):
         return value.strip().lower()

@@ -74,6 +74,22 @@ class RegistrationTests(AuthFlowTestCase):
         self.assertEqual(response.status_code, 202)
         self.assertEqual(cognito.status_of("new@example.com"), "UNCONFIRMED")
 
+    def test_registering_from_the_register_page_itself_succeeds(self):
+        """The body the browser actually sends, which no other test here sends.
+
+        `URLSearchParams.get("next")` returns null when there is no `?next=`, the form
+        forwards it as-is, and axios serialises null literally -- so a person who opens
+        /account/register directly posts `"next": null`. DRF distinguishes a missing
+        key from an explicit null: the first is skipped for an optional field, the
+        second is refused unless `allow_null` is set. It was not, so every registration
+        that did not start from a booking link failed with a message about a field the
+        form does not show. The helper's payload omits the key, which is why nothing
+        caught it.
+        """
+        response = self.register(next=None, language="en")
+
+        self.assertEqual(response.status_code, 202, response.content)
+
     def test_registering_does_not_sign_anyone_in(self):
         self.register()
         self.assertEqual(self.client.get("/api/auth/me/").status_code, 403)
