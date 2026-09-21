@@ -93,6 +93,33 @@ jobs:
           role-to-assume: arn:aws:iam::484907516843:role/dakkamotors-github-deploy
           aws-region: ${{ env.AWS_REGION }}
 
+      # Static files go up BEFORE the code, from this runner, under content-hashed
+      # names (S3ManifestStaticStorage in settings.py). Two things depend on that order:
+      #
+      # * The new code reads the manifest from the bucket on its first cold start and
+      #   renders the hashed names it lists, so those objects have to exist already.
+      #   The old code, still serving meanwhile, never reads the manifest; and hashed
+      #   copies are never deleted, so a warm old container keeps working too. There
+      #   is no window in which a page asks for a file that is not there.
+      #
+      # * It must run here, not through `zappa manage`. Zappa's package gives every
+      #   file a 1980 timestamp, so collectstatic inside the Lambda saw S3's copy as
+      #   newer and skipped every file it had uploaded once -- a script changed in
+      #   git never reached production, and the staff form's "+ Add" buttons stayed
+      #   broken for a day before anyone worked out why.
+      #
+      # The three variables are the production ones from zappa_settings.json; they
+      # pick the S3 storage branch in settings.py and the public URL it writes into
+      # the manifest.
+      - name: Collect static files to S3
+        env:
+          AWS_STORAGE_BUCKET_NAME: dakkamotors-backend-media
+          AWS_S3_REGION_NAME: ${{ env.AWS_REGION }}
+          MEDIA_CUSTOM_DOMAIN: dakkamotors.com
+        run: |
+          . .venv/bin/activate
+          python manage.py collectstatic --noinput --verbosity 2
+
       # Zappa probes / immediately after uploading and treats a non-200 as a failed
       # deploy. It is not a reliable gate: the probe can hit a cold start, and on any
       # release that changes vpc_config it runs while the ENIs are still detaching. The
@@ -112,11 +139,6 @@ jobs:
         run: |
           . .venv/bin/activate
           zappa manage production "check --deploy"
-
-      - name: Collect static files to S3
-        run: |
-          . .venv/bin/activate
-          zappa manage production "collectstatic --noinput"
 
       # The real gate. Hits the origin directly rather than the CDN, so a cached page
       # cannot mask a broken deploy.

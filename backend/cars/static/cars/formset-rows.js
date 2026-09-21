@@ -3,9 +3,13 @@
  *
  * Progressive enhancement, on the same terms as direct-upload.js beside it: the buttons
  * ship with `hidden` set and this script removes it. A page whose JavaScript never
- * arrives shows the blank rows Django rendered and no button that does nothing -- which
- * also covers the deploy window, since the workflow runs collectstatic *after* zappa
- * update and this file 404s for a few seconds each time.
+ * arrives shows the rows Django rendered and no button that does nothing.
+ *
+ * This file is served under a content-hashed name. It was not, once, and a change
+ * here never reached production: collectstatic ran inside the Lambda, where every
+ * file carries a 1980 timestamp, so it judged the copy already on S3 newer and
+ * skipped it -- while browsers held the old one under a year-long cache header. The
+ * buttons "did nothing" for a day. The hash is what makes a change here a new URL.
  *
  * New rows come from Django's own `empty_form`, parked in a <template> with the string
  * `__prefix__` where the row number goes. Not from cloning the last visible row: a

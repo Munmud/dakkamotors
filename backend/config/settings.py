@@ -234,8 +234,9 @@ if AWS_STORAGE_BUCKET_NAME:
         "bucket_name": AWS_STORAGE_BUCKET_NAME,
         "region_name": env("AWS_S3_REGION_NAME"),
         "querystring_auth": False,
-        # Also what makes the immutable cache header below safe: a re-upload becomes a
-        # new object name rather than overwriting one browsers have cached for a year.
+        # What makes the immutable cache header below honest for uploads: a second
+        # object with the same name becomes a new object name rather than overwriting
+        # one browsers have cached for a year.
         "file_overwrite": False,
         "object_parameters": {
             "CacheControl": "public, max-age=31536000, immutable",
@@ -250,9 +251,20 @@ if AWS_STORAGE_BUCKET_NAME:
             "BACKEND": "storages.backends.s3.S3Storage",
             "OPTIONS": {**_s3_options, "location": "media"},
         },
+        # Manifest storage, so a static file's name carries a hash of its content and
+        # `{% static %}` renders that name. That is what makes the year-long immutable
+        # header true for static files: a changed file is a new name, never a stale
+        # copy in CloudFront or in a browser. Plain S3Storage under fixed names shipped
+        # a script that could not be updated -- see "Things that will bite" in
+        # CLAUDE.md for how collectstatic came to skip every file it had uploaded once.
+        #
+        # `file_overwrite` is True here and only here: the manifest has a fixed name
+        # and must be replaced on every deploy, and a hashed copy can only ever be
+        # overwritten with identical bytes. The manifest is read from the bucket once
+        # per cold start, which is why the workflow collects *before* `zappa update`.
         "staticfiles": {
-            "BACKEND": "storages.backends.s3.S3Storage",
-            "OPTIONS": {**_s3_options, "location": "static"},
+            "BACKEND": "storages.backends.s3.S3ManifestStaticStorage",
+            "OPTIONS": {**_s3_options, "location": "static", "file_overwrite": True},
         },
     }
 else:

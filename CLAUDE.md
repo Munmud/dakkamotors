@@ -195,9 +195,10 @@ the ORM takes its admin page with it -- which is why each page was built in the 
 as its store module.
 
 **The staff stylesheet is inline in `templates/staff/base.html`, and stays inline.**
-`backend.yml` runs `collectstatic` after `zappa update`, so anything under `/static/`
-404s for a few seconds on every deploy; a stylesheet there would mean every deploy
-serves seconds of unstyled admin. It has three containers that mean three different
+It began that way because `collectstatic` once ran after `zappa update` and every
+deploy served seconds of unstyled admin; that window is gone (see "Static files" under
+"Things that will bite"), and it stays inline because it is one request fewer on a
+phone in the lot and nothing to fetch before the first paint. It has three containers that mean three different
 things -- `.sheet` is the page's one working surface, `.panel` is a section inside it
 with a heading and a rule and no box, and `.aside` is the genuinely separate thing
 (deleting, a warning), which keeps its border precisely because nothing else has one.
@@ -303,8 +304,9 @@ progressive enhancement -- file inputs stay file inputs, so a JS failure falls b
 normal upload. `formset-rows.js` beside it makes the same bargain the other way round:
 its "+ Add a row" buttons ship with `hidden` set and the script removes it, so a page
 that never got the script shows the rows Django rendered rather than a button that does
-nothing. That also covers the deploy window -- `backend.yml` runs `collectstatic` after
-`zappa update`, so both files 404 for a few seconds on every deploy.
+nothing. Both files are referenced through `{% static %}` and served under
+content-hashed names; a literal `/static/` path in a template is refused by a test,
+because that is how a changed script once failed to reach anybody.
 
 **Secrets come from SSM at settings import**, via `config/ssm.py`, which runs only when
 `AWS_LAMBDA_FUNCTION_NAME` is set -- so tests and local development make no network call,
@@ -392,6 +394,15 @@ it**: messages delivered before the rebrand still fetch it when they are opened.
   item from the cutover. `vpc_config` in `zappa_settings.json` holds empty lists and
   **the key must stay**: Zappa only sends `VpcConfig` when it is present, so deleting the
   key leaves a deployed function attached to subnets nothing mentions.
+* **Static files are collected from the CI runner, before `zappa update`, under
+  content-hashed names** (`S3ManifestStaticStorage`). Never run `collectstatic` through
+  `zappa manage`: Zappa's package gives every file a 1980 timestamp, so inside the
+  Lambda `collectstatic` judges the copy already on S3 newer and skips it -- a file is
+  uploaded the first time it exists and never again, silently, with a green workflow.
+  That is how the staff form's "+ Add" buttons shipped broken for a day. The order
+  matters too: the new code reads the manifest from the bucket on its first cold start
+  and renders the hashed names it lists, so those objects must already exist. Hashed
+  copies are never deleted, which is what keeps a warm old container working.
 * **DynamoDB reserved keywords** include `capacity`, `status`, `order`, `year` and
   `name`, all of which appear in this schema. PynamoDB aliases them automatically; raw
   boto3 does not.

@@ -519,8 +519,10 @@ aws cloudformation deploy --stack-name dakkamotors-data \
 #    save the pool JWKS to backend/config/cognito_jwks.json. Step 4 must come before
 #    this: with the ids empty there is nothing to authenticate against.
 cd backend
+#    Static files first, from here, not through `zappa manage` -- the package's 1980
+#    timestamps make collectstatic inside the Lambda skip anything already on S3.
+AWS_STORAGE_BUCKET_NAME=dakkamotors-backend-media AWS_S3_REGION_NAME=ap-northeast-1   MEDIA_CUSTOM_DOMAIN=dakkamotors.com python manage.py collectstatic --noinput
 zappa deploy production
-zappa manage production "collectstatic --noinput"
 # Then make the first owner by hand - see "The first owner" above.
 
 # 6. CDN. us-east-1, and no certificate on the first pass so it works before DNS.

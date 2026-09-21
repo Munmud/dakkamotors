@@ -1,4 +1,5 @@
 {% extends "staff/base.html" %}
+{% load static %}
 
 {% comment %}
 Add or edit one car, with its gallery of photos and videos.
@@ -292,7 +293,12 @@ matter will not fit through it, which is the whole reason the direct path exists
     <p><a href="{% url 'staff:car-list' %}">&larr; Back to the inventory</a></p>
   {% endif %}
 
-  <link rel="stylesheet" href="/static/cars/direct-upload.css">
-  <script src="/static/cars/direct-upload.js" defer></script>
-  <script src="/static/cars/formset-rows.js" defer></script>
+  {% comment %}
+    Through the static tag, never a literal /static/ path. In production the storage
+    is a manifest storage and the tag renders a content-hashed name, which is the
+    only reason a changed script ever reaches a browser that has cached the old one.
+  {% endcomment %}
+  <link rel="stylesheet" href="{% static 'cars/direct-upload.css' %}">
+  <script src="{% static 'cars/direct-upload.js' %}" defer></script>
+  <script src="{% static 'cars/formset-rows.js' %}" defer></script>
 {% endblock %}

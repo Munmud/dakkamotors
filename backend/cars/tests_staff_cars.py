@@ -8,7 +8,10 @@ number.
 """
 
 import io
+import pathlib
+import re
 
+from django.contrib.staticfiles import finders
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
@@ -135,6 +138,27 @@ class StaffCarListTests(FakeCognito, DynamoReset, SimpleTestCase):
                 html = self.client.get(reverse(name)).content.decode()
                 for token in ("{#", "#}", "{%", "%}", "{{", "}}"):
                     self.assertNotIn(token, html)
+
+    def test_every_static_reference_names_a_file_that_will_be_collected(self):
+        """In production the static storage is a manifest storage, and a `{% static %}`
+        for a file the manifest does not list is a `ValueError` -- a 500 on the page,
+        for a typo in a filename. Locally the plain storage renders any name at all,
+        so nothing else would catch it before the deploy did.
+
+        Also refuses a literal `/static/` path: those are exactly what cannot be
+        cache-busted, and the staff form shipped a stale script that way once.
+        """
+        templates = pathlib.Path(__file__).resolve().parent / "templates"
+        referenced = set()
+        for template in templates.rglob("*.html"):
+            text = template.read_text(encoding="utf-8")
+            self.assertNotIn('="/static/', text,
+                             f"{template.name} hardcodes a /static/ path")
+            referenced.update(re.findall(r"{%\s*static\s+['\"]([^'\"]+)['\"]", text))
+        self.assertTrue(referenced, "the guard found nothing to check")
+        for name in sorted(referenced):
+            with self.subTest(file=name):
+                self.assertIsNotNone(finders.find(name), f"{name} is not a static file")
 
     def test_searching_by_partial_chassis_number_finds_the_car(self):
         """How a mechanic actually looks a car up."""

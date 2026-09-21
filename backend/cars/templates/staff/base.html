@@ -8,10 +8,11 @@ INSTALLED_APPS -- which it must, because its system checks require `auth`,
 stylesheet now means the last step of the migration is deleting an app, not rebuilding
 every page under time pressure.
 
-The stylesheet is inline, and stays inline. Moving it to /static/ would put the whole
-staff design system behind the same window `direct-upload.js` already lives in --
-`backend.yml` runs collectstatic *after* zappa update, so every deploy would serve a few
-seconds of completely unstyled admin. This is the one file that must never 404.
+The stylesheet is inline, and stays inline. It began that way because collectstatic
+once ran *after* zappa update and every deploy served seconds of unstyled admin; static
+files now land under content-hashed names before the code does, so that window is
+gone. It stays inline anyway: one request fewer on a phone in the lot, and nothing to
+fetch before the first paint of the one page that must never look broken.
 
 Who it is for: one or two people who sell cars, not engineers, often holding a phone in
 the lot with the car in front of them. That is the whole brief, and it decides most of
