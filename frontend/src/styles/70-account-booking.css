@@ -38,13 +38,20 @@
   color: var(--road);
 }
 
-.authform__field input {
+/* One rule for every text control on the site, single-line or not. The question box
+   on the car page once carried its own copy of this and drifted -- a heavier border, a
+   radius nothing else had, and the label's 0.92rem type because `font: inherit` with
+   no size takes the wrapper's -- until it looked like it came from another site. A
+   control that is not in this selector is a control that will drift the same way. */
+.authform__field input,
+.authform__field textarea {
   font: inherit;
   font-size: var(--step-0);
+  line-height: 1.5;
   color: var(--ink);
   padding: 0.6rem 0.7rem;
   border: 1px solid var(--line);
-    background: var(--paper);
+  background: var(--paper);
 }
 
 .authform__error {
@@ -255,14 +262,6 @@
   transform: none;
 }
 
-/* Secondary to Call Us: phoning is still the fastest route to a person. */
-.bookbtn--outline {
-  display: inline-block;
-  background: transparent;
-  color: var(--ink);
-  text-decoration: none;
-  text-align: center;
-}
 
 .bookings {
   list-style: none;

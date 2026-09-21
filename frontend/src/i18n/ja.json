@@ -10,8 +10,7 @@
     "ja": "日本語"
   },
   "call": {
-    "action": "{{phone}} に電話する",
-    "hours": "お電話でのお問い合わせはいつでもどうぞ。"
+    "action": "{{phone}} に電話する"
   },
   "list": {
     "loadMore": "もっと見る"

@@ -10,8 +10,7 @@
     "ja": "日本語"
   },
   "call": {
-    "action": "Call {{phone}}",
-    "hours": "Phone enquiries welcome any day."
+    "action": "Call {{phone}}"
   },
   "list": {
     "loadMore": "Show more cars"

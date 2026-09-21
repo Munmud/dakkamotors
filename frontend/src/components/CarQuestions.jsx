@@ -112,7 +112,7 @@ export default function CarQuestions({ car }) {
             <span>{t("qa.ask")}</span>
             <textarea
               className="qa__input"
-              rows={3}
+              rows={4}
               maxLength={1000}
               value={text}
               onChange={(event) => {

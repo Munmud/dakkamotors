@@ -3,12 +3,11 @@ import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { fetchCar } from "../api/client";
-import CallButton from "../components/CallButton";
 import CarQuestions from "../components/CarQuestions";
 import Gallery from "../components/Gallery";
 import SpecTable from "../components/SpecTable";
 import { ErrorState, LoadingState } from "../components/States";
-import { carTitle, formatPrice, hasPhone, pickDescription } from "../lib/format";
+import { carTitle, formatPrice, pickDescription } from "../lib/format";
 import { takeInitialData } from "../lib/initialData";
 
 /**
@@ -116,13 +115,17 @@ export default function CarDetail() {
               </span>
             )}
 
-            <CallButton />
+            {/*
+              The page's one action, and so the one thing besides the price that takes
+              the yellow. The call button used to sit here too; the phone number lives
+              in the footer of every page, and two yellow buttons in one column meant
+              neither led.
+            */}
             {car.status === "available" && (
-              <Link className="btn bookbtn--outline" to={`/cars/${car.slug}/test-drive`}>
+              <Link className="callbtn bookbtn" to={`/cars/${car.slug}/test-drive`}>
                 {t("booking.book")}
               </Link>
             )}
-            {hasPhone && <p className="pricebox__note">{t("call.hours")}</p>}
           </div>
         </div>
       </div>

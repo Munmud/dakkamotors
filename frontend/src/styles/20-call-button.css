@@ -1,9 +1,11 @@
 /* ------------------------------------------------------------------ call button --- */
 
 /*
-   The shop's real front door. It is the second and last place the plate yellow
-   appears, and that is deliberate: on this site yellow means either "this is the
-   price" or "this is how you reach us", and nothing else is allowed to borrow it.
+   The one action on the screen -- the footer's call button, and the test-drive
+   button on the car page and the booking page. It is the second and last place the
+   plate yellow appears, and that is deliberate: on this site yellow means either
+   "this is the price" or "this is the one thing to do here", and nothing else is
+   allowed to borrow it. The class keeps its name from when calling was that thing.
 
    No drop shadow and no press-down any more. A raised button with a hard offset
    shadow is a style, and this one had it while nothing else on the page did, which
@@ -25,9 +27,9 @@
   font-size: var(--step-1);
   letter-spacing: -0.01em;
   text-decoration: none;
-  /* `start` by default, because that is what it wants inside the car page's price
-     column. The footer centres its own, since an item-level justify-self beats any
-     justify-items the container sets. */
+  /* `start` by default, because that is what the test-drive button wants inside the
+     car page's price column. The footer centres its own, since an item-level
+     justify-self beats any justify-items the container sets. */
   justify-self: start;
   /* The Japanese label is "{number} に電話する", five full-width characters longer
      than "Call {number}". On a 320px screen that is wider than the viewport, so the

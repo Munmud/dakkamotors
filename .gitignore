@@ -52,3 +52,7 @@ npm-debug.log*
 # Regenerated on demand from a local fixture set. Forty full-page PNGs at 3x go stale
 # the moment a rule moves, and this repo's whole character is leanness.
 /screenshots/
+
+# ---- Local data ----
+# A working folder for data pulled down to the laptop. Never part of the build.
+/database_source/

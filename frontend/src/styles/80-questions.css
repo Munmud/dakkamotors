@@ -48,25 +48,26 @@
   color: var(--road);
 }
 
+/* The field stretches to the form's width and only the button hugs the start.
+   `justify-items: start` on the whole grid shrink-wrapped the label, and a textarea
+   at `width: 100%` of a shrink-wrapped label is twenty characters wide -- the box
+   looked like an afterthought next to everything else on the page. */
 .qa__form {
   display: grid;
   gap: 0.7rem;
-  justify-items: start;
   max-width: 34rem;
 }
 
-.qa__input {
-  font: inherit;
-  width: 100%;
-  padding: 0.6rem 0.7rem;
-  border: 2px solid var(--line);
-  border-radius: var(--radius-control);
-  background: var(--paper);
-  color: var(--ink);
-  resize: vertical;
+.qa__form .btn {
+  justify-self: start;
 }
 
-.qa__input:focus-visible {
-  border-color: var(--ink);
-  outline: none;
+/* Only what a multi-line box needs on top of the shared control rule in
+   70-account-booking.css. Four rows of room and the full width of the form: a
+   question about a car is a sentence or three, and a box that looks like it wants one
+   line gets one line. */
+.qa__input {
+  width: 100%;
+  min-height: 8rem;
+  resize: vertical;
 }
