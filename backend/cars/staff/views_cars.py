@@ -110,6 +110,8 @@ def car_list(request):
         "title": "Cars",
         "form": form,
         "cars": cars,
+        # So an empty lot can say "no cars yet" instead of blaming filters nobody set.
+        "filtered": any(data.get(name) for name in ("q", "status", "fuel_type", "brand")),
     })
 
 

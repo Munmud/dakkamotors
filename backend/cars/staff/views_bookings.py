@@ -54,6 +54,7 @@ def booking_list(request):
     bookings = search.find_bookings(term=data.get("q") or None, statuses=statuses)
 
     return render(request, "staff/bookings/list.html", {
+        "filtered": bool(data.get("q") or data.get("status")),
         "title": "Test drives",
         "form": form,
         "bookings": bookings,
@@ -87,7 +88,7 @@ def _handle(request, booking):
     if action in {"complete", "no_show"}:
         return _close_out(request, booking, here, action)
 
-    messages.error(request, "Unknown action.")
+    messages.error(request, "That button did not do anything. Try again, and if it keeps happening reload the page.")
     return redirect(here)
 
 

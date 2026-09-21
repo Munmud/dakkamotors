@@ -11,10 +11,12 @@ two of the four are irreversible from the customer's point of view.
 {% block content %}
   <h1>{{ booking.slot_starts_at|date:"l j F Y, H:i" }}</h1>
 
+  <div class="sheet">
   <div class="panel">
-    <table>
+    <div class="scroll">
+      <table>
       <tr>
-        <th style="width: 10rem;">Status</th>
+        <th>Status</th>
         <td>{{ booking.get_status_display }}</td>
       </tr>
       <tr><th>When</th>
@@ -46,12 +48,13 @@ two of the four are irreversible from the customer's point of view.
       {% if booking.cancelled_at %}
         <tr><th>Cancelled</th><td>{{ booking.cancelled_at|date:"j M Y, H:i" }}</td></tr>
       {% endif %}
-    </table>
+      </table>
+    </div>
   </div>
 
   {% if booking.is_active %}
     <div class="panel">
-      <h2 style="font-size:1rem;margin-top:0;">What happens next</h2>
+      <h2>What happens next</h2>
       {% if booking.status == "pending" %}
         <p class="help">
           The place is held for them, but they have <strong>not</strong> been told it is
@@ -67,7 +70,7 @@ two of the four are irreversible from the customer's point of view.
         </form>
       {% endif %}
 
-      <form method="post" style="margin-top:.8rem;">
+      <form method="post" class="actions">
         {% csrf_token %}
         <input type="hidden" name="action" value="cancel">
         <div class="actions">
@@ -75,7 +78,7 @@ two of the four are irreversible from the customer's point of view.
         </div>
       </form>
 
-      <hr style="border:0;border-top:1px solid var(--line);margin:1rem 0;">
+      <hr>
       <p class="help">After the appointment. Neither emails anybody.</p>
       <div class="actions">
         <form method="post">
@@ -93,9 +96,10 @@ two of the four are irreversible from the customer's point of view.
   {% endif %}
 
   <div class="panel">
-    <h2 style="font-size:1rem;margin-top:0;">Everyone booked into this slot</h2>
+    <h2>Everyone booked into this slot</h2>
     {% if roster %}
-      <table>
+      <div class="scroll">
+        <table>
         <thead><tr><th>Customer</th><th>Phone</th><th>Email</th><th>Car</th></tr></thead>
         <tbody>
           {% for seat in roster %}
@@ -107,11 +111,13 @@ two of the four are irreversible from the customer's point of view.
             </tr>
           {% endfor %}
         </tbody>
-      </table>
+        </table>
+      </div>
     {% else %}
       <p class="empty">Nobody is holding a place in this slot.</p>
     {% endif %}
   </div>
 
   <p><a href="{% url 'staff:booking-list' %}">&larr; Back to the queue</a></p>
+  </div>
 {% endblock %}

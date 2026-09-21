@@ -7,6 +7,17 @@ INSTALLED_APPS -- which it must, because its system checks require `auth`,
 `contenttypes` and `sessions`, all of which are on their way out. Taking the small
 stylesheet now means the last step of the migration is deleting an app, not rebuilding
 every page under time pressure.
+
+The stylesheet is inline, and stays inline. Moving it to /static/ would put the whole
+staff design system behind the same window `direct-upload.js` already lives in --
+`backend.yml` runs collectstatic *after* zappa update, so every deploy would serve a few
+seconds of completely unstyled admin. This is the one file that must never 404.
+
+Who it is for: one or two people who sell cars, not engineers, often holding a phone in
+the lot with the car in front of them. That is the whole brief, and it decides most of
+what follows -- 16px type so iOS does not zoom the page on every tap into a field, 44px
+controls, one column when the screen is narrow, and tables that scroll rather than
+shove the page sideways.
 {% endcomment %}
 <!DOCTYPE html>
 <html lang="en">
@@ -17,86 +28,468 @@ every page under time pressure.
   <title>{{ title }} · Dakka Motors staff</title>
   <style>
     :root {
-      --ink: #1f2429; --muted: #6b7680; --line: #dfe3e6;
-      --bg: #f6f7f8; --panel: #ffffff; --accent: #0b6b57; --warn: #8a5a00;
+      /* Ink and paper, and one working colour. The shopfront's yellow deliberately does
+         not appear here: this is the tool, not the window, and a staff member should
+         never be unsure which of the two they are looking at. */
+      --ink: #14181c;
+      --body: #333c44;
+      --muted: #5f6b75;
+      --line: #dde2e6;
+      --rule: #eceff1;
+      --bg: #f4f6f7;
+      --panel: #ffffff;
+      --accent: #0b6b57;
+      --accent-deep: #085243;
+      --warn: #8a5a00;
+      --warn-bg: #fdf8ec;
       --bad: #a32c2c;
+      --bad-bg: #fdf1f1;
+      --good-bg: #f0f8f5;
+
+      /* A scale, rather than the fourteen ad-hoc values this file used to hold. */
+      --s1: 0.25rem;
+      --s2: 0.5rem;
+      --s3: 0.75rem;
+      --s4: 1rem;
+      --s5: 1.5rem;
+      --s6: 2.25rem;
+      --s7: 3.5rem;
+
+      --t-sm: 0.875rem;
+      --t-base: 1rem;
+      --t-lg: 1.125rem;
+      --t-xl: 1.375rem;
+      --t-2xl: 1.75rem;
+
+      --radius: 6px;
+      --focus: #0b6b57;
+
+      /* No webfont. These pages render Japanese spec labels and customer names, so the
+         stack has to carry kana -- but an admin behind a sign-in should not block its
+         first paint on four weights of CJK from Google. Same reasoning as the email
+         theme, and the same stack. */
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
     }
+
+    /* Three breakpoints, and only these three:
+         560px   controls stop stacking; tables stop being stacked cards
+         900px   the shell reaches its full width
+       Written out because a media query is resolved before the cascade, so they cannot
+       be custom properties. Named here so the set is reviewable in one place. */
+
     * { box-sizing: border-box; }
+
     body {
-      margin: 0; background: var(--bg); color: var(--ink);
-      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      background: var(--bg);
+      color: var(--body);
+      font: var(--t-base)/1.6 var(--font);
+      /* 16px, not 14. Below 16px iOS Safari zooms the whole page the moment a text
+         field takes focus, which for somebody typing one-handed in a car park means
+         every tap is followed by a pinch. */
+      -webkit-text-size-adjust: 100%;
     }
+
+    /* ------------------------------------------------------------------ masthead --- */
+
     header.masthead {
-      background: var(--ink); color: #fff; padding: .7rem 1.2rem;
-      display: flex; align-items: baseline; gap: 1.2rem;
+      background: var(--ink);
+      color: #fff;
+      padding: var(--s3) var(--s4);
     }
+
+    .masthead__inner {
+      max-width: 72rem;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      /* Eight links in a row that could not wrap: on a phone they simply ran off the
+         side of the screen. */
+      flex-wrap: wrap;
+      gap: var(--s2) var(--s4);
+    }
+
     header.masthead a { color: #fff; text-decoration: none; }
-    header.masthead .brand { font-weight: 600; }
-    header.masthead nav a { opacity: .85; margin-right: 1rem; }
-    header.masthead nav a:hover { opacity: 1; text-decoration: underline; }
-    main { max-width: 68rem; margin: 1.5rem auto; padding: 0 1.2rem; }
-    h1 { font-size: 1.4rem; margin: 0 0 1rem; }
-    .panel {
-      background: var(--panel); border: 1px solid var(--line);
-      border-radius: 6px; padding: 1rem 1.2rem; margin-bottom: 1.2rem;
+
+    .masthead .brand {
+      font-weight: 700;
+      font-size: var(--t-lg);
+      letter-spacing: -0.01em;
+      white-space: nowrap;
     }
+
+    .masthead nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--s1) var(--s3);
+    }
+
+    .masthead nav a {
+      display: inline-flex;
+      align-items: center;
+      /* 44px, on the only navigation these pages have. */
+      min-height: 44px;
+      padding: 0 var(--s2);
+      border-radius: var(--radius);
+      color: #c9d2d8;
+      font-size: var(--t-sm);
+      font-weight: 600;
+    }
+
+    .masthead nav a:hover,
+    .masthead nav a:focus-visible { color: #fff; background: #ffffff1a; }
+
+    /* The way out, set apart from the sections. */
+    .masthead nav a.masthead__out { margin-left: auto; color: #94a2ac; }
+
+    main {
+      max-width: 72rem;
+      margin: 0 auto;
+      padding: var(--s5) var(--s4) var(--s7);
+    }
+
+    /* --------------------------------------------------------------- page header --- */
+
+    .pagehead {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: var(--s2) var(--s4);
+      margin-bottom: var(--s5);
+    }
+
+    h1 {
+      font-size: var(--t-2xl);
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+      margin: 0;
+    }
+
+    h2 {
+      font-size: var(--t-lg);
+      line-height: 1.3;
+      color: var(--ink);
+      margin: 0 0 var(--s3);
+    }
+
+    h3 {
+      font-size: var(--t-base);
+      color: var(--ink);
+      margin: var(--s5) 0 var(--s2);
+    }
+
+    /* ---------------------------------------------------------------- structure --- */
+    /*
+       Three containers that mean three different things, rather than one `.panel`
+       doing six jobs. The car form used to stack six identical bordered cards, which
+       told a reader nothing about which of them was the page and which was an aside.
+
+       .sheet  the page's working surface. One per page.
+       .panel  a section within it: a heading, a rule, and its content. No box.
+       .aside  the genuinely separate thing -- deleting, or a warning. Bordered, and
+               because it is the only bordered thing left, the border now means
+               something.
+    */
+
+    .sheet {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: var(--s5);
+    }
+
+    .panel + .panel {
+      margin-top: var(--s6);
+      padding-top: var(--s5);
+      border-top: 1px solid var(--rule);
+    }
+
+    .aside {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      padding: var(--s4);
+      margin-top: var(--s6);
+    }
+
+    .aside--danger { border-color: #e8c9c9; background: var(--bad-bg); }
+
+    /* ------------------------------------------------------------------- tables --- */
+
+    /* Every table gets one of these. Without it a six-column booking list with real
+       email addresses in it pushes the whole page sideways on a phone. */
+    .scroll {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
     table { width: 100%; border-collapse: collapse; }
-    th, td { text-align: left; padding: .55rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-    th { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-    tbody tr:hover { background: #fafbfb; }
-    a { color: var(--accent); }
-    .filters { display: flex; flex-wrap: wrap; gap: .8rem; align-items: flex-end; }
-    .filters label { display: block; font-size: .78rem; color: var(--muted); margin-bottom: .2rem; }
-    input[type=text], select, textarea {
-      font: inherit; padding: .4rem .5rem; border: 1px solid var(--line);
-      border-radius: 4px; background: #fff; color: inherit; width: 100%;
+
+    th, td {
+      text-align: left;
+      padding: var(--s3) var(--s3) var(--s3) 0;
+      border-bottom: 1px solid var(--rule);
+      vertical-align: top;
     }
-    textarea { width: 100%; resize: vertical; }
-    button {
-      font: inherit; padding: .45rem .9rem; border-radius: 4px; cursor: pointer;
-      border: 1px solid var(--accent); background: var(--accent); color: #fff;
+
+    th {
+      font-size: var(--t-sm);
+      font-weight: 700;
+      color: var(--muted);
+      white-space: nowrap;
     }
-    button.secondary { background: #fff; color: var(--ink); border-color: var(--line); }
-    button.danger { background: #fff; color: var(--bad); border-color: var(--bad); }
-    .help { color: var(--muted); font-size: .82rem; margin: .3rem 0 0; }
+
+    tbody tr:hover { background: #f8fafb; }
+    tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
+
+    /* --------------------------------------------------------------- form fields --- */
+
+    .field { margin-bottom: var(--s4); max-width: 34rem; }
+    .field--short { max-width: 12rem; }
+
+    label { display: block; font-weight: 600; color: var(--ink); margin-bottom: var(--s1); }
+    .req { color: var(--bad); font-weight: 400; }
+
+    /* One selector for every kind of input. It used to be `input[type=text]` alone, so
+       every date, time, number, email and file box on sixteen pages was a browser
+       default sitting next to a styled one. */
+    input, select, textarea {
+      font: inherit;
+      color: inherit;
+      width: 100%;
+      min-height: 44px;
+      padding: var(--s2) var(--s3);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+
+    textarea { min-height: 7rem; resize: vertical; line-height: 1.6; }
+    input[type=file] { padding: var(--s2); background: var(--bg); }
+
+    /* Checkboxes and radios opt out of all of the above and get sized up instead --
+       the defaults are about 13px, which is not a target anybody can hit reliably. */
+    input[type=checkbox], input[type=radio] {
+      width: 1.35rem;
+      height: 1.35rem;
+      min-height: 0;
+      padding: 0;
+      accent-color: var(--accent);
+      vertical-align: middle;
+    }
+
+    input:disabled, select:disabled, textarea:disabled {
+      background: var(--bg);
+      color: var(--muted);
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px;
+    }
+
+    .help { color: var(--muted); font-size: var(--t-sm); margin: var(--s1) 0 0; }
+    .error { color: var(--bad); font-size: var(--t-sm); margin: var(--s1) 0 0; font-weight: 600; }
+
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--s3);
+      align-items: flex-end;
+      margin-bottom: var(--s5);
+    }
+
+    .filters .field { margin-bottom: 0; min-width: 9rem; flex: 1 1 9rem; }
+    .filters .field--wide { flex: 2 1 16rem; }
+
+    /* ------------------------------------------------------------------ buttons --- */
+
+    button, .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--s2);
+      font: inherit;
+      font-weight: 600;
+      width: auto;
+      min-height: 44px;
+      padding: var(--s2) var(--s4);
+      border-radius: var(--radius);
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: #fff;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    button:hover, .button:hover { background: var(--accent-deep); border-color: var(--accent-deep); }
+
+    button.secondary, .button.secondary {
+      background: #fff;
+      color: var(--ink);
+      border-color: var(--line);
+    }
+    button.secondary:hover { background: var(--bg); border-color: var(--muted); }
+
+    /* Destructive actions are not the lightest thing on the page any more. */
+    button.danger {
+      background: var(--bad);
+      border-color: var(--bad);
+      color: #fff;
+    }
+    button.danger:hover { background: #8c2525; border-color: #8c2525; }
+
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* A pair of arrows for moving a gallery row. Square, so two fit in a narrow cell. */
+    button.nudge { padding: 0; width: 44px; min-width: 44px; }
+
+    .actions { display: flex; gap: var(--s3); flex-wrap: wrap; margin-top: var(--s5); }
+    .actions--tight { margin-top: 0; gap: var(--s1); }
+
+    /* -------------------------------------------------------------------- pills --- */
+
     .pill {
-      display: inline-block; padding: .1rem .5rem; border-radius: 999px;
-      font-size: .75rem; border: 1px solid var(--line); color: var(--muted);
+      display: inline-block;
+      padding: var(--s1) var(--s2);
+      border-radius: 999px;
+      font-size: var(--t-sm);
+      font-weight: 600;
+      line-height: 1.3;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      white-space: nowrap;
     }
-    .pill.waiting { color: var(--warn); border-color: #e8d5a8; background: #fdf8ec; }
-    .pill.public { color: var(--accent); border-color: #bfe0d6; background: #f0f8f5; }
-    ul.messages { list-style: none; padding: 0; margin: 0 0 1rem; }
+    .pill.waiting { color: var(--warn); border-color: #e8d5a8; background: var(--warn-bg); }
+    .pill.public { color: var(--accent); border-color: #bfe0d6; background: var(--good-bg); }
+    .pill.bad { color: var(--bad); border-color: #e8c9c9; background: var(--bad-bg); }
+
+    /* ----------------------------------------------------------------- messages --- */
+
+    ul.messages { list-style: none; padding: 0; margin: 0 0 var(--s5); }
     ul.messages li {
-      padding: .6rem .9rem; border-radius: 4px; margin-bottom: .5rem;
-      border: 1px solid var(--line); background: #fff;
+      padding: var(--s3) var(--s4);
+      border-radius: var(--radius);
+      margin-bottom: var(--s2);
+      border: 1px solid var(--line);
+      border-left-width: 4px;
+      background: #fff;
+      font-weight: 600;
+      color: var(--ink);
     }
-    ul.messages li.success { border-color: #bfe0d6; background: #f0f8f5; }
-    ul.messages li.warning { border-color: #e8d5a8; background: #fdf8ec; }
-    ul.messages li.error { border-color: #e6bcbc; background: #fdf1f1; }
-    .actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: .8rem; }
-    .empty { color: var(--muted); padding: 1.5rem 0; text-align: center; }
+    ul.messages li.success { border-color: #bfe0d6; border-left-color: var(--accent); background: var(--good-bg); }
+    ul.messages li.warning { border-color: #e8d5a8; border-left-color: var(--warn); background: var(--warn-bg); }
+    ul.messages li.error { border-color: #e8c9c9; border-left-color: var(--bad); background: var(--bad-bg); }
+
+    .empty {
+      color: var(--muted);
+      padding: var(--s6) 0;
+      text-align: center;
+    }
+    .empty strong { display: block; color: var(--ink); font-size: var(--t-lg); margin-bottom: var(--s1); }
+
+    /* ------------------------------------------------------------------ utility --- */
+
+    /* Screen-reader-only text. This did not exist here, and the gallery's Move buttons
+       were rendering their own labels as visible wrapped text in a 7rem column. */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .thumb {
+      width: 88px;
+      height: 66px;
+      object-fit: cover;
+      border-radius: 4px;
+      background: var(--bg);
+      display: block;
+    }
+
+    .backlink { display: inline-block; margin-top: var(--s5); font-weight: 600; }
+
+    td.num { text-align: right; white-space: nowrap; }
+    hr { border: 0; border-top: 1px solid var(--rule); margin: var(--s4) 0; }
+    label.check { display: flex; align-items: center; gap: var(--s2); font-weight: 600; }
+    label.check input { width: auto; }
+
+    a { color: var(--accent); }
+    a:hover { color: var(--accent-deep); }
+
+    /* A table that turns into a stack of rows on a phone. Each cell prints its own
+       column heading from `data-label`, so nothing depends on a header that is no
+       longer above it. Used where a sideways scroll would hide the controls -- the
+       gallery's Move and Remove column was scrolling clean off a 390px screen, with
+       nothing on the page to say so. */
+    @media (max-width: 559px) {
+      table.stack, table.stack tbody, table.stack tr, table.stack td { display: block; }
+      table.stack thead { display: none; }
+      table.stack tr {
+        padding: var(--s3) 0;
+        border-bottom: 1px solid var(--line);
+      }
+      table.stack tr:last-child { border-bottom: 0; }
+      table.stack td {
+        border: 0;
+        padding: var(--s1) 0;
+      }
+      table.stack td[data-label]::before {
+        content: attr(data-label);
+        display: block;
+        font-size: var(--t-sm);
+        font-weight: 700;
+        color: var(--muted);
+        margin-bottom: var(--s1);
+      }
+      table.stack td.stack__inline {
+        display: flex;
+        align-items: center;
+        gap: var(--s3);
+      }
+      table.stack td.stack__inline::before { margin-bottom: 0; min-width: 6rem; }
+    }
+
+    @media (max-width: 559px) {
+      main { padding: var(--s4) var(--s3) var(--s6); }
+      .sheet { padding: var(--s4) var(--s3); border-radius: 0; margin: 0 calc(-1 * var(--s3)); }
+      h1 { font-size: var(--t-xl); }
+      .field, .filters .field { max-width: none; }
+      .actions button, .actions .button { flex: 1 1 100%; }
+    }
   </style>
 </head>
 <body>
   <header class="masthead">
-    <a class="brand" href="{% url 'staff:index' %}">Dakka Motors staff</a>
-    <nav>
-      <a href="{% url 'staff:car-list' %}">Cars</a>
-      <a href="{% url 'staff:booking-list' %}">Test drives</a>
-      <a href="{% url 'staff:slot-list' %}">Slots</a>
-      <a href="{% url 'staff:schedule-list' %}">Availability</a>
-      <a href="{% url 'staff:question-list' %}">Questions</a>
-      <a href="{% url 'staff:customer-list' %}">Customers</a>
-      {# Owners only. A manager following this link gets a 403, not a broken page. #}
-      <a href="{% url 'staff:staff-list' %}">Staff</a>
-      {% comment %}
-        The way back out. Same tab on purpose: this is somebody leaving the staff
-        pages, not opening a reference beside them. The staff cookie is scoped to
-        /api/staff, so the public site sees an ordinary visitor -- which is the point,
-        since the reason to follow this link is to see what a customer sees.
-      {% endcomment %}
-      <a href="{% url 'home' %}">View site</a>
-    </nav>
+    <div class="masthead__inner">
+      <a class="brand" href="{% url 'staff:index' %}">Dakka Motors staff</a>
+      <nav>
+        <a href="{% url 'staff:car-list' %}">Cars</a>
+        <a href="{% url 'staff:booking-list' %}">Test drives</a>
+        <a href="{% url 'staff:slot-list' %}">Slots</a>
+        <a href="{% url 'staff:schedule-list' %}">Availability</a>
+        <a href="{% url 'staff:question-list' %}">Questions</a>
+        <a href="{% url 'staff:customer-list' %}">Customers</a>
+        {% comment %}
+          Owners only. A manager following this link gets a 403, not a broken page.
+        {% endcomment %}
+        <a href="{% url 'staff:staff-list' %}">Staff</a>
+        {% comment %}
+          The way back out. Same tab on purpose: this is somebody leaving the staff
+          pages, not opening a reference beside them. The staff cookie is scoped to
+          /api/staff, so the public site sees an ordinary visitor -- which is the point,
+          since the reason to follow this link is to see what a customer sees.
+        {% endcomment %}
+        <a class="masthead__out" href="{% url 'home' %}">View site</a>
+      </nav>
+    </div>
   </header>
 
   <main>

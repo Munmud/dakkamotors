@@ -14,20 +14,20 @@ explicitly, with buttons that say what they will do.
     {% if waiting %}<span class="pill waiting">{{ waiting }} waiting</span>{% endif %}
   </h1>
 
-  <form class="panel filters" method="get">
-    <div style="flex: 2 1 16rem;">
+  <form class="filters" method="get">
+    <div class="field field--wide">
       <label for="{{ form.q.id_for_label }}">{{ form.q.label }}</label>
       {{ form.q }}
     </div>
-    <div style="flex: 1 1 10rem;">
+    <div class="field">
       <label for="{{ form.state.id_for_label }}">{{ form.state.label }}</label>
       {{ form.state }}
     </div>
-    <div style="flex: 1 1 9rem;">
+    <div class="field">
       <label for="{{ form.language.id_for_label }}">{{ form.language.label }}</label>
       {{ form.language }}
     </div>
-    <div style="flex: 1 1 9rem;">
+    <div class="field">
       <label for="{{ form.brand.id_for_label }}">{{ form.brand.label }}</label>
       {{ form.brand }}
     </div>
@@ -36,9 +36,10 @@ explicitly, with buttons that say what they will do.
     </div>
   </form>
 
-  <div class="panel">
+  <div class="sheet">
     {% if questions %}
-      <table>
+      <div class="scroll">
+        <table>
         <thead>
           <tr>
             <th>Car</th>
@@ -66,14 +67,19 @@ explicitly, with buttons that say what they will do.
                   <span class="pill">{{ question.state }}</span>
                 {% endif %}
               </td>
-              <td>{{ question.language }}</td>
+              <td>{% if question.language == "ja" %}日本語{% else %}English{% endif %}</td>
               <td>{{ question.created_at|date:"j M Y, H:i" }}</td>
             </tr>
           {% endfor %}
         </tbody>
-      </table>
+        </table>
+      </div>
     {% else %}
-      <p class="empty">Nothing matches those filters.</p>
+      {% if filtered %}
+        <p class="empty"><strong>Nothing matches</strong> Try a shorter search, or clear the filters above.</p>
+      {% else %}
+        <p class="empty"><strong>No questions yet</strong> When a customer asks about a car it lands here.</p>
+      {% endif %}
     {% endif %}
   </div>
 {% endblock %}

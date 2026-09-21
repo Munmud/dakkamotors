@@ -10,8 +10,8 @@ added through the button uploads and then has nowhere to report where it went.
   <td>
     {{ subform.image }}{{ subform.image_key }}
     {% for error in subform.image.errors %}
-      <p class="help" style="color:var(--bad);">{{ error }}</p>
+      <p class="error">{{ error }}</p>
     {% endfor %}
   </td>
-  <td style="width:7rem;">{{ subform.is_primary }}</td>
+  <td class="stack__inline" data-label="Card photo">{{ subform.is_primary }}</td>
 </tr>

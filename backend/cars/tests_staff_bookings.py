@@ -168,7 +168,7 @@ class StaffBookingActionTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.booking.refresh()
         self.assertEqual(self.booking.status, BookingStatus.PENDING)
         self.assertEqual(sent, [])
-        self.assertContains(response, "Unknown action")
+        self.assertContains(response, "did not do anything")
 
     def test_the_detail_page_shows_everyone_in_the_slot(self):
         other, _ = make_customer("second@example.com")

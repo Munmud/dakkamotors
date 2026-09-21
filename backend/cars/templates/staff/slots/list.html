@@ -11,33 +11,34 @@ those individually from the booking queue, because each one emails a person.
 {% block content %}
   <h1>Test drive slots</h1>
 
-  <form class="panel filters" method="get">
-    <div style="flex: 1 1 10rem;">
+  <form class="filters" method="get">
+    <div class="field">
       <label for="{{ form.start.id_for_label }}">{{ form.start.label }}</label>
       {{ form.start }}
     </div>
-    <div style="flex: 1 1 10rem;">
+    <div class="field">
       <label for="{{ form.end.id_for_label }}">{{ form.end.label }}</label>
       {{ form.end }}
     </div>
-    <div style="flex: 0 1 auto;">
+    <div class="field">
       <label>&nbsp;</label>
-      <label style="font-size:.85rem;color:var(--ink);">
+      <label class="check">
         {{ form.only_open }} Open only
       </label>
     </div>
     <div><button type="submit">Show</button></div>
   </form>
 
-  <div class="panel">
-    <p class="help" style="margin-top:0;">
+  <div class="sheet">
+    <p class="help">
       Showing {{ start|date:"j M Y" }} to {{ end|date:"j M Y" }}. Slots are generated
       from the weekly rules whenever someone asks for availability, so a new rule shows
       up here without anyone pressing anything.
     </p>
 
     {% if slots %}
-      <table>
+      <div class="scroll">
+        <table>
         <thead>
           <tr>
             <th>When</th>
@@ -60,7 +61,7 @@ those individually from the booking queue, because each one emails a person.
                   <span class="pill">Closed</span>
                 {% endif %}
               </td>
-              <td style="text-align:right;">
+              <td class="num">
                 <form method="post" action="{% url 'staff:slot-toggle' slot.slot_id %}">
                   {% csrf_token %}
                   <input type="hidden" name="next" value="{{ request.get_full_path }}">
@@ -72,7 +73,8 @@ those individually from the booking queue, because each one emails a person.
             </tr>
           {% endfor %}
         </tbody>
-      </table>
+        </table>
+      </div>
     {% else %}
       <p class="empty">No slots in that range.</p>
     {% endif %}

@@ -9,9 +9,11 @@ page view does not already do.
 {% block content %}
   <h1>Availability</h1>
 
+  <div class="sheet">
   <div class="panel">
     {% if schedules %}
-      <table>
+      <div class="scroll">
+        <table>
         <thead>
           <tr>
             <th>When</th>
@@ -45,7 +47,8 @@ page view does not already do.
             </tr>
           {% endfor %}
         </tbody>
-      </table>
+        </table>
+      </div>
     {% else %}
       <p class="empty">
         No rules yet, so no test drive times are on offer. Add one below.
@@ -54,7 +57,7 @@ page view does not already do.
   </div>
 
   <div class="panel">
-    <h2 style="font-size:1rem;margin-top:0;">Add a rule</h2>
+    <h2>Add a rule</h2>
     <form method="post" action="{% url 'staff:schedule-add' %}">
       {% csrf_token %}
       {% if form.non_field_errors %}
@@ -63,19 +66,19 @@ page view does not already do.
         </ul>
       {% endif %}
       {% for field in form %}
-        <div style="margin-bottom:.9rem;">
-          <label for="{{ field.id_for_label }}"
-                 style="display:block;font-size:.78rem;color:var(--muted);margin-bottom:.2rem;">
+        <div class="field">
+          <label for="{{ field.id_for_label }}">
             {{ field.label }}
           </label>
           {{ field }}
           {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
           {% for error in field.errors %}
-            <p class="help" style="color:var(--bad);">{{ error }}</p>
+            <p class="error">{{ error }}</p>
           {% endfor %}
         </div>
       {% endfor %}
       <div class="actions"><button type="submit">Add rule</button></div>
     </form>
+  </div>
   </div>
 {% endblock %}

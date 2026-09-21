@@ -57,6 +57,7 @@ def question_list(request):
     questions = _apply_state(questions, data.get("state"))
 
     return render(request, "staff/questions/list.html", {
+        "filtered": any(data.get(k) for k in ("q", "state", "language", "brand")),
         "title": "Questions",
         "form": form,
         "questions": questions,
@@ -93,7 +94,7 @@ def _handle_action(request, question):
     if action == "unpublish":
         return _unpublish(request, question, here)
 
-    messages.error(request, "Unknown action.")
+    messages.error(request, "That button did not do anything. Try again, and if it keeps happening reload the page.")
     return redirect(here)
 
 

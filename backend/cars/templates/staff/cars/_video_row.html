@@ -12,7 +12,7 @@ size-limit note belongs once above the first row rather than under every one. Th
       <p class="help">{{ subform.video.help_text }}</p>
     {% endif %}
     {% for error in subform.video.errors %}
-      <p class="help" style="color:var(--bad);">{{ error }}</p>
+      <p class="error">{{ error }}</p>
     {% endfor %}
   </td>
 </tr>

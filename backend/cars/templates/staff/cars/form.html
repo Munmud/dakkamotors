@@ -19,39 +19,41 @@ matter will not fit through it, which is the whole reason the direct path exists
 {% endcomment %}
 
 {% block content %}
-  <h1>{{ title }}</h1>
-
-  {% if car %}
-    <p class="help" style="margin-top:-.6rem;">
+  <div class="pagehead">
+    <h1>{{ title }}</h1>
+    {% if car %}
+      {% comment %}
+        The web address used to be printed here as a slug in a <code> block, with two
+        sentences about why it never changes. Neither is a thing a staff member can act
+        on. What they actually want from it is to look at the page, so that is what the
+        link does -- new tab, because they are part-way through editing it.
+      {% endcomment %}
       <a href="/cars/{{ car.slug }}" target="_blank" rel="noopener">View on the site</a>
-      · <code>{{ car.slug }}</code>
-      <br>The slug is set on the first save and then left alone: changing it breaks
-      every link already shared and every result already indexed.
-    </p>
-  {% endif %}
+    {% endif %}
+  </div>
 
   <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
 
     {% if form.non_field_errors %}
-      <div class="panel"><ul class="messages">
+      <ul class="messages">
         {% for error in form.non_field_errors %}<li class="error">{{ error }}</li>{% endfor %}
-      </ul></div>
+      </ul>
     {% endif %}
 
+    <div class="sheet">
     {% for group, fields in form.groups %}
       <div class="panel">
-        <h2 style="font-size:1rem;margin-top:0;">{{ group }}</h2>
+        <h2>{{ group }}</h2>
         {% for field in fields %}
-          <div style="margin-bottom:.9rem;">
-            <label for="{{ field.id_for_label }}"
-                   style="display:block;font-size:.78rem;color:var(--muted);margin-bottom:.2rem;">
-              {{ field.label }}{% if field.field.required %} *{% endif %}
+          <div class="field{% if field.name in form.SHORT_FIELDS %} field--short{% endif %}">
+            <label for="{{ field.id_for_label }}">
+              {{ field.label }}{% if field.field.required %} <span class="req" title="Required">*</span>{% endif %}
             </label>
             {{ field }}
             {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
             {% for error in field.errors %}
-              <p class="help" style="color:var(--bad);">{{ error }}</p>
+              <p class="error">{{ error }}</p>
             {% endfor %}
           </div>
         {% endfor %}
@@ -59,13 +61,12 @@ matter will not fit through it, which is the whole reason the direct path exists
     {% endfor %}
 
     <div class="panel">
-      <h2 style="font-size:1rem;margin-top:0;">Extra details</h2>
+      <h2>Extra details</h2>
       <p class="help">
         Anything the fixed fields do not cover &mdash; colour, tyre condition, whether it
         has a tow bar. They appear under the specification table in the order below.
         Japanese is optional: a row with only English shows its English to everybody.
-        Up to {{ spec_formset.max_num }} rows; every listing page reads them whether or
-        not it shows them, which is what the ceiling is for.
+        Up to {{ spec_formset.max_num }} details per car.
       </p>
       {{ spec_formset.management_form }}
       {% if spec_formset.non_form_errors %}
@@ -75,7 +76,8 @@ matter will not fit through it, which is the whole reason the direct path exists
           {% endfor %}
         </ul>
       {% endif %}
-      <table>
+      <div class="scroll">
+        <table class="stack">
         <thead>
           <tr>
             <th>Label (English)</th><th>Label (Japanese)</th>
@@ -88,7 +90,8 @@ matter will not fit through it, which is the whole reason the direct path exists
             {% include "staff/cars/_spec_row.html" %}
           {% endfor %}
         </tbody>
-      </table>
+        </table>
+      </div>
       {# The row formset-rows.js clones. `__prefix__` is where the row number goes. #}
       <template data-formset-empty="{{ spec_formset.prefix }}">
         {% include "staff/cars/_spec_row.html" with subform=spec_formset.empty_form %}
@@ -107,10 +110,11 @@ matter will not fit through it, which is the whole reason the direct path exists
       what is already attached needs a car to exist.
     {% endcomment %}
     <div class="panel">
-      <h2 style="font-size:1rem;margin-top:0;">Gallery</h2>
+      <h2>Gallery</h2>
       {% if car %}
         {% if gallery %}
-          <table>
+          <div class="scroll">
+            <table class="stack">
             <thead>
               <tr><th></th><th></th><th>Move</th><th>Card photo</th><th>Remove</th></tr>
             </thead>
@@ -118,65 +122,67 @@ matter will not fit through it, which is the whole reason the direct path exists
               {% for kind, item in gallery %}
                 {% if kind == "video" %}
                   <tr>
-                    <td style="width:6rem;">
-                      <video src="{{ item.url }}" preload="none" muted
-                             style="height:56px;border-radius:4px;background:#000;"></video>
+                    <td>
+                      <video class="thumb" src="{{ item.url }}" preload="none" muted></video>
                     </td>
                     <td><span class="pill">Video</span></td>
-                    <td style="width:7rem;">
+                    <td class="stack__inline" data-label="Move">
                       <button type="submit" name="move" value="up:video:{{ item.video_id }}"
-                              class="secondary"{% if forloop.first %} disabled{% endif %}>
+                              class="secondary nudge"{% if forloop.first %} disabled{% endif %}>
                         <span aria-hidden="true">&uarr;</span>
-                        <span class="u-visually-hidden">Move this video up, to position {{ forloop.counter0 }}</span>
+                        <span class="sr-only">Move this video up, to position {{ forloop.counter0 }}</span>
                       </button>
                       <button type="submit" name="move" value="down:video:{{ item.video_id }}"
-                              class="secondary"{% if forloop.last %} disabled{% endif %}>
+                              class="secondary nudge"{% if forloop.last %} disabled{% endif %}>
                         <span aria-hidden="true">&darr;</span>
-                        <span class="u-visually-hidden">Move this video down, to position {{ forloop.counter|add:1 }}</span>
+                        <span class="sr-only">Move this video down, to position {{ forloop.counter|add:1 }}</span>
                       </button>
                     </td>
-                    <td style="width:7rem;">
-                      <span class="help">&mdash;</span>
+                    <td class="stack__inline" data-label="Card photo">
+                      <span class="help">Videos cannot be the card</span>
                     </td>
-                    <td style="width:6rem;">
-                      <input type="checkbox" name="video-{{ item.video_id }}-delete">
+                    <td class="stack__inline" data-label="Remove">
+                      <input type="checkbox" name="video-{{ item.video_id }}-delete"
+                             aria-label="Remove this video">
                     </td>
                   </tr>
                 {% else %}
                   <tr>
-                    <td style="width:6rem;">
-                      <img src="{{ item.url }}" alt=""
-                           style="height:56px;border-radius:4px;">
+                    <td>
+                      <img class="thumb" src="{{ item.url }}" alt="">
                     </td>
                     <td>
                       {% if not item.derivatives_ready %}
-                        <span class="pill waiting">optimising…</span>
+                        <span class="pill waiting">Preparing</span>
                       {% endif %}
                     </td>
-                    <td style="width:7rem;">
+                    <td class="stack__inline" data-label="Move">
                       <button type="submit" name="move" value="up:image:{{ item.image_id }}"
-                              class="secondary"{% if forloop.first %} disabled{% endif %}>
+                              class="secondary nudge"{% if forloop.first %} disabled{% endif %}>
                         <span aria-hidden="true">&uarr;</span>
-                        <span class="u-visually-hidden">Move this photo up, to position {{ forloop.counter0 }}</span>
+                        <span class="sr-only">Move this photo up, to position {{ forloop.counter0 }}</span>
                       </button>
                       <button type="submit" name="move" value="down:image:{{ item.image_id }}"
-                              class="secondary"{% if forloop.last %} disabled{% endif %}>
+                              class="secondary nudge"{% if forloop.last %} disabled{% endif %}>
                         <span aria-hidden="true">&darr;</span>
-                        <span class="u-visually-hidden">Move this photo down, to position {{ forloop.counter|add:1 }}</span>
+                        <span class="sr-only">Move this photo down, to position {{ forloop.counter|add:1 }}</span>
                       </button>
                     </td>
-                    <td style="width:7rem;">
+                    <td class="stack__inline" data-label="Card photo">
                       <input type="radio" name="primary" value="{{ item.image_id }}"
+                             aria-label="Use this photo on the listing card"
                              {% if item.is_primary %}checked{% endif %}>
                     </td>
-                    <td style="width:6rem;">
-                      <input type="checkbox" name="image-{{ item.image_id }}-delete">
+                    <td class="stack__inline" data-label="Remove">
+                      <input type="checkbox" name="image-{{ item.image_id }}-delete"
+                             aria-label="Remove this photo">
                     </td>
                   </tr>
                 {% endif %}
               {% endfor %}
             </tbody>
-          </table>
+            </table>
+          </div>
           <p class="help">
             Move a row up or down to change the order customers see. One order for the
             whole gallery, so a video can come first. Moving saves the page as well,
@@ -200,16 +206,18 @@ matter will not fit through it, which is the whole reason the direct path exists
         </p>
       {% endif %}
 
-        <h3 style="font-size:.9rem;margin-bottom:.4rem;">Add photos</h3>
+        <h3>Add photos</h3>
         {{ image_formset.management_form }}
-        <table>
+        <div class="scroll">
+          <table>
           <thead><tr><th>Photo</th><th>Card photo</th></tr></thead>
           <tbody data-formset-rows="{{ image_formset.prefix }}">
             {% for subform in image_formset %}
               {% include "staff/cars/_image_row.html" %}
             {% endfor %}
           </tbody>
-        </table>
+          </table>
+        </div>
         <template data-formset-empty="{{ image_formset.prefix }}">
           {% include "staff/cars/_image_row.html" with subform=image_formset.empty_form %}
         </template>
@@ -218,16 +226,18 @@ matter will not fit through it, which is the whole reason the direct path exists
                   data-formset-add="{{ image_formset.prefix }}">+ Add another photo</button>
         </div>
 
-        <h3 style="font-size:.9rem;margin-bottom:.4rem;">Add videos</h3>
+        <h3>Add videos</h3>
         {{ video_formset.management_form }}
-        <table>
+        <div class="scroll">
+          <table>
           <thead><tr><th>Video</th></tr></thead>
           <tbody data-formset-rows="{{ video_formset.prefix }}">
             {% for subform in video_formset %}
               {% include "staff/cars/_video_row.html" with subform=subform show_help=forloop.first %}
             {% endfor %}
           </tbody>
-        </table>
+          </table>
+        </div>
         <template data-formset-empty="{{ video_formset.prefix }}">
           {% include "staff/cars/_video_row.html" with subform=video_formset.empty_form %}
         </template>
@@ -237,18 +247,25 @@ matter will not fit through it, which is the whole reason the direct path exists
         </div>
       </div>
 
+    </div>
+
     <div class="actions">
       <button type="submit">Save</button>
       {% if car %}
+        {% comment %}
+          "Rebuild optimised copies" meant nothing to anybody who had not read
+          `images.py`. What it does, in the words of the person pressing it, is make the
+          smaller copies again -- which is only ever needed when one did not appear.
+        {% endcomment %}
         <button class="secondary" type="submit" name="action"
-                value="rebuild-derivatives">Rebuild optimised copies</button>
+                value="rebuild-derivatives">Redo the photo sizes</button>
       {% endif %}
     </div>
   </form>
 
   {% if car %}
-    <div class="panel" style="margin-top:1.2rem;">
-      <h2 style="font-size:1rem;margin-top:0;">Delete</h2>
+    <div class="aside aside--danger">
+      <h2>Delete this car</h2>
       <p class="help">
         Removes the car, its whole gallery and the files behind it. A booking that
         pointed at it keeps the car's name, so the appointment still makes sense

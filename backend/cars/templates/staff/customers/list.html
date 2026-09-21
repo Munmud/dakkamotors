@@ -8,19 +8,18 @@ only need to look one up while somebody is on the phone.
 {% block content %}
   <h1>Customers</h1>
 
-  <div class="panel">
-    <form method="get" class="filters">
-      <div style="flex:1 1 18rem;">
+  <form method="get" class="filters">
+      <div class="field field--wide">
         <label for="q">Search by email</label>
         <input type="text" id="q" name="q" value="{{ term }}">
       </div>
-      <div><button type="submit">Search</button></div>
-    </form>
-  </div>
+      <div><button type="submit" class="secondary">Search</button></div>
+  </form>
 
-  <div class="panel">
+  <div class="sheet">
     {% if customers %}
-      <table>
+      <div class="scroll">
+        <table>
         <thead>
           <tr>
             <th>Email</th>
@@ -37,7 +36,8 @@ only need to look one up while somebody is on the phone.
             </tr>
           {% endfor %}
         </tbody>
-      </table>
+        </table>
+      </div>
     {% else %}
       <p class="empty">
         {% if term %}Nobody matches “{{ term }}”.{% else %}No customers yet.{% endif %}

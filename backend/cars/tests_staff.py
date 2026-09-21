@@ -206,7 +206,7 @@ class StaffAnsweringTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.assertEqual(sent, [])
         self.question.refresh()
         self.assertEqual(self.question.answer, "")
-        self.assertContains(response, "Unknown action")
+        self.assertContains(response, "did not do anything")
 
 
 @override_settings(**MAIL_SETTINGS)

@@ -183,6 +183,28 @@ images, bookings, slots, schedules, questions, customers and staff accounts.
 the ORM takes its admin page with it -- which is why each page was built in the same step
 as its store module.
 
+**The staff stylesheet is inline in `templates/staff/base.html`, and stays inline.**
+`backend.yml` runs `collectstatic` after `zappa update`, so anything under `/static/`
+404s for a few seconds on every deploy; a stylesheet there would mean every deploy
+serves seconds of unstyled admin. It has three containers that mean three different
+things -- `.sheet` is the page's one working surface, `.panel` is a section inside it
+with a heading and a rule and no box, and `.aside` is the genuinely separate thing
+(deleting, a warning), which keeps its border precisely because nothing else has one.
+`table.stack` restacks a table into labelled rows below 560px; use it wherever a
+sideways scroll would hide the controls, which is how the gallery's Move column came to
+be off-screen on every phone. The pages are for one or two non-technical people, often
+on a phone in the lot: 16px base so iOS does not zoom on focus, 44px on every control,
+and no inline `style=` attributes -- `grep -rn 'style="' templates/staff/` is meant to
+return nothing, because inline styles are how the previous drift happened.
+
+`cars/tests_staff_snapshot.py` renders every staff page to a folder for screenshotting
+(`STAFF_SNAPSHOT_DIR=... manage.py test cars.tests_staff_snapshot`; it skips otherwise).
+It is a test module because signing in is only possible in-process -- `sign_in` patches
+`cars.authentication.verify`, which a separate `runserver` would never see, and the
+alternative is a settings flag that skips auth, which is the kind of thing that ships.
+Serve the folder over http, not `file://`: the templates ask for `/static/cars/*` by
+absolute path, and `formset-rows.js` is what reveals the "+ Add a row" buttons.
+
 Authentication is Cognito's hosted UI, isolated in `staff/auth.py`; the views, forms and
 templates never learn how somebody signed in. **`staff/permissions.py` is the whole
 policy.** `OWNER_ONLY` keeps staff administration to owners, which is stricter than the

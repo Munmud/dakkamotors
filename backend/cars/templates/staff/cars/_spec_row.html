@@ -8,10 +8,10 @@ until a staff member types into it.
 {% endcomment %}
 <tr>
   {% for field in subform.visible_fields %}
-    <td>
+    <td data-label="{{ field.label }}"{% if field.name == "DELETE" %} class="stack__inline"{% endif %}>
       {{ field }}
       {% for error in field.errors %}
-        <p class="help" style="color:var(--bad);">{{ error }}</p>
+        <p class="error">{{ error }}</p>
       {% endfor %}
     </td>
   {% endfor %}

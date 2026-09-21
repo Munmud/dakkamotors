@@ -107,6 +107,9 @@ if DEBUG:
 INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # For `intcomma` on the staff pages. A price without separators is a number staff
+    # have to count the digits of, and 1248000 read at a glance is the wrong car.
+    "django.contrib.humanize",
     "rest_framework",
     "storages",
     "cars",

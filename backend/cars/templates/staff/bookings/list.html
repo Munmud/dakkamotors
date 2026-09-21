@@ -16,21 +16,22 @@ list_editable removed too; here the widget simply does not exist.
     {% if pending %}<span class="pill waiting">{{ pending }} awaiting confirmation</span>{% endif %}
   </h1>
 
-  <form class="panel filters" method="get">
-    <div style="flex: 2 1 16rem;">
+  <form class="filters" method="get">
+    <div class="field field--wide">
       <label for="{{ form.q.id_for_label }}">{{ form.q.label }}</label>
       {{ form.q }}
     </div>
-    <div style="flex: 1 1 12rem;">
+    <div class="field">
       <label for="{{ form.status.id_for_label }}">{{ form.status.label }}</label>
       {{ form.status }}
     </div>
     <div><button type="submit">Filter</button></div>
   </form>
 
-  <div class="panel">
+  <div class="sheet">
     {% if bookings %}
-      <table>
+      <div class="scroll">
+        <table>
         <thead>
           <tr>
             <th>When</th>
@@ -73,9 +74,14 @@ list_editable removed too; here the widget simply does not exist.
             </tr>
           {% endfor %}
         </tbody>
-      </table>
+        </table>
+      </div>
     {% else %}
-      <p class="empty">Nothing matches those filters.</p>
+      {% if filtered %}
+        <p class="empty"><strong>Nothing matches</strong> Try a shorter search, or clear the filters above.</p>
+      {% else %}
+        <p class="empty"><strong>No test drives booked</strong> When a customer books one it appears here, soonest first.</p>
+      {% endif %}
     {% endif %}
   </div>
 {% endblock %}

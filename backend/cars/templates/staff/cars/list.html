@@ -1,88 +1,103 @@
 {% extends "staff/base.html" %}
+{% load humanize %}
 
 {% comment %}
-The inventory changelist. Same columns the admin showed, same filters, same search --
-the search in particular is how a mechanic finds a car by a partial chassis number, so
-it matters that it still matches on that.
+The inventory list -- what is on the lot, and the way in to changing any of it.
+
+The search is how a mechanic finds a car by part of its chassis number, so it matters
+that it still matches on one even though the field is no longer on the form: legacy cars
+keep theirs, and the haystack is built from the stored attributes.
+
+The car is named once, as one link, rather than brand and model being two links to the
+same page. Two adjacent links to one destination is a thing to tab past twice.
 {% endcomment %}
 
 {% block content %}
-  <h1>Cars</h1>
+  <div class="pagehead">
+    <h1>Cars</h1>
+    <a class="button" href="{% url 'staff:car-add' %}">Add a car</a>
+  </div>
 
-  <form class="panel filters" method="get">
-    <div style="flex: 2 1 18rem;">
+  <form class="filters" method="get">
+    <div class="field field--wide">
       <label for="{{ form.q.id_for_label }}">{{ form.q.label }}</label>
       {{ form.q }}
     </div>
-    <div style="flex: 1 1 9rem;">
+    <div class="field">
       <label for="{{ form.status.id_for_label }}">{{ form.status.label }}</label>
       {{ form.status }}
     </div>
-    <div style="flex: 1 1 9rem;">
+    <div class="field">
       <label for="{{ form.fuel_type.id_for_label }}">{{ form.fuel_type.label }}</label>
       {{ form.fuel_type }}
     </div>
-    <div style="flex: 1 1 9rem;">
+    <div class="field">
       <label for="{{ form.brand.id_for_label }}">{{ form.brand.label }}</label>
       {{ form.brand }}
     </div>
-    <div><button type="submit">Filter</button></div>
+    <div><button type="submit" class="secondary">Filter</button></div>
   </form>
 
-  <p class="actions" style="margin-top:-.4rem;">
-    <a href="{% url 'staff:car-add' %}"><button type="button">Add a car</button></a>
-  </p>
-
-  <div class="panel">
+  <div class="sheet">
     {% if cars %}
-      <table>
-        <thead>
-          <tr>
-            <th></th>
-            <th>Year</th>
-            <th>Brand</th>
-            <th>Model</th>
-            <th>Grade</th>
-            <th>Price</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for car in cars %}
+      <div class="scroll">
+        <table>
+          <thead>
             <tr>
-              <td style="width:5rem;">
-                {% if car.primary_image %}
-                  <img src="{{ car.primary_image.url }}" alt=""
-                       style="height:44px;border-radius:4px;">
-                {% else %}—{% endif %}
-              </td>
-              <td>{{ car.manufacture_year }}</td>
-              <td>
-                <a href="{% url 'staff:car-edit' car.car_id %}">{{ car.brand }}</a>
-              </td>
-              <td>
-                <a href="{% url 'staff:car-edit' car.car_id %}">{{ car.model_name }}</a>
-              </td>
-              <td>{{ car.grade|default:"—" }}</td>
-              <td>
-                {% if car.price_jpy %}¥{{ car.price_jpy|floatformat:0 }}
-                {% else %}Call for price{% endif %}
-              </td>
-              <td>
-                {% if car.status == "available" %}
-                  <span class="pill public">{{ car.get_status_display }}</span>
-                {% elif car.status == "sold" %}
-                  <span class="pill">{{ car.get_status_display }}</span>
-                {% else %}
-                  <span class="pill waiting">{{ car.get_status_display }}</span>
-                {% endif %}
-              </td>
+              <th><span class="sr-only">Photo</span></th>
+              <th>Car</th>
+              <th>Year</th>
+              <th>Price</th>
+              <th>Status</th>
             </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {% for car in cars %}
+              <tr>
+                <td>
+                  {% if car.primary_image %}
+                    <img class="thumb" src="{{ car.primary_image.url }}" alt="">
+                  {% else %}
+                    <span class="thumb"></span>
+                  {% endif %}
+                </td>
+                <td>
+                  <a href="{% url 'staff:car-edit' car.car_id %}">
+                    {{ car.brand }} {{ car.model_name }}{% if car.grade %} {{ car.grade }}{% endif %}
+                  </a>
+                </td>
+                <td>{{ car.manufacture_year }}</td>
+                <td>
+                  {% if car.price_jpy %}
+                    &yen;{{ car.price_jpy|intcomma }}
+                  {% else %}
+                    <span class="help">Call for price</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if car.status == "available" %}
+                    <span class="pill public">{{ car.get_status_display }}</span>
+                  {% elif car.status == "sold" %}
+                    <span class="pill">{{ car.get_status_display }}</span>
+                  {% else %}
+                    <span class="pill waiting">{{ car.get_status_display }}</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% elif filtered %}
+      <p class="empty">
+        <strong>Nothing matches</strong>
+        Try a shorter search, or clear the filters above.
+      </p>
     {% else %}
-      <p class="empty">Nothing matches those filters.</p>
+      <p class="empty">
+        <strong>No cars yet</strong>
+        Add the first one and it appears on the site straight away.
+      </p>
     {% endif %}
   </div>
 {% endblock %}

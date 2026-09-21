@@ -102,6 +102,10 @@ class CarForm(DirectUploadMixin, forms.Form):
         ("Description", ["description_en", "description_ja"]),
     )
 
+    #: Fields whose box should be the width of their answer, not the width of the page.
+    #: A four-digit year in a 34rem input reads as a text field waiting for a sentence.
+    SHORT_FIELDS = ("manufacture_year", "seat_capacity", "price_jpy")
+
     def groups(self):
         for title, names in self.GROUPS:
             yield title, [self[name] for name in names]

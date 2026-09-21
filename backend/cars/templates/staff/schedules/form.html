@@ -5,22 +5,21 @@
 
   <form method="post">
     {% csrf_token %}
-    <div class="panel">
+    <div class="sheet">
       {% if form.non_field_errors %}
         <ul class="messages">
           {% for error in form.non_field_errors %}<li class="error">{{ error }}</li>{% endfor %}
         </ul>
       {% endif %}
       {% for field in form %}
-        <div style="margin-bottom:.9rem;">
-          <label for="{{ field.id_for_label }}"
-                 style="display:block;font-size:.78rem;color:var(--muted);margin-bottom:.2rem;">
+        <div class="field">
+          <label for="{{ field.id_for_label }}">
             {{ field.label }}
           </label>
           {{ field }}
           {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
           {% for error in field.errors %}
-            <p class="help" style="color:var(--bad);">{{ error }}</p>
+            <p class="error">{{ error }}</p>
           {% endfor %}
         </div>
       {% endfor %}
@@ -28,8 +27,8 @@
     </div>
   </form>
 
-  <div class="panel">
-    <h2 style="font-size:1rem;margin-top:0;">Delete</h2>
+  <div class="aside aside--danger">
+    <h2>Delete this rule</h2>
     <p class="help">
       Slots already generated from this rule are kept, so nobody loses an appointment
       they already have. Future ones stop claiming the rule and can be closed

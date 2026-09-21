@@ -13,10 +13,12 @@ managed to publish unanswered questions.
 {% block content %}
   <h1>Question about the {{ question.car_label|default:"car" }}</h1>
 
+  <div class="sheet">
   <div class="panel">
-    <table>
+    <div class="scroll">
+      <table>
       <tr>
-        <th style="width: 10rem;">State</th>
+        <th>State</th>
         <td>{{ question.state }}</td>
       </tr>
       <tr><th>Car</th>
@@ -34,11 +36,12 @@ managed to publish unanswered questions.
       {% if question.answered_at %}
         <tr><th>Answered</th><td>{{ question.answered_at|date:"j M Y, H:i" }}</td></tr>
       {% endif %}
-    </table>
+      </table>
+    </div>
   </div>
 
   <div class="panel">
-    <h2 style="font-size:1rem;margin-top:0;">The question</h2>
+    <h2>The question</h2>
     <form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="edit-question">
@@ -51,7 +54,7 @@ managed to publish unanswered questions.
   </div>
 
   <div class="panel">
-    <h2 style="font-size:1rem;margin-top:0;">Your answer</h2>
+    <h2>Your answer</h2>
     <form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="answer">
@@ -64,7 +67,7 @@ managed to publish unanswered questions.
   </div>
 
   <div class="panel">
-    <h2 style="font-size:1rem;margin-top:0;">Public page</h2>
+    <h2>Public page</h2>
     {% if question.is_published %}
       <p class="help">
         This question and your answer are on the car's page and in search results. The
@@ -99,4 +102,5 @@ managed to publish unanswered questions.
   </div>
 
   <p><a href="{% url 'staff:question-list' %}">&larr; Back to the queue</a></p>
+  </div>
 {% endblock %}
