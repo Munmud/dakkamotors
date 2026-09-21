@@ -21,15 +21,18 @@ TEMPLATE = (pathlib.Path(__file__).resolve().parents[2]
             / "infra" / "data.yaml")
 
 
-def load_trigger():
-    """Pull the inline Lambda source out of the CloudFormation template and import it.
+def load_trigger(resource="UserMigrationFunction"):
+    """Pull an inline Lambda's source out of the CloudFormation template and import it.
+
+    `resource` is the logical name; the template holds more than one inline function,
+    and the first `ZipFile` in the file is not necessarily the one under test.
 
     boto3 is stubbed: the verifier is pure stdlib, and the handler's DynamoDB calls are
     not what these tests are about.
     """
     raw = io.open(TEMPLATE, encoding="utf-8").read()
     marker = "        ZipFile: |\n"
-    start = raw.index(marker) + len(marker)
+    start = raw.index(marker, raw.index(f"\n  {resource}:\n")) + len(marker)
 
     lines = []
     for line in raw[start:].split("\n"):
@@ -51,8 +54,8 @@ def load_trigger():
     real = sys.modules.get("boto3")
     sys.modules["boto3"] = types.SimpleNamespace(client=lambda *a, **k: None)
     try:
-        module = types.ModuleType("user_migration_trigger")
-        exec(compile(source, "infra/data.yaml::UserMigrationFunction", "exec"),
+        module = types.ModuleType(f"{resource}_trigger")
+        exec(compile(source, f"infra/data.yaml::{resource}", "exec"),
              module.__dict__)
     finally:
         if real is not None:

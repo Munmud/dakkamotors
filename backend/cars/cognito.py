@@ -300,6 +300,40 @@ def authenticate(*, email, password):
     return response.get("AuthenticationResult")
 
 
+def sign_in_with_link(*, email, raw_token):
+    """Open a session with the verification link instead of a password.
+
+    The pool's custom auth flow (`LinkAuthFunction` in infra/data.yaml) issues one
+    challenge, "present the link token", and checks the answer against the pending
+    item the link resolves through -- so this must run *before* that item is deleted.
+
+    Returns the token bundle, or None for any refusal at all. None is not an error to
+    the caller: verification has already confirmed the address by the time this runs,
+    and a customer who cannot be signed in from the link is sent to the sign-in form,
+    which is where they went before this existed. The refusal worth knowing about is
+    `InvalidParameterException` for a flow not enabled on the client, which is what a
+    backend deployed ahead of the stack update sees; it is logged so it is noticed.
+    """
+    try:
+        started = client().admin_initiate_auth(
+            UserPoolId=_pool(), ClientId=_customer_client(),
+            AuthFlow="CUSTOM_AUTH",
+            AuthParameters={"USERNAME": email},
+        )
+        if started.get("ChallengeName") != "CUSTOM_CHALLENGE":
+            return None
+        answered = client().admin_respond_to_auth_challenge(
+            UserPoolId=_pool(), ClientId=_customer_client(),
+            ChallengeName="CUSTOM_CHALLENGE",
+            Session=started["Session"],
+            ChallengeResponses={"USERNAME": email, "ANSWER": raw_token},
+        )
+    except Exception as exc:  # noqa: BLE001 - every refusal degrades the same way
+        logger.warning("link sign-in refused for %s: %s", email, exc)
+        return None
+    return answered.get("AuthenticationResult")
+
+
 def refresh(refresh_token):
     try:
         response = client().admin_initiate_auth(

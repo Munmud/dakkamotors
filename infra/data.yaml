@@ -303,6 +303,141 @@ Resources:
       Principal: cognito-idp.amazonaws.com
       SourceArn: !GetAtt UserPool.Arn
 
+  # The emailed verification link doubles as a sign-in. Cognito has the password from
+  # the moment of sign-up and never hands it back, so once the link has confirmed the
+  # address Django has nothing to authenticate with -- and the alternative, a sign-in
+  # form one screen after the link, lost the page the customer had come from. The
+  # custom auth flow is the one way Cognito issues tokens without a password: this
+  # trigger defines a single challenge, "present the link token", and checks the answer
+  # against the same PENDTOK# item the link itself resolves through. Holding the link
+  # already confirms the account; letting it also open the session adds no new secret.
+  LinkAuthRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: read-pending-link-tokens
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Read only. Django consumes the token once the session is issued; the
+              # trigger only has to recognise it.
+              - Effect: Allow
+                Action: [dynamodb:GetItem]
+                Resource: !GetAtt Table.Arn
+
+  LinkAuthFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: dakkamotors-link-auth
+      Runtime: python3.13
+      Handler: index.handler
+      Timeout: 10
+      Role: !GetAtt LinkAuthRole.Arn
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref Table
+      Code:
+        ZipFile: |
+          """Cognito custom-auth triggers: the verification link is the credential."""
+          import hashlib
+          import os
+
+          import boto3
+
+          TABLE = os.environ["TABLE_NAME"]
+          ddb = boto3.client("dynamodb")
+
+          CHALLENGE = "CUSTOM_CHALLENGE"
+
+
+          def define(event):
+              """One CUSTOM_CHALLENGE, one attempt.
+
+              Never PASSWORD_VERIFIER or SRP_A. The customer app client has no
+              password flow the browser can drive, and this trigger must not become
+              one by the back door: the only thing this flow will ever ask for is the
+              link token, which is 256 bits and needs no second try.
+              """
+              session = event["request"].get("session") or []
+              response = event["response"]
+              if session and session[-1].get("challengeName") == CHALLENGE \
+                      and session[-1].get("challengeResult") is True:
+                  response["issueTokens"] = True
+                  response["failAuthentication"] = False
+              elif session:
+                  response["issueTokens"] = False
+                  response["failAuthentication"] = True
+              else:
+                  response["issueTokens"] = False
+                  response["failAuthentication"] = False
+                  response["challengeName"] = CHALLENGE
+              return event
+
+
+          def create(event):
+              # Nothing to generate: the secret already exists, in the customer's
+              # inbox. The public parameter only names the challenge for a caller.
+              event["response"]["publicChallengeParameters"] = {"kind": "email-link"}
+              event["response"]["privateChallengeParameters"] = {}
+              event["response"]["challengeMetadata"] = "EMAIL_LINK"
+              return event
+
+
+          def verify(event):
+              """The answer is the raw token from the email; the table holds its hash.
+
+              The pending item is matched on the address rather than on `userName`:
+              the pool uses email as the username attribute, so `userName` here is
+              the sub, and a token for one address must not open another's session.
+              """
+              answer = (event["request"].get("challengeAnswer") or "").strip()
+              email = (event["request"].get("userAttributes") or {}).get("email", "")
+              email = email.strip().lower()
+              correct = False
+              if answer and email:
+                  digest = hashlib.sha256(answer.encode("utf-8")).hexdigest()
+                  item = ddb.get_item(
+                      TableName=TABLE,
+                      Key={"pk": {"S": "PENDTOK#" + digest}, "sk": {"S": "META"}},
+                      ConsistentRead=True,
+                  ).get("Item")
+                  if item:
+                      stored = item.get("email", {}).get("S", "").strip().lower()
+                      correct = bool(stored) and stored == email
+              event["response"]["answerCorrect"] = correct
+              return event
+
+
+          HANDLERS = {
+              "DefineAuthChallenge_Authentication": define,
+              "CreateAuthChallenge_Authentication": create,
+              "VerifyAuthChallengeResponse_Authentication": verify,
+          }
+
+
+          def handler(event, context):
+              try:
+                  step = HANDLERS[event.get("triggerSource")]
+              except KeyError:
+                  raise Exception("Unsupported trigger")
+              return step(event)
+
+  LinkAuthPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt LinkAuthFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
+
   # ------------------------------------------------------------------- Cognito ---
   #
   # The pool is configured to send **nothing**. No AutoVerifiedAttributes, admin-only
@@ -333,6 +468,10 @@ Resources:
       DeletionProtection: ACTIVE
       LambdaConfig:
         UserMigration: !GetAtt UserMigrationFunction.Arn
+        # All three custom-auth steps are one function; see LinkAuthFunction.
+        DefineAuthChallenge: !GetAtt LinkAuthFunction.Arn
+        CreateAuthChallenge: !GetAtt LinkAuthFunction.Arn
+        VerifyAuthChallengeResponse: !GetAtt LinkAuthFunction.Arn
       MfaConfiguration: "OPTIONAL"
       # TOTP only, and this list is not optional despite the name. Without it Cognito
       # assumes SMS_MFA the moment MfaConfiguration is anything but OFF, and then refuses
@@ -423,12 +562,21 @@ Resources:
       UserPoolId: !Ref UserPool
       ClientName: customer
       GenerateSecret: false
-      # ALLOW_USER_PASSWORD_AUTH is deliberately absent. Only the admin flow is enabled,
-      # and that requires signed AWS credentials - so a leaked client id cannot be used
-      # to brute-force from a browser, and every attempt goes through Django where the
-      # 20/hour throttle still does real work.
+      # ALLOW_USER_PASSWORD_AUTH is deliberately absent. The password flow is admin
+      # only, and that requires signed AWS credentials - so a leaked client id cannot be
+      # used to brute-force from a browser, and every attempt goes through Django where
+      # the 20/hour throttle still does real work.
+      #
+      # ALLOW_CUSTOM_AUTH is reachable from a browser with this public client id, and
+      # that is acceptable because of what the flow is: LinkAuthFunction issues exactly
+      # one challenge, "present the verification link token", and never a password
+      # challenge. The only person who can answer it is the holder of the emailed link,
+      # who could already confirm the account with it. Django uses the flow through
+      # AdminInitiateAuth right after confirming the address, so the link signs the
+      # customer in as well as verifying them.
       ExplicitAuthFlows:
         - ALLOW_ADMIN_USER_PASSWORD_AUTH
+        - ALLOW_CUSTOM_AUTH
         - ALLOW_REFRESH_TOKEN_AUTH
       PreventUserExistenceErrors: ENABLED
       EnableTokenRevocation: true

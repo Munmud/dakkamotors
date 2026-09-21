@@ -14,11 +14,18 @@ customer is verified -- an unverified person cannot get a token.
 -> S3 -> Brevo, bilingual and branded. Handing verification to Cognito would mean plain
 English against a 50/day cap, or SES; see `cognito.py` for why neither is wanted.
 
-One behaviour changed on purpose. Verifying used to log the customer straight in, which
-it can no longer do: Cognito holds the password and we never see it again after sign-up.
-Verification returns `{"verified": true}` and the app sends them to the sign-in form.
-The alternative was keeping a recoverable password for three days, which is worse than
-one extra screen.
+**The link signs them in as well as verifying them.** Cognito holds the password from
+sign-up and never hands it back, so for a while verification stopped at "confirmed" and
+sent people to the sign-in form -- one more screen, and the page they had come from
+lost along the way. The pool's custom auth flow closes that gap: `LinkAuthFunction`
+issues a single challenge whose answer is the link token itself, and
+`cognito.sign_in_with_link` answers it right after `confirm`. Holding the link already
+proved the address; letting it open the session adds no secret and stores no password.
+
+If that sign-in is refused -- the flow not yet enabled on the client, Cognito having a
+bad minute -- verification still succeeds and the response says `signed_in: false`, and
+the app falls back to the sign-in form. A confirmed account is never lost to a failed
+convenience.
 """
 
 import logging
@@ -224,15 +231,26 @@ class VerifyView(APIView):
         customer_store.ensure(sub=attrs.get("sub", ""), email=pending.email,
                               now=timezone.now())
         next_path = pending.next_path
+
+        # Before `finish_registration`, not after: the custom-auth trigger recognises
+        # the token by reading the same pending item, so the order is the correctness.
+        tokens = cognito.sign_in_with_link(email=pending.email, raw_token=raw_token)
         auth_store.finish_registration(pending)
 
-        # No session: Cognito has the password and we do not. The app sends them to the
-        # sign-in form with the address filled in.
-        return Response({
+        body = {
             "verified": True,
             "email": pending.email,
             "next": next_path or "/account",
-        })
+            "signed_in": tokens is not None,
+        }
+        if tokens is None:
+            return Response(body)
+
+        user = (cognito.user_for(pending.email)
+                or cognito.CognitoUser(sub=attrs.get("sub", ""), email=pending.email))
+        body.update(_me(user))
+        return authentication.set_session_cookies(
+            Response(body), tokens, secure=_secure_cookies(request))
 
 
 class ResendVerificationView(APIView):

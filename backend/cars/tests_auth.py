@@ -147,8 +147,29 @@ class RegistrationTests(AuthFlowTestCase):
         self.assertEqual(self.register(password="simple").status_code, 202)
 
 
+def link_sign_in_via_password(password="simple"):
+    """A stand-in for `cognito.sign_in_with_link` on moto.
+
+    moto's `admin_initiate_auth` has no CUSTOM_AUTH and cannot run the pool's
+    triggers, so the challenge hop is the one thing replaced: the stand-in signs in
+    with the password the test registered and hands back moto's real token bundle.
+    Everything after -- the cookies, `/me`, the customer counter -- is the real code.
+    The trigger itself is tested in `tests_link_auth.py`.
+    """
+    def stand_in(*, email, raw_token):
+        return cognito.authenticate(email=email, password=password)
+    return stand_in
+
+
 class VerificationTests(AuthFlowTestCase):
-    def test_the_link_confirms_the_account_and_sends_them_to_sign_in(self):
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch.object(cognito, "sign_in_with_link",
+                                    link_sign_in_via_password())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_link_confirms_the_account(self):
         self.register()
 
         response = self.client.post("/api/auth/verify/",
@@ -161,17 +182,54 @@ class VerificationTests(AuthFlowTestCase):
         self.assertEqual(body["email"], "new@example.com")
         self.assertEqual(cognito.status_of("new@example.com"), "CONFIRMED")
 
-    def test_verifying_does_not_sign_them_in(self):
-        """Changed on purpose: Cognito holds the password and we never see it again.
-
-        The alternative was keeping a recoverable password for three days, which is
-        worse than one extra screen.
-        """
+    def test_the_link_signs_them_in(self):
+        """The link is the credential. Holding it already proved the address, so
+        the customer lands signed in rather than one screen short of it."""
         self.register()
-        self.client.post("/api/auth/verify/", {"token": self.link_token()},
-                         content_type="application/json")
 
+        response = self.client.post("/api/auth/verify/",
+                                    {"token": self.link_token()},
+                                    content_type="application/json")
+
+        body = response.json()
+        self.assertTrue(body["signed_in"])
+        self.assertEqual(body["name"], "Yuki Tanaka")
+        self.assertEqual(response.cookies[ACCESS_COOKIE]["path"], "/api")
+        self.assertEqual(response.cookies[REFRESH_COOKIE]["path"], "/api/auth")
+        self.assertEqual(self.client.get("/api/auth/me/").status_code, 200)
+
+    def test_the_link_still_verifies_when_the_sign_in_is_refused(self):
+        """A backend deployed ahead of the stack update, or Cognito having a bad
+        minute: the account is confirmed all the same, and the app is told to fall
+        back to the sign-in form. A confirmed account is never lost to a convenience."""
+        with mock.patch.object(cognito, "sign_in_with_link", return_value=None):
+            self.register()
+            response = self.client.post("/api/auth/verify/",
+                                        {"token": self.link_token()},
+                                        content_type="application/json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["signed_in"])
+        self.assertNotIn(ACCESS_COOKIE, response.cookies)
         self.assertEqual(self.client.get("/api/auth/me/").status_code, 403)
+        self.assertEqual(cognito.status_of("new@example.com"), "CONFIRMED")
+
+    def test_the_sign_in_is_attempted_while_the_token_still_exists(self):
+        """The trigger recognises the token by reading the pending item, so the
+        sign-in has to happen before `finish_registration` deletes it."""
+        seen = {}
+
+        def stand_in(*, email, raw_token):
+            seen["pending"] = auth_store.registration_for_token(raw_token)
+            return None
+
+        with mock.patch.object(cognito, "sign_in_with_link", stand_in):
+            self.register()
+            self.client.post("/api/auth/verify/", {"token": self.link_token()},
+                             content_type="application/json")
+
+        self.assertIsNotNone(seen["pending"])
+        self.assertEqual(seen["pending"].email, "new@example.com")
 
     def test_the_customer_can_sign_in_afterwards(self):
         self.register()

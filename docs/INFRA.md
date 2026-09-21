@@ -125,6 +125,34 @@ Instead the importer writes a `LEGACYPW#<email>` item per customer and a Cognito
 items carry a 90-day TTL regardless. The trigger is inline in `infra/data.yaml` and needs
 no Django: the hash format is verifiable in about fifteen lines of stdlib `hashlib`.
 
+### The verification link signs a customer in
+
+The second inline trigger, **LinkAuth**, is the three custom-auth steps in one function.
+Cognito never hands a password back, so once the emailed link has confirmed an address
+Django has nothing to sign the customer in with -- and for a while the link ended on the
+sign-in form, one screen short of the car they had come from. The custom auth flow is
+the one way Cognito issues tokens without a password: the trigger defines a single
+challenge, "present the link token", and checks the answer against the same `PENDTOK#`
+item the link resolves through. Django answers it with `AdminInitiateAuth` immediately
+after confirming the address and before deleting the item. Holding the link already
+proved the address; letting it also open the session adds no new secret.
+
+`ALLOW_CUSTOM_AUTH` is therefore enabled on the customer app client, which a browser
+can reach with the public client id. That is acceptable because the flow can only ever
+ask for the link token -- the trigger never issues a password challenge, and there is a
+test for that -- so the one person who can pass it is the one holding the email.
+
+**Adding it was a stack update**, the same command as step 1 of the cutover:
+
+```bash
+aws cloudformation deploy --region ap-northeast-1   --template-file infra/data.yaml --stack-name dakkamotors-data   --capabilities CAPABILITY_NAMED_IAM
+```
+
+It is safe in either order relative to the backend deploy. A backend that runs ahead of
+the stack sees `InvalidParameterException` from Cognito, logs it, and still confirms
+the account -- the customer is sent to the sign-in form as before. A stack that runs
+ahead of the backend is simply a trigger nothing calls yet.
+
 ---
 
 ## The cutover

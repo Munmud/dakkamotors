@@ -80,6 +80,17 @@ Django hash on a customer's first sign-in. `tests_user_migration.py` extracts th
 source from the template and tests it against hashes Django actually produces, so the
 thing that will run is the thing that was checked.
 
+**The verification link signs the customer in.** Cognito never hands a password back,
+so a second inline trigger, `LinkAuthFunction`, runs the pool's custom auth flow with
+one challenge: present the link token. `cognito.sign_in_with_link` answers it right
+after `confirm` and **before** `finish_registration`, because the trigger recognises
+the token by reading the `PENDTOK#` item itself -- it builds that key by hand, as a
+Lambda cannot import `store/keys.py`, and `tests_link_auth.py` holds the two spellings
+together. A refused sign-in still verifies; the response says `signed_in: false` and
+the app falls back to the sign-in form. `ALLOW_CUSTOM_AUTH` on the customer client is
+deliberate and the template comment says why it is safe; do not add a password
+challenge to that trigger.
+
 Ids are strings, so URL patterns take `<str:pk>`. A slot's id is derived from (schedule,
 start time) -- that is what makes materialising slots idempotent, and why two fixtures
 wanting distinct slots at the same instant need distinct rules.
