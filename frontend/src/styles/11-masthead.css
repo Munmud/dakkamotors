@@ -1,13 +1,10 @@
 /* ---------------------------------------------------------------------- header --- */
 
-/* The band carries the mark and the controls, and on the home page the logo artwork
-   and one line of what this is.
-
-   `--hero-ground`, not `--ink`: the artwork is an opaque rectangle and the band behind
-   it has to match the colour baked into it. Painting the whole header rather than a
-   strip behind the picture is what keeps the seam from existing at all. */
+/* A band, not a hero. The home page opens with the cars. It has opened with the logo
+   twice -- once as an artwork the width of the page, once centred above a tagline --
+   and both times the first thing a buyer saw on a six-car lot was not a car. */
 .masthead {
-  background: var(--hero-ground);
+  background: var(--ink);
   color: #fff;
 }
 
@@ -30,35 +27,6 @@
   align-items: center;
   gap: 0.3rem;
   flex-wrap: wrap;
-}
-
-/* Home only: the artwork and one line of what this is, centred.
-
-   Grid rather than a centred flex row. The two children are of very different widths,
-   and a flex row that centres then wraps leaves the tagline aligned to the start of its
-   own line rather than to the middle of the page. */
-.masthead__intro {
-  max-width: var(--shell);
-  margin: 0 auto;
-  padding: 0 var(--gutter) var(--space-4);
-  display: grid;
-  justify-items: center;
-  text-align: center;
-  gap: var(--space-3);
-}
-
-.masthead__logo {
-  width: min(100%, 34rem);
-  height: auto;
-}
-
-.masthead__tagline {
-  margin: 0;
-  max-width: 34ch;
-  margin-inline: auto;
-  color: #c3ccd2;
-  font-size: var(--step-1);
-  line-height: 1.55;
 }
 
 .masthead__account,

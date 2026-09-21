@@ -180,21 +180,6 @@ def artwork():
     return art.crop(mask.getbbox())
 
 
-def hero(width=1100):
-    """The home masthead. Twice its ~550px display width, for retina.
-
-    No alpha: the artwork's ground is #1b2734, which is `--hero-ground`, which is what
-    the masthead is painted -- so a rectangle of it is invisible against the bar.
-    Knocking the background out instead would have meant matting a dithered ground
-    against soft drop shadows, which fringes, to solve a seam that does not exist.
-
-    The consequence is that this function cannot move the ground. Changing the band's
-    colour means supplying a `docs/Logo.png` painted on the new one.
-    """
-    art = artwork()
-    return art.resize((width, round(art.height * width / art.width)), Image.LANCZOS)
-
-
 def share_card(w=1200, h=630, margin=0.94):
     """The Open Graph / Twitter card.
 
@@ -220,17 +205,10 @@ if __name__ == "__main__":
     email_mark().save(assets / "email-mark-dm.png")
     print("frontend/public/assets/email-mark-dm.png")
 
-    # Formats are chosen by audience, not by preference.
-    #
-    # The hero is read by browsers, so it is WebP: 50KB against 105KB for the same
-    # picture as JPEG, and nothing that can render this site cannot render WebP.
-    #
     # The share card is read by scrapers -- Facebook, X, LinkedIn, Slack, WhatsApp --
     # and their WebP support is patchy in a way that fails silently, showing no image
     # rather than a worse one. So it stays JPEG, at a quality high enough that the
     # chrome gradients do not band (q85 banded across the D; q92 does not).
-    hero().save(assets / "logo-hero.webp", quality=88, method=6)
-    print("frontend/public/assets/logo-hero.webp")
     share_card().save(assets / "share-card.jpg", quality=92, optimize=True,
                       progressive=True)
     print("frontend/public/assets/share-card.jpg")

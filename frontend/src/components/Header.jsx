@@ -1,4 +1,4 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import NotificationBell from "./NotificationBell";
@@ -104,7 +104,6 @@ function BrandMark() {
 
 export default function Header() {
   const { t } = useTranslation();
-  const isHome = useLocation().pathname === "/";
 
   return (
     <header className="masthead">
@@ -120,27 +119,6 @@ export default function Header() {
           <LanguageSwitch />
         </div>
       </div>
-
-      {isHome && (
-        <div className="masthead__intro">
-          {/*
-            The full logo artwork, home page only -- it is an illustration and it needs
-            the width, which is exactly what no other placement has.
-
-            alt is empty on purpose. It is decorative here: the masthead says "Dakka
-            Motors" in real text a few lines above, so giving this an alt would have a
-            screen reader announce the brand twice in a row.
-
-            width and height are the intrinsic pixels, so the browser reserves the box
-            before the file arrives. Without them this lands above the fold and pushes
-            the whole listing down as it loads, which is the layout shift the
-            server-rendered initial data was added to get rid of.
-          */}
-          <img className="masthead__logo" src="/assets/logo-hero.webp" alt=""
-               width="1100" height="566" decoding="async" fetchPriority="high" />
-          <p className="masthead__tagline">{t("tagline")}</p>
-        </div>
-      )}
     </header>
   );
 }

@@ -323,10 +323,8 @@ resolved statically and a check that cries wolf gets disabled.
 
 **The brand is two assets, used at two scales.** `docs/Logo.png` is the master artwork
 -- a kei car, a swoosh and a chrome DM, about 1167x600 once trimmed. It is an
-illustration, so it only goes where it is large enough to read, which since the
-redesign is the Open Graph share card alone. It used to open the home masthead too, and
-that is what coupled `--ink` to the artwork's baked-in ground; the band now carries the
-monogram and nothing else, and the coupling is gone with it. At 32px it is a grey smudge and at 16px nothing survives, so
+illustration, so it only goes where it is large enough to read, which is the Open Graph
+share card alone. The band carries the monogram and nothing else. At 32px it is a grey smudge and at 16px nothing survives, so
 the small sizes get the **DM monogram** instead -- the favicon and the 26px logo in an
 email masthead. `docs/brand/generate.py` bakes every raster from both and explains each
 format choice; nothing redraws the artwork, the cuts are a trim and a resize.
@@ -340,21 +338,16 @@ rebrand: the name is pinned in `infra/edge.yaml` as its own CloudFront behaviour
 renaming it is a distribution update that would have to land in step with a frontend
 deploy or the site serves a 404 for its own icon.
 
-**Three darks, and only one of them is pinned.** `--hero-ground` is `#1b2734` because
-that is what `docs/Logo.png` is painted on, and the home banner is an opaque rectangle
-with no alpha -- the masthead takes that value or a faint block appears around the
-artwork. `generate.py`'s `INK` is the same number for the same reason, since
-`share_card()` extends the canvas around those pixels. `--ink` is `#1c2b33` and stays
-free: it is body text and the footer, and pinning the site's text colour to a raster's
-background is the coupling this arrangement exists to avoid.
+`--ink` is `#1c2b33` and is free to move: nothing on the site composites against it.
+`generate.py`'s own `INK` is still the artwork's `#1b2734`, and must stay that, because
+`share_card()` extends the canvas around pixels painted on it. The two are different
+numbers on purpose -- one is the page, one is the picture.
 
-The whole masthead is painted `--hero-ground`, not a strip behind the banner. The two
-values differ by about 1.5 dE, which is invisible as a field and visible as a hard edge
-between two of them. The footer keeps `--ink`; `.l-main` is always between them.
-
-`hero()` cannot fix this by re-grounding the picture -- it only trims and resizes, and
-its docstring records why matting a dithered ground against soft drop shadows was
-rejected. A new banner on a new ground means a new `docs/Logo.png`.
+The artwork has been the home masthead twice and been taken off twice; the second time
+it went it took a `--hero-ground` token with it, which existed only because an opaque
+rectangle has to sit on its own baked colour. If it comes back a third time, that token
+comes back with it, and `hero()` in `generate.py` (also removed) cannot re-ground the
+picture -- its ground is baked into `docs/Logo.png`.
 
 **The yellow is `--plate`, and it is the kei number plate**, which is the legal marker
 of the class this shop sells rather than an accent picked for contrast. It says exactly
