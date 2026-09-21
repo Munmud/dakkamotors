@@ -252,7 +252,12 @@ function AuthForm({ mode, onDone, next }) {
       </form>
 
       <p className="authform__switch">
-        <Link to={registering ? "/account/login" : "/account/register"}>
+        {/*
+          `next` rides along. Guests are sent here from a car page with their place in
+          the query string, and a switch that dropped it would send somebody who does
+          have an account back to /account instead of back to the car.
+        */}
+        <Link to={`${registering ? "/account/login" : "/account/register"}${next ? `?next=${encodeURIComponent(next)}` : ""}`}>
           {registering ? t("auth.haveAccount") : t("auth.needAccount")}
         </Link>
         {!registering && (

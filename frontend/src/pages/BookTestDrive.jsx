@@ -46,8 +46,9 @@ export default function BookTestDrive() {
   async function confirm() {
     if (!selected) return;
     if (!customer) {
-      // Keep their place: come back here once they are signed in.
-      navigate(`/account/login?next=${encodeURIComponent(`/cars/${slug}/test-drive`)}`);
+      // The register page, not sign-in: a first-time visitor has no account yet, and
+      // the form's switch link is there for the ones who do. `next` keeps their place.
+      navigate(`/account/register?next=${encodeURIComponent(`/cars/${slug}/test-drive`)}`);
       return;
     }
     setError(null);
@@ -119,7 +120,7 @@ export default function BookTestDrive() {
             ? t("booking.booking")
             : customer || state === "unknown"
               ? t("booking.confirm")
-              : t("booking.signInToBook")}
+              : t("booking.registerToBook")}
         </button>
       )}
     </section>

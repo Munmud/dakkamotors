@@ -105,7 +105,7 @@
     "seatsLeft_other": "{{count}} places left",
     "confirm": "Confirm booking",
     "booking": "Booking…",
-    "signInToBook": "Sign in to book this time",
+    "registerToBook": "Create an account to book this time",
     "myBookings": "My test drives",
     "none": "You have no test drives booked.",
     "cancel": "Cancel",
@@ -140,7 +140,7 @@
     "submit": "Send question",
     "sending": "Sending…",
     "sent": "Sent. We will email you when we answer.",
-    "signInToAsk": "Sign in to ask about this car",
+    "registerToAsk": "Create an account to ask about this car",
     "none": "No questions about this car yet.",
     "awaitingAnswer": "Waiting for an answer — we will email you."
   },

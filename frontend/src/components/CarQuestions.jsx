@@ -131,9 +131,14 @@ export default function CarQuestions({ car }) {
         </form>
       ) : (
         <p className="state__body">
-          {/* Carries them back to this car once they are signed in. */}
-          <Link to={`/account/login?next=${encodeURIComponent(pathname)}`}>
-            {t("qa.signInToAsk")}
+          {/*
+            The register page, not the sign-in page. A visitor reading a car page for
+            the first time has no account to sign in to, and "sign in" told them the
+            door was for somebody else. The form's own switch link is there for the
+            ones who do. `next` carries them back to this car once it is done.
+          */}
+          <Link to={`/account/register?next=${encodeURIComponent(pathname)}`}>
+            {t("qa.registerToAsk")}
           </Link>
         </p>
       )}
