@@ -54,7 +54,11 @@ export async function resendVerification(email) {
   return post("/auth/resend/", { email });
 }
 
-/** The link. This is what actually creates the account and signs them in. */
+/**
+ * The link. Confirms the account and, when the pool's link sign-in accepts the token,
+ * sets the session cookies too: the response says `signed_in`, and the page decides
+ * whether the customer goes straight to `next` or to the sign-in form first.
+ */
 export async function verifyEmail(token) {
   return post("/auth/verify/", { token });
 }

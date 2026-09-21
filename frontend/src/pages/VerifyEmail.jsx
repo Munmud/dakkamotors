@@ -3,15 +3,18 @@ import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage, verifyEmail } from "../lib/auth";
+import { useAuth } from "../lib/AuthContext";
 
 /**
- * The link from the verification email. Clicking it is what makes the account usable.
+ * The link from the verification email. Clicking it is what makes the account usable,
+ * and it signs them in: the token is the credential, answered through the pool's
+ * custom auth flow on the server, so the customer lands on the page they registered
+ * from -- the car they were asking about, the test drive they were booking -- rather
+ * than on a sign-in form one screen short of it.
  *
- * It no longer signs them in. Cognito holds the password from the moment of sign-up and
- * never hands it back, so there is nothing here to authenticate with; verification
- * confirms the account and sends them to the sign-in form with the address filled in.
- * The alternative was keeping a recoverable password for three days, which is worse
- * than one extra screen.
+ * The server can decline that part while still confirming the account (`signed_in`
+ * false), in which case the sign-in form is the fallback and `next` still travels
+ * with them.
  *
  * The token is read from `window.location` rather than passed to the server in the page
  * request: the CDN cache policy whitelists only `lang`, so every other query string is
@@ -20,6 +23,7 @@ import { errorMessage, verifyEmail } from "../lib/auth";
 export default function VerifyEmail() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { refresh } = useAuth();
   const [state, setState] = useState("working");
   const [error, setError] = useState(null);
   // React 18+ runs effects twice in development; without this the second run spends the
@@ -38,19 +42,23 @@ export default function VerifyEmail() {
     }
 
     verifyEmail(token)
-      .then((result) => {
+      .then(async (result) => {
         setState("done");
-        // /account shows the sign-in form to anyone not signed in, and carries `next`
-        // through it - so they still land on the booking they were part-way through,
-        // one screen later than before.
-        const next = encodeURIComponent(result.next || "/account");
-        navigate(`/account?next=${next}`, { replace: true });
+        const next = result.next || "/account";
+        if (result.signed_in) {
+          // The cookies are already set; the app just has not noticed. Refresh before
+          // navigating so the destination renders for a signed-in customer first time.
+          await refresh();
+          navigate(next, { replace: true });
+        } else {
+          navigate(`/account/login?next=${encodeURIComponent(next)}`, { replace: true });
+        }
       })
       .catch((err) => {
         setState("failed");
         setError(errorMessage(err, t("auth.verifyFailed")));
       });
-  }, [navigate, t]);
+  }, [navigate, refresh, t]);
 
   if (state === "failed") {
     return (
