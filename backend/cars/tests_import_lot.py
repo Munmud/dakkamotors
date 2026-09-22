@@ -12,6 +12,7 @@ import pathlib
 import tempfile
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 from PIL import Image
 
@@ -122,6 +123,31 @@ class ImportLotTests(DynamoReset, SimpleTestCase):
         for photo in image_store.for_car(car.car_id):
             self.assertTrue(photo.derivatives_ready, photo.image_name)
             self.assertTrue(photo.derivative_urls, photo.image_name)
+
+    def test_primary_photo_names_the_card(self):
+        """Names sort "10.08" before "9.55", so the first file is not always the best
+        picture of the car -- one forecourt shot shared with another car led a listing
+        until the manifest could say otherwise."""
+        manifest = json.loads(self.manifest.read_text(encoding="utf-8"))
+        manifest["cars"][0]["primary_photo"] = "b.jpg"
+        self.manifest.write_text(json.dumps(manifest), encoding="utf-8")
+
+        self.run_import(apply=True)
+
+        (car,) = self.sold()
+        photos = image_store.for_car(car.car_id)
+        self.assertTrue(photos[0].is_primary)
+        self.assertEqual(len(photos), 3)
+        # a.jpg sorted first on disk; b.jpg leads because the manifest said so.
+        self.assertEqual(sum(p.is_primary for p in photos), 1)
+
+    def test_a_primary_photo_that_is_not_there_stops_the_run(self):
+        manifest = json.loads(self.manifest.read_text(encoding="utf-8"))
+        manifest["cars"][0]["primary_photo"] = "nope.jpg"
+        self.manifest.write_text(json.dumps(manifest), encoding="utf-8")
+
+        with self.assertRaises(CommandError):
+            self.run_import(apply=True)
 
     def test_running_it_twice_imports_nothing_the_second_time(self):
         self.run_import(apply=True)

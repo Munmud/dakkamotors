@@ -9,6 +9,7 @@ command, a test, or an asynchronous Lambda invocation without changing shape.
 
 import io
 import logging
+import mimetypes
 
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
@@ -18,6 +19,14 @@ from .choices import DERIVATIVE_WIDTHS
 from .store import images as image_store
 
 logger = logging.getLogger(__name__)
+
+# Windows maps file types through the registry, which has no entry for WebP, so
+# `mimetypes.guess_type("x.webp")` there returns None and django-storages falls back
+# to `application/octet-stream`. Lambda's Linux knows the type, so the difference only
+# shows when derivatives are built from a laptop -- as `manage.py import_lot` does --
+# and then only as a wrong header on an object browsers happen to sniff correctly.
+# Registering it here makes the answer the same everywhere.
+mimetypes.add_type("image/webp", ".webp")
 
 WEBP_QUALITY = 82
 

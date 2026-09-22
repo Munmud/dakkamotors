@@ -98,7 +98,25 @@ class Command(BaseCommand):
                 f"{len(names) + len(extra)} photo(s)")
 
             if apply:
-                self.import_one(entry, [*photos_in(folder), *extra])
+                self.import_one(entry, self.order_photos(entry, folder, extra))
+
+    def order_photos(self, entry, folder, extra):
+        """The car's own photos, then the wide shots, with the card first.
+
+        Sorted by name so a run is reproducible -- but a name sorts "10.08" before
+        "9.55", which is how a two-car forecourt shot ended up as one car's listing
+        card. `primary_photo` names the one that should lead when the first by name
+        is not the best picture of the car.
+        """
+        photos = [*photos_in(folder), *extra]
+        wanted = entry.get("primary_photo")
+        if wanted:
+            lead = [p for p in photos if p.name == wanted]
+            if not lead:
+                raise CommandError(
+                    f"{entry['folder']}: primary_photo {wanted!r} is not in the folder")
+            photos = lead + [p for p in photos if p.name != wanted]
+        return photos
 
     def find_imported(self, folder_name):
         """A car already carrying this folder's import key, or None.
