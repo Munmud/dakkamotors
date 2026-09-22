@@ -354,3 +354,100 @@
   letter-spacing: 0.3em;
   text-align: center;
 }
+
+/* ------------------------------------------------------------ the code screen --- */
+
+/* One thing to do: read six digits off a phone and type them here. So the card is
+   narrow, centred, and holds nothing that is not that -- the address it went to, the
+   box, the button, and the way to get another code. It sat left-aligned in a 26rem
+   column with the box the width of a word, which made the most important control on
+   the page look like an afterthought beside the sentence above it. */
+.codecard {
+  max-width: 30rem;
+  margin: var(--space-5) auto;
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  text-align: center;
+}
+
+.codecard__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--step-2);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.codecard__lead {
+  margin: 0 auto var(--space-4);
+  max-width: 34ch;
+  color: var(--road);
+  line-height: 1.6;
+}
+
+.codecard__lead strong {
+  color: var(--ink);
+  /* `anywhere`, not `break-all`: a long address still wraps rather than widening the
+     card, but a short one is not chopped mid-word for no reason. */
+  overflow-wrap: anywhere;
+}
+
+.codecard__form {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+}
+
+/* The six digits, spaced like the card they are copied from. Wide enough for all six
+   plus the tracking -- the first cut was 11ch and clipped the last digit, which is
+   exactly the digit somebody is checking when they look at the box. */
+.codecard__input {
+  width: 100%;
+  max-width: 15rem;
+  font: inherit;
+  font-size: var(--step-3);
+  font-weight: 700;
+  letter-spacing: 0.35em;
+  /* The tracking is added after every character including the last, so without this
+     the digits sit visibly left of centre. */
+  text-indent: 0.35em;
+  text-align: center;
+  padding: 0.5rem 0.4rem;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.codecard__input:focus-visible {
+  border-color: var(--ink);
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.codecard__hint {
+  margin: 0;
+  max-width: 34ch;
+  color: var(--road);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.codecard .btn {
+  width: 100%;
+  max-width: 15rem;
+}
+
+.codecard__quiet {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+
+.codecard__quiet .btn--quiet {
+  border-color: transparent;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

@@ -122,6 +122,11 @@ class Car(BaseItem, discriminator="car"):
 
     slug = UnicodeAttribute(null=True)
 
+    # Set only by `manage.py import_lot`, and read only by it: the source folder a
+    # car was imported from, so a second run of an import that is twenty minutes of
+    # photo uploads recognises what it already did rather than doubling the lot.
+    import_key = UnicodeAttribute(null=True)
+
     # Free-form [{label_en, label_ja, value_en, value_ja}, ...], list order = display
     # order. A JSON blob on the car rather than child items, for the same reason
     # primary_image_ref is one: specs are always read with the car, never on their own

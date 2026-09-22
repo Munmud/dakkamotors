@@ -146,6 +146,12 @@ Resources:
               - cognito-idp:SignUp
               - cognito-idp:InitiateAuth
               - cognito-idp:AdminInitiateAuth
+              # The second half of the custom auth flow, and easy to miss because the
+              # first half is a different action: without it a sign-up's code confirms
+              # the account and then fails to open the session, which looks to the
+              # customer like a form that did nothing. `tests_iam_policy.py` now fails
+              # if a Cognito call in cognito.py is not granted here.
+              - cognito-idp:AdminRespondToAuthChallenge
               - cognito-idp:AdminCreateUser
               - cognito-idp:AdminDeleteUser
               - cognito-idp:AdminGetUser

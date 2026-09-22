@@ -39,6 +39,7 @@ export default function Account({ mode = "bookings" }) {
     return (
       <AuthForm
         next={next}
+        verified={params.get("verified") === "1"}
         mode={mode === "register" ? "register" : "login"}
         onDone={async () => {
           await refresh();
@@ -136,7 +137,7 @@ function ProfileForm({ customer, onSaved }) {
   );
 }
 
-function AuthForm({ mode, onDone, next }) {
+function AuthForm({ mode, onDone, next, verified = false }) {
   const { t, i18n } = useTranslation();
   const registering = mode === "register";
   const [values, setValues] = useState({ name: "", email: "", phone: "", password: "" });
@@ -176,6 +177,13 @@ function AuthForm({ mode, onDone, next }) {
       <h1 className="section__title">
         {registering ? t("auth.register") : t("auth.signIn")}
       </h1>
+
+      {/* Sent here by the code screen when the account was confirmed but the session
+          could not be opened. Without a word about it, somebody who has just typed a
+          code correctly is looking at a form that appears to have ignored them. */}
+      {!registering && verified && (
+        <p className="authform__saved" role="status">{t("auth.confirmedNowSignIn")}</p>
+      )}
 
       <form className="authform" onSubmit={submit}>
         {registering && (

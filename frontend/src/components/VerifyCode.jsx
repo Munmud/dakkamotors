@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 
 import { errorMessage, resendVerification, verifyEmail } from "../lib/auth";
 import { useAuth } from "../lib/AuthContext";
@@ -16,6 +16,11 @@ import { useAuth } from "../lib/AuthContext";
  *
  * Shared by the register form (straight after the 202) and by /account/verify, for
  * somebody who closed the tab and comes back with the email in hand.
+ *
+ * The page is one card with one thing to do, because that is all this step is. When
+ * the session cannot be opened -- which happened in production, an IAM grant short --
+ * the account still exists, and saying so beats a silent bounce to a form that looks
+ * like the one they just filled in.
  */
 export default function VerifyCode({ email, next }) {
   const { t } = useTranslation();
@@ -39,7 +44,11 @@ export default function VerifyCode({ email, next }) {
         await refresh();
         navigate(destination, { replace: true });
       } else {
-        navigate(`/account/login?next=${encodeURIComponent(destination)}`, { replace: true });
+        // Confirmed but not signed in. They have an account and a password, so the
+        // sign-in form is the shortest way on -- with a line saying why they are
+        // looking at it, rather than landing there with no explanation.
+        navigate(`/account/login?next=${encodeURIComponent(destination)}&verified=1`,
+                 { replace: true });
       }
     } catch (err) {
       setError(errorMessage(err, t("auth.codeWrong")));
@@ -58,15 +67,17 @@ export default function VerifyCode({ email, next }) {
   }
 
   return (
-    <section className="authcard">
-      <h1 className="section__title">{t("auth.checkEmail")}</h1>
-      <p className="state__body">{t("auth.sentTo", { email })}</p>
+    <section className="codecard">
+      <h1 className="codecard__title">{t("auth.checkEmail")}</h1>
+      <p className="codecard__lead">
+        <Trans i18nKey="auth.sentTo" values={{ email }} components={{ 1: <strong /> }} />
+      </p>
 
-      <form className="authform" onSubmit={submit}>
+      <form className="codecard__form" onSubmit={submit}>
         <label className="authform__field">
-          <span>{t("auth.code")}</span>
+          <span className="u-visually-hidden">{t("auth.code")}</span>
           <input
-            className="authform__code u-nums"
+            className="codecard__input u-nums"
             value={code}
             onChange={(event) => {
               setError(null);
@@ -76,21 +87,27 @@ export default function VerifyCode({ email, next }) {
             autoComplete="one-time-code"
             pattern="[0-9]{6}"
             maxLength={6}
+            aria-label={t("auth.code")}
+            placeholder="000000"
             required
             autoFocus
           />
         </label>
-        <p className="authform__hint">{t("auth.codeHelp")}</p>
+
         {error && <p className="authform__error" role="alert">{error}</p>}
+
         <button type="submit" className="btn" disabled={busy || code.length !== 6}>
           {busy ? t("auth.verifying") : t("auth.verify")}
         </button>
+        <p className="codecard__hint">{t("auth.codeHelp")}</p>
       </form>
 
-      <button type="button" className="btn btn--quiet" onClick={resend}>
-        {t("auth.resend")}
-      </button>
-      {resent && <p className="state__body">{t("auth.resent")}</p>}
+      <div className="codecard__quiet">
+        <button type="button" className="btn btn--quiet" onClick={resend}>
+          {t("auth.resend")}
+        </button>
+        {resent && <p className="codecard__hint" role="status">{t("auth.resent")}</p>}
+      </div>
     </section>
   );
 }

@@ -7,7 +7,7 @@ import CarQuestions from "../components/CarQuestions";
 import Gallery from "../components/Gallery";
 import SpecTable from "../components/SpecTable";
 import { ErrorState, LoadingState } from "../components/States";
-import { carTitle, formatPrice, pickDescription } from "../lib/format";
+import { carField, carTitle, formatPrice, pickDescription } from "../lib/format";
 import { takeInitialData } from "../lib/initialData";
 
 /**
@@ -104,17 +104,20 @@ export default function CarDetail() {
           <div>
             <span className="summary__year u-nums">{car.manufacture_year}</span>
             <h1 className="summary__title">
-              {car.brand} {car.model_name}
+              {carField(car, "brand", i18n.language)} {carField(car, "model_name", i18n.language)}
             </h1>
             {car.grade && <p className="summary__grade">{car.grade}</p>}
           </div>
 
           <div className="pricebox">
+            {/* A sold car with no price shows none. "Call for price" is an invitation
+                to ring up about a number nobody can act on any more; the status flag
+                below is the whole answer. The listing card already works this way. */}
             {price ? (
               <span className="pricebox__amount u-nums">
                 {t("price.yen", { amount: price })}
               </span>
-            ) : (
+            ) : car.status === "sold" ? null : (
               <span className="pricebox__amount pricebox__amount--call">
                 {t("price.callFor")}
               </span>

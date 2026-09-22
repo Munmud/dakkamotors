@@ -79,7 +79,7 @@
     "creating": "Creating your account…",
     "failed": "Could not sign you in. Please try again.",
     "checkEmail": "Check your email",
-    "sentTo": "We have emailed a code to {{email}}. Type it below to finish creating your account — until you do, no account exists.",
+    "sentTo": "We have emailed a code to <1>{{email}}</1>. Type it below to finish creating your account.",
     "resend": "Send a new code",
     "resent": "Sent. It can take a minute to arrive.",
     "verifying": "Confirming…",
@@ -96,7 +96,8 @@
     "verify": "Confirm",
     "codeWrong": "That code is not right. Check the email and try again.",
     "enterEmail": "The email you signed up with",
-    "signUp": "Sign up"
+    "signUp": "Sign up",
+    "confirmedNowSignIn": "Your email is confirmed. Sign in to finish."
   },
   "booking": {
     "book": "Book a test drive",
