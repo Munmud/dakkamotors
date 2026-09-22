@@ -16,6 +16,8 @@ raced, and we simply retry with a bumped suffix.
 
 import itertools
 
+from django.utils import timezone
+
 from ..choices import CarStatus
 from . import keys
 from .errors import ConditionFailed, NotFound
@@ -196,6 +198,32 @@ def stock(limit=None):
     return rows[:limit] if limit else rows
 
 
+def sold(limit=None):
+    """The sold shelf: what sold most recently, as far as anyone knows.
+
+    Dated cars first, newest date first, then the undated newest-added first. A car we
+    know the sale date of outranks one we do not, which is the whole point -- the shelf
+    read `created_at` before, so a batch of old cars added to the site in one afternoon
+    sat above the one that had just sold.
+
+    Sorted in Python like `stock()`, and with the same ceiling `list_by_status` records.
+    """
+    rows = list_by_status(CarStatus.SOLD)
+    rows.sort(key=lambda car: (
+        # Descending on both, so the key is inverted rather than the sort reversed:
+        # the two groups sort on different things and must not swap places.
+        0 if car.sold_at else 1,
+        _descending(car.sold_at or ""),
+        _descending(keys.iso(car.created_at) if car.created_at else ""),
+    ))
+    return rows[:limit] if limit else rows
+
+
+def _descending(text):
+    """A sort key that puts later strings first, for use beside ascending ones."""
+    return tuple(-ord(character) for character in text)
+
+
 def list_by_status(status, limit=None):
     """Cars of one status, newest first.
 
@@ -237,6 +265,19 @@ def update(car, *, now, **fields):
     car.search_blob = car.build_search_blob()
     if car.status != old_status:
         car.gsi1pk = keys.car_status_gsi1pk(car.status)
+        # The sale date rides with the status, for the same reason the partition does:
+        # no caller has to remember. Only on the transition, and only when the caller
+        # gave no date -- so marking a car sold dates it today, a date typed on the
+        # staff form is kept, and a later edit of an already-sold car leaves a blank
+        # blank. The imported cars have none, and a photograph cannot say when they
+        # sold, so nothing should invent one behind the shop's back.
+        if car.status == CarStatus.SOLD:
+            if not car.sold_at:
+                car.sold_at = timezone.localdate(now).isoformat()
+        else:
+            # A car put back on sale must not keep a sale date, or it would outrank
+            # genuinely sold cars if it ever returned to the shelf.
+            car.sold_at = None
 
     chassis_changed = car.chassis_number != old_chassis
     if not chassis_changed:

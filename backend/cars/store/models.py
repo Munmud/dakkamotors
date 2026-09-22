@@ -117,6 +117,13 @@ class Car(BaseItem, discriminator="car"):
 
     status = UnicodeAttribute(default=CarStatus.AVAILABLE)
 
+    # The day it sold, ISO, e.g. "2026-09-22". A date rather than a timestamp because
+    # nobody knows the minute a car sold, and a string because an ISO date sorts as
+    # one. It is what orders the "Recently sold" shelf: the shelf used to read
+    # `created_at`, which is when a car was added to the site, so eleven cars imported
+    # in one afternoon outranked the one that had actually just sold.
+    sold_at = UnicodeAttribute(null=True)
+
     description_en = UnicodeAttribute(null=True)
     description_ja = UnicodeAttribute(null=True)
 

@@ -92,6 +92,12 @@ class CarForm(DirectUploadMixin, forms.Form):
         help_text="Leave blank to display 'Call for price' instead of an amount.",
     )
     status = forms.ChoiceField(choices=CarStatus.choices, initial=CarStatus.AVAILABLE)
+    sold_at = forms.DateField(
+        required=False, label="Sold on", widget=forms.DateInput(attrs={"type": "date"}),
+        help_text=("Fills itself in when you mark a car sold. It orders the "
+                   "“Recently sold” list on the home page — change it if the "
+                   "car sold earlier than today."),
+    )
 
     description_en = forms.CharField(
         required=False, widget=forms.Textarea(attrs={"rows": 6}),
@@ -109,7 +115,7 @@ class CarForm(DirectUploadMixin, forms.Form):
         ("Vehicle", ["brand", "model_name", "manufacture_year"]),
         ("Japanese", ["brand_ja", "model_name_ja", "color_ja"]),
         ("Specification", ["fuel_type", "seat_capacity", "color"]),
-        ("Listing", ["price_jpy", "status"]),
+        ("Listing", ["price_jpy", "status", "sold_at"]),
         ("Description", ["description_en", "description_ja"]),
     )
 

@@ -148,6 +148,9 @@ class Command(BaseCommand):
             fuel_type=entry.get("fuel_type", FuelType.PETROL),
             seat_capacity=entry.get("seat_capacity", 5),
             status=entry.get("status", CarStatus.SOLD),
+            # Optional, and normally absent: a photograph does not say when a car
+            # sold. A car with no date sits below every car that has one.
+            sold_at=entry.get("sold_at"),
             import_key=entry["folder"],
         )
         try:

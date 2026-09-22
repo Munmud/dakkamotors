@@ -17,6 +17,7 @@ from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from PIL import Image
 
 from .specs import MAX_PAIRS
@@ -268,6 +269,53 @@ class StaffCarEditTests(FakeCognito, DynamoReset, SimpleTestCase):
                 {**car_fields(status="available"), **formset_fields()}, follow=True)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(car_store.get(car.car_id).status, "available")
+
+    def test_marking_a_car_sold_dates_the_sale(self):
+        """The shelf is ordered by this, so a car marked sold has to carry a date
+        without anyone remembering to type one."""
+        car = make_car("SOLD-1")
+        self.assertIsNone(car.sold_at)
+
+        self.client.post(reverse("staff:car-edit", args=[car.car_id]),
+                         {**car_fields(status="sold"), **formset_fields()}, follow=True)
+
+        saved = car_store.get(car.car_id)
+        self.assertEqual(saved.sold_at, timezone.localdate().isoformat())
+
+    def test_a_typed_sale_date_is_kept(self):
+        car = make_car("SOLD-2")
+
+        self.client.post(
+            reverse("staff:car-edit", args=[car.car_id]),
+            {**car_fields(status="sold", sold_at="2026-07-04"), **formset_fields()},
+            follow=True)
+
+        self.assertEqual(car_store.get(car.car_id).sold_at, "2026-07-04")
+
+    def test_editing_a_sold_car_does_not_invent_a_date_it_never_had(self):
+        """The imported cars have no sale date -- a photograph cannot say when they
+        sold -- and a later edit must not put today's in their place."""
+        car = make_car("SOLD-3", status="sold")
+        self.assertIsNone(car.sold_at)
+
+        self.client.post(reverse("staff:car-edit", args=[car.car_id]),
+                         {**car_fields(status="sold", color="Blue"), **formset_fields()},
+                         follow=True)
+
+        saved = car_store.get(car.car_id)
+        self.assertEqual(saved.color, "Blue")
+        self.assertIsNone(saved.sold_at)
+
+    def test_putting_a_sold_car_back_on_sale_clears_the_date(self):
+        car = make_car("SOLD-4")
+        car_store.update(car, now=timezone.now(), status="sold")
+        self.assertIsNotNone(car_store.get(car.car_id).sold_at)
+
+        self.client.post(reverse("staff:car-edit", args=[car.car_id]),
+                         {**car_fields(status="available"), **formset_fields()},
+                         follow=True)
+
+        self.assertIsNone(car_store.get(car.car_id).sold_at)
 
     def test_a_car_added_here_has_no_chassis_number(self):
         """The form does not ask for one, so a new car simply has none.

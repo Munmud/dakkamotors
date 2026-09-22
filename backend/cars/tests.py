@@ -201,6 +201,28 @@ class CarListApiTests(DynamoReset, SimpleTestCase):
 
         self.assertEqual(len(results), 1)
 
+    def test_the_sold_shelf_leads_with_what_sold_most_recently(self):
+        """Not with what was added most recently, which is the bug this fixes: eleven
+        old cars imported in one afternoon sat above the one that had just sold."""
+        old_sale = make_car("SOLD-OLD", status=CarStatus.SOLD)
+        car_store.update(old_sale, now=timezone.now(), sold_at="2026-09-20")
+        just_added = make_car("SOLD-NEW", status=CarStatus.SOLD)
+
+        results = self.client.get(reverse("car-list"), {"status": "sold"}).json()["results"]
+
+        self.assertEqual([c["id"] for c in results],
+                         [old_sale.car_id, just_added.car_id])
+
+    def test_two_dated_sales_come_newest_first(self):
+        older = make_car("SOLD-A", status=CarStatus.SOLD)
+        car_store.update(older, now=timezone.now(), sold_at="2026-01-05")
+        newer = make_car("SOLD-B", status=CarStatus.SOLD)
+        car_store.update(newer, now=timezone.now(), sold_at="2026-09-22")
+
+        results = self.client.get(reverse("car-list"), {"status": "sold"}).json()["results"]
+
+        self.assertEqual([c["id"] for c in results], [newer.car_id, older.car_id])
+
     def test_the_japanese_name_rides_beside_the_english(self):
         make_car("JA-1", brand_ja="ダイハツ", model_name_ja="タント")
 

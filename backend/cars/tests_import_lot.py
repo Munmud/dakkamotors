@@ -149,6 +149,23 @@ class ImportLotTests(DynamoReset, SimpleTestCase):
         with self.assertRaises(CommandError):
             self.run_import(apply=True)
 
+    def test_an_imported_car_has_no_sale_date_unless_the_manifest_gives_one(self):
+        """A photograph does not say when a car sold, and the shelf puts the undated
+        below everything dated rather than above it."""
+        self.run_import(apply=True)
+        (car,) = self.sold()
+        self.assertIsNone(car.sold_at)
+
+    def test_a_manifest_sale_date_lands_on_the_car(self):
+        manifest = json.loads(self.manifest.read_text(encoding="utf-8"))
+        manifest["cars"][0]["sold_at"] = "2026-03-01"
+        self.manifest.write_text(json.dumps(manifest), encoding="utf-8")
+
+        self.run_import(apply=True)
+
+        (car,) = self.sold()
+        self.assertEqual(car.sold_at, "2026-03-01")
+
     def test_running_it_twice_imports_nothing_the_second_time(self):
         self.run_import(apply=True)
 

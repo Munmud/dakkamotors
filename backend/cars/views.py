@@ -32,7 +32,11 @@ class CarListView(APIView):
 
     def get(self, request):
         wanted = request.query_params.get("status") or ""
-        if wanted in self.FILTERS:
+        if wanted == CarStatus.SOLD:
+            # Ordered by when each car sold, not by when it was added -- see
+            # `store.cars.sold`, and the shelf heading that promises it.
+            cars = car_store.sold()
+        elif wanted in self.FILTERS:
             cars = car_store.list_by_status(wanted)
         else:
             cars = car_store.stock()

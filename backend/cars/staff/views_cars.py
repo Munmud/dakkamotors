@@ -72,7 +72,7 @@ def _spec_rows(formset):
 EDITABLE = (
     "brand", "model_name", "manufacture_year", "fuel_type", "seat_capacity",
     "color", "price_jpy", "status", "description_en", "description_ja",
-    "brand_ja", "model_name_ja", "color_ja",
+    "brand_ja", "model_name_ja", "color_ja", "sold_at",
 )
 
 #: Blank means absent here, not empty.
@@ -95,6 +95,11 @@ def _field_values(form):
     for name in BLANK_IS_ABSENT:
         if not (values.get(name) or "").strip():
             values[name] = None
+    # The store keeps the sale date as an ISO string -- it is a date, and a date sorts
+    # as one -- while the form works in `datetime.date`, which is what a date input
+    # deserves. The conversion belongs here, where the form stops and the store starts.
+    sold_at = values.get("sold_at")
+    values["sold_at"] = sold_at.isoformat() if sold_at else None
     return values
 
 
