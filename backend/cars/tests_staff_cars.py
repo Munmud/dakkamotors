@@ -317,6 +317,31 @@ class StaffCarEditTests(FakeCognito, DynamoReset, SimpleTestCase):
 
         self.assertIsNone(car_store.get(car.car_id).sold_at)
 
+    def test_the_ad_set_id_round_trips_through_the_form(self):
+        """The owner pastes it from Ads Manager, and it is what `advertising.stop_for`
+        reads. A field that does not survive a save is an advertisement that never
+        stops."""
+        car = make_car("AD-FORM-1")
+
+        self.client.post(
+            reverse("staff:car-edit", args=[car.car_id]),
+            {**car_fields(ad_set_id="1234567890123"), **formset_fields()}, follow=True)
+
+        self.assertEqual(car_store.get(car.car_id).ad_set_id, "1234567890123")
+
+        page = self.client.get(reverse("staff:car-edit", args=[car.car_id]))
+        self.assertContains(page, "1234567890123")
+
+    def test_clearing_the_ad_set_id_leaves_no_attribute_behind(self):
+        """Absent, not empty: `stop_for` decides on a plain truth test, and clearing
+        the box is how a car is readied for a second campaign."""
+        car = make_car("AD-FORM-2", ad_set_id="1234567890123")
+
+        self.client.post(reverse("staff:car-edit", args=[car.car_id]),
+                         {**car_fields(ad_set_id=""), **formset_fields()}, follow=True)
+
+        self.assertIsNone(car_store.get(car.car_id).ad_set_id)
+
     def test_a_car_added_here_has_no_chassis_number(self):
         """The form does not ask for one, so a new car simply has none.
 

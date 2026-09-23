@@ -184,6 +184,83 @@ def notify_staff_of_booking(booking, customer=None):
     )
 
 
+def notify_staff_of_paused_ad(car, booking, *, paused=True):
+    """Tell the owner the car's advertisement has been stopped, and why.
+
+    This is the one message about money rather than about a customer, and it is sent
+    because the stop happened without anybody asking for it: an advertisement that
+    turns itself off silently is indistinguishable from one that broke. It says which
+    car, which ad set, and what stopped it, so the decision to start it again -- or to
+    put the rest of the budget on a different car -- can be made from the message.
+
+    `paused=False` when Meta refused the call. Then this is the opposite message, and
+    a far more urgent one: the ad set is still spending and only a person can stop it.
+    It names the ad set for exactly that reason. Saying "stopped" in both cases would
+    be the single most expensive sentence on the site.
+    """
+    recipients = _config("STAFF_ALERT_EMAIL")
+    if not recipients:
+        return False
+
+    label = car.seo_title_plain or car.slug or "a car"
+    when = _when(booking.slot_starts_at, booking.slot_ends_at)
+    car_url = f"{seo.SITE_URL}/api/staff/cars/{car.car_id}/"
+
+    if paused:
+        heading = "Advertisement stopped"
+        lead = (f"The advertisement for the <strong>{_esc(label)}</strong> has been "
+                "paused: it has its test drive.")
+        callout = ("Nothing more will be spent on this ad set. To advertise this car "
+                   "again, or to put the rest of the budget on another one, clear the "
+                   "ad set id on the car's page first.")
+        subject = f"Ad stopped: {label} has a test drive booked"
+        opening = f"The advertisement for the {label} has been paused: it has its test drive."
+        plain_note = "Nothing more will be spent on this ad set."
+    else:
+        heading = "Advertisement still running"
+        lead = (f"The <strong>{_esc(label)}</strong> has a test drive booked, but Meta "
+                "would not pause its advertisement.")
+        callout = ("<strong>It is still spending.</strong> Open Ads Manager and pause "
+                   "that ad set by hand.")
+        subject = f"Pause this ad by hand: {label}"
+        opening = (f"The {label} has a test drive booked, but Meta would not pause its "
+                   "advertisement.")
+        plain_note = ("IT IS STILL SPENDING. Open Ads Manager and pause that ad set "
+                      "by hand.")
+
+    html = theme.render(
+        heading=heading,
+        preheader=f"{label} · {when}",
+        body="".join([
+            theme.lead(lead),
+            theme.details([
+                ("Car", _esc(label)),
+                ("Booked for", f"<strong>{_esc(when)}</strong>"),
+                ("Ad set", _esc(car.ad_set_id)),
+            ]),
+            theme.callout(callout),
+            theme.button("Open the car", car_url),
+            theme.fallback_link(car_url),
+        ]),
+    )
+
+    text = (
+        f"{opening}\n\n"
+        f"Car:        {label}\n"
+        f"Booked for: {when}\n"
+        f"Ad set:     {car.ad_set_id}\n\n"
+        f"{plain_note}\n"
+        f"Car page: {car_url}\n"
+    )
+
+    return queue_email(
+        to=[address.strip() for address in recipients.split(",")],
+        subject=subject,
+        html=html,
+        text=text,
+    )
+
+
 def confirm_booking_with_customer(booking, customer=None):
     """Tell the customer the appointment is on, and everything they need to turn up."""
     email = _email_for(customer, booking)

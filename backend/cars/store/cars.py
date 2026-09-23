@@ -17,10 +17,11 @@ raced, and we simply retry with a bumped suffix.
 import itertools
 
 from django.utils import timezone
+from pynamodb.exceptions import UpdateError
 
 from ..choices import CarStatus
 from . import keys
-from .errors import ConditionFailed, NotFound
+from .errors import ConditionFailed, NotFound, is_conditional_failure
 from .models import (
     Car, CarImage, CarQuestion, CarVideo, ChassisGuard, LegacyCarPointer, SlugGuard,
 )
@@ -258,6 +259,7 @@ def update(car, *, now, **fields):
     """
     old_status = car.status
     old_chassis = car.chassis_number
+    old_ad_set = car.ad_set_id
 
     for name, value in fields.items():
         setattr(car, name, value)
@@ -278,6 +280,14 @@ def update(car, *, now, **fields):
             # A car put back on sale must not keep a sale date, or it would outrank
             # genuinely sold cars if it ever returned to the shelf.
             car.sold_at = None
+
+    # The pause stamp rides with the ad set id, for the same reason the sale date
+    # rides with the status. Changing or clearing the id means a different campaign,
+    # and a stamp left over from the last one would make `claim_ad_pause` refuse
+    # forever -- a car that could be advertised again but whose advertisement could
+    # never stop itself. Silent, and only visible as a bill.
+    if car.ad_set_id != old_ad_set:
+        car.ad_paused_at = None
 
     chassis_changed = car.chassis_number != old_chassis
     if not chassis_changed:
@@ -315,6 +325,37 @@ def bump_updated_at(car_id, now):
     """
     car = get(car_id)
     car.update(actions=[Car.updated_at.set(now)], condition=Car.pk.exists())
+    return car
+
+
+def claim_ad_pause(car_id, now):
+    """Win the right to pause this car's advertisement, once.
+
+    Returns the car when this caller got the claim and None when somebody else already
+    had it. Two people booking the same car within the same second is not far-fetched
+    -- that is what an advertisement is for -- and without this both would call Meta
+    and both would email the owner to say the ad had been stopped.
+
+    The condition does the deciding, in the one place that can: a read-then-write here
+    would have exactly the race it is meant to close. `ad_paused_at` is both the claim
+    and the record of when it happened, so there is no second attribute to keep in step.
+
+    Conditional on the car existing too, for the reason `bump_updated_at` gives: an
+    unconditional UpdateItem is an upsert, and the stub it creates carries no
+    discriminator.
+    """
+    car = find(car_id)
+    if car is None or not car.ad_set_id or car.ad_paused_at:
+        return None
+    try:
+        car.update(
+            actions=[Car.ad_paused_at.set(now)],
+            condition=Car.pk.exists() & Car.ad_paused_at.does_not_exist(),
+        )
+    except UpdateError as exc:
+        if is_conditional_failure(exc):
+            return None
+        raise
     return car
 
 

@@ -16,6 +16,7 @@ import datetime as dt
 
 from django.utils import timezone
 
+from . import advertising
 from . import identity
 from . import mail
 from .store import notifications as notification_store
@@ -260,6 +261,12 @@ def create_booking(*, user, slot_id, car=None, now=None):
     # Failures are swallowed there - losing a notification must never cost the customer
     # their booking, nor make them wait on Brevo for it.
     mail.notify_staff_of_booking(booking, user)
+
+    # The advertisement for this car, if it has one, has now done the one thing it was
+    # bought to do. Same bargain as the email above: it swallows everything, because a
+    # booking failing over an advertisement would lose the thing the advertisement was
+    # paid for. See cars/advertising.py.
+    advertising.stop_for(booking, now=now)
     return booking
 
 

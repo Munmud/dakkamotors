@@ -1,10 +1,29 @@
-"""Typed failures the store raises, for the domain layer to translate.
+"""Typed failures the store raises, for the domain layer to translate -- and the one
+predicate that tells a refused condition from a real fault.
 
 The split matters: the store knows *which condition failed*, the domain modules know
 *what to tell the customer*. Keeping the wording out of here is what lets every
 `BookingError` string in `booking.py` survive the migration unchanged -- and those
 strings are asserted verbatim throughout the test suite.
 """
+
+
+def is_conditional_failure(exc):
+    """Was this PynamoDB error a refused condition, rather than a real fault?
+
+    The one thing every guarded single-item write has to be able to ask. PynamoDB
+    wraps the botocore error in a `PutError`/`UpdateError`/`DeleteError` depending on
+    the verb, so the verb's class is no use; the answer is in the wrapped cause, in
+    the same place for all three.
+
+    Here rather than in each caller because two modules had begun to grow their own
+    copy, and a refused condition read as a fault is the difference between "that
+    seat has just gone" and a 500.
+    """
+    cause = getattr(exc, "cause", None)
+    code = (cause.response.get("Error", {}).get("Code")
+            if cause is not None and hasattr(cause, "response") else None)
+    return code == "ConditionalCheckFailedException"
 
 
 class StoreError(Exception):

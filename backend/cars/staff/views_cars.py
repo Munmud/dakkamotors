@@ -72,21 +72,22 @@ def _spec_rows(formset):
 EDITABLE = (
     "brand", "model_name", "manufacture_year", "fuel_type", "seat_capacity",
     "color", "price_jpy", "status", "description_en", "description_ja",
-    "brand_ja", "model_name_ja", "color_ja", "sold_at",
+    "brand_ja", "model_name_ja", "color_ja", "sold_at", "ad_set_id",
 )
 
 #: Blank means absent here, not empty.
 #:
-#: Empty today, and deliberately kept rather than deleted. `CharField(required=False)`
-#: hands back `""`, and for a field the store reads with a plain truth test that would
-#: leave an empty attribute on the item rather than an absent one.
+#: `CharField(required=False)` hands back `""`, and for a field the store reads with a
+#: plain truth test that leaves an empty attribute on the item rather than an absent
+#: one. `ad_set_id` is exactly that: "" would satisfy a `.exists()` condition while
+#: meaning "not advertising", and clearing the box is how the owner readies a car for a
+#: second campaign, so it has to actually clear.
 #:
-#: It has to stay empty while `chassis_number` is off the form: `values.get(name)` on a
-#: name that is not in `EDITABLE` returns None, so listing it here would put
-#: `chassis_number: None` back into the dict and write it over every car on its next
-#: save -- and `store.cars.update` would read that as the number having changed and
-#: delete the guard for one still on the car.
-BLANK_IS_ABSENT = ()
+#: What must NOT go in here is a name that is not in `EDITABLE`. `values.get(name)`
+#: returns None for one, which would put `chassis_number: None` back into the dict and
+#: write it over every car on its next save -- and `store.cars.update` would read that
+#: as the number having changed and delete the guard for one still on the car.
+BLANK_IS_ABSENT = ("ad_set_id",)
 
 
 def _field_values(form):

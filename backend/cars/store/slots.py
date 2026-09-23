@@ -12,7 +12,7 @@ import datetime as dt
 from pynamodb.exceptions import PutError
 
 from . import keys
-from .errors import NotFound
+from .errors import NotFound, is_conditional_failure
 from .models import Seat, Slot
 
 
@@ -49,16 +49,12 @@ def ensure(*, schedule_id, starts_at, ends_at, capacity):
         slot.save(condition=Slot.pk.does_not_exist())
         return True
     except PutError as exc:
-        if _is_conditional_failure(exc):
+        if is_conditional_failure(exc):
             return False
         raise
 
 
-def _is_conditional_failure(exc):
-    cause = getattr(exc, "cause", None)
-    code = (cause.response.get("Error", {}).get("Code")
-            if cause is not None and hasattr(cause, "response") else None)
-    return code == "ConditionalCheckFailedException"
+
 
 
 def get(slot_id):

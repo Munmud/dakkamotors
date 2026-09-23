@@ -16,6 +16,7 @@ backend/         Django 5.2 + DRF, deployed to Lambda by Zappa
 frontend/        React 19 + Vite, deployed to S3 behind CloudFront
 infra/           hand-written CloudFormation (no CDK, no Terraform)
 docs/INFRA.md    the real runbook: live resource ids, cost rationale, teardown
+docs/ADS.md      advertising one car at a time: the pixel, the token, the campaign
 ```
 
 ## Commands
@@ -192,6 +193,36 @@ copied from Cognito onto the request at the time and the posted ones are ignored
 Staff see them at `/api/staff/requests/` and mark them resolved; the detail page has a
 "Copy for a post" block with the wish and nothing personal, because the owner reuses
 them for advertising.
+
+### Advertising
+
+The shop makes a video for one car, spends about **¥1,000** showing it around Hamura,
+and stops the moment that car gets a test drive booked. `docs/ADS.md` is the runbook.
+
+`META_PIXEL_ID` is not a secret and lives in `zappa_settings.json`; `pages._pixel`
+injects Meta's snippet **only when it is set**, so tests, local development and the
+screenshot passes carry no tracking and `window.fbq` never exists -- the same bargain
+`CLOUDFRONT_DISTRIBUTION_ID` makes for `cdn.invalidate`. The id is checked to be digits
+first: it lands in a `<script>` block on a public page cached at the edge. The app never
+learns it; `frontend/src/lib/pixel.js` calls `window.fbq` when it is there and does
+nothing when it is not. Four events -- `PageView` per client-side navigation (the
+snippet fires only the first), `ViewContent` on a car page, `InitiateCheckout` on its
+booking page, `Schedule` once the **server accepted** the booking.
+
+**The ad set is deliberately not optimised for those conversions.** Meta wants roughly
+fifty a week to leave the learning phase and ¥1,000 buys single digits, so the campaign
+buys landing page views and the events measure rather than bid. Written down in two
+places because it is exactly the decision somebody reverses a year later.
+
+`Car.ad_set_id` is typed into the staff form; `advertising.stop_for` pauses it from
+`create_booking`, **fire-and-forget beside `mail.notify_staff_of_booking`** -- a booking
+must never fail over an advertisement, which would lose the thing the advertisement was
+bought to produce. `store.cars.claim_ad_pause` is a **conditional** update on
+`ad_paused_at`, so two bookings in the same second cannot both pause and both email; and
+`ad_paused_at` rides with `ad_set_id` in `store.cars.update`, because a stamp left over
+from the last campaign would make the next one unable to ever stop itself. When Meta
+refuses, the owner gets the **opposite** message -- the ad set is still spending and only
+a person can stop it now.
 
 ### Free-form specs
 

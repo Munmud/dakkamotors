@@ -99,6 +99,13 @@ class CarForm(DirectUploadMixin, forms.Form):
                    "car sold earlier than today."),
     )
 
+    ad_set_id = forms.CharField(
+        required=False, max_length=40, label="Meta ad set ID",
+        help_text=("From Ads Manager, the ad set running for this one car. "
+                   "The advertisement stops itself as soon as somebody books a test "
+                   "drive for it. Clear this box to advertise the car again."),
+    )
+
     description_en = forms.CharField(
         required=False, widget=forms.Textarea(attrs={"rows": 6}),
         label="Description (English)",
@@ -115,7 +122,7 @@ class CarForm(DirectUploadMixin, forms.Form):
         ("Vehicle", ["brand", "model_name", "manufacture_year"]),
         ("Japanese", ["brand_ja", "model_name_ja", "color_ja"]),
         ("Specification", ["fuel_type", "seat_capacity", "color"]),
-        ("Listing", ["price_jpy", "status", "sold_at"]),
+        ("Listing", ["price_jpy", "status", "sold_at", "ad_set_id"]),
         ("Description", ["description_en", "description_ja"]),
     )
 

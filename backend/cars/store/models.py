@@ -151,6 +151,17 @@ class Car(BaseItem, discriminator="car"):
     # FilterExpression.
     search_blob = UnicodeAttribute(null=True)
 
+    # Advertising. The Meta ad set running for this one car, typed into the staff page
+    # from Ads Manager, and the moment a booking stopped it. The point of the pair is
+    # that the shop stops paying the minute the advertisement has done its job -- see
+    # cars/advertising.py, and docs/ADS.md for where the id is found.
+    #
+    # `ad_paused_at` is also the claim: it is set by a conditional update, so of two
+    # bookings landing in the same second exactly one pauses the ad set and emails the
+    # owner about it.
+    ad_set_id = UnicodeAttribute(null=True)
+    ad_paused_at = UTCDateTimeAttribute(null=True)
+
     created_at = UTCDateTimeAttribute(null=True)
     updated_at = UTCDateTimeAttribute(null=True)
 
