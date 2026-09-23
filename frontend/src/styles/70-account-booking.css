@@ -451,3 +451,32 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+/* --------------------------------------------------------- booking as a guest --- */
+
+/* The three details a guest gives, under the calendar and only once a time is chosen.
+   Asking before anything has been decided is the wall this replaced: a click from an
+   advertisement will not fill in a form to find out whether any time even suits. */
+.bookdetails {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+  max-width: 26rem;
+}
+
+.bookdetails__title {
+  margin: 0 0 0.3rem;
+  font-size: var(--step-1);
+  font-weight: 700;
+}
+
+.bookdetails__hint {
+  margin: 0 0 var(--space-3);
+  color: var(--road);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.bookdetails .authform {
+  margin-bottom: var(--space-3);
+}

@@ -173,8 +173,64 @@ def _explain(exc, now):
     raise exc
 
 
+#: What a guest's `sub` is built from. Keyed on the address they give, which is the
+#: whole design: `customer_pk(sub)` then hands a guest a partition, so the three-booking
+#: limit, the per-slot Seat guard and the per-car CarBooking guard all bind them exactly
+#: as they bind an account holder -- no second set of rules, and nothing in the store
+#: learns that guests exist.
+GUEST_PREFIX = "guest:"
+
+MAX_GUEST_FIELD = 120
+
+
+class Guest:
+    """Somebody booking without an account.
+
+    Quacks like a Cognito user, because to the booking rules that is what they are: it
+    answers everything `identity` asks of a person. `is_active` is False on purpose --
+    `_bell_items` skips anyone Cognito cannot reach, and a guest has no app to show a
+    bell in. They are reached by email, at the address on the booking.
+
+    Created by a video ad more often than not: a cold click cannot be asked to make an
+    account, pick a password and wait for a code before it can choose a time.
+    """
+
+    is_active = False
+
+    def __init__(self, *, name, email, phone):
+        self.sub = f"{GUEST_PREFIX}{email}"
+        self.email = email
+        self.phone = phone
+        self._name = name
+
+    def get_full_name(self):
+        return self._name
+
+
+def guest_from(*, name, email, phone):
+    """Check the three details a guest must give, and return the person they describe.
+
+    The address is lowercased before it becomes the key, so `Hana@…` and `hana@…` are
+    one customer and cannot slip the limits by changing case.
+    """
+    name, email, phone = [(value or "").strip() for value in (name, email, phone)]
+    if not (name and email and phone):
+        raise BookingError(
+            "We need a name, an email address and a phone number so we can confirm "
+            "your test drive."
+        )
+    if max(len(name), len(email), len(phone)) > MAX_GUEST_FIELD:
+        raise BookingError("That name or contact detail is too long.")
+    if "@" not in email:
+        raise BookingError("That email address does not look right.")
+    return Guest(name=name, email=email.lower(), phone=phone)
+
+
 def create_booking(*, user, slot_id, car=None, now=None):
     """Take a seat, or explain why not.
+
+    `user` is a signed-in customer or a `Guest`; the rules do not distinguish, which is
+    what keeps one set of them.
 
     No lock. The slot's capacity, the customer's limit and the one-live-booking guard
     are all conditions on a single transaction, so two people taking the last seat at

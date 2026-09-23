@@ -6,6 +6,7 @@ request arrives from the app, from curl, or from a test.
 
 from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -58,10 +59,38 @@ class SlotListView(APIView):
         return Response({"results": SlotSerializer(slots, many=True).data})
 
 
+class BookingThrottle(AnonRateThrottle):
+    """The ceiling on booking without an account.
+
+    `auth` rather than a scope of its own: it is the same 20/hour that registration and
+    the car-request form get, and the thing being limited is the same -- a stranger
+    writing into the shop's day.
+    """
+
+    scope = "auth"
+
+
 class BookingListCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+    """Your bookings, and the one write that takes a seat.
+
+    The GET needs an account -- there is nothing to list without one. The POST does
+    not: a visitor arriving from an advertisement cannot be asked to register, choose
+    a password and wait for an emailed code before they may pick a time, and on a
+    small ad budget that wall costs more than the clicks are worth. A guest gives the
+    three details the shop needs to confirm the appointment and is keyed on their
+    address, so every limit that binds an account holder binds them too.
+
+    The throttle is the same 20/hour registration uses. Bookings land PENDING and
+    staff confirm each one, which is what bounds an unverified address.
+    """
+
+    permission_classes = [AllowAny]
+    throttle_classes = [BookingThrottle]
 
     def get(self, request):
+        if not request.user.is_authenticated:
+            return Response({"detail": "Sign in to see your test drives."},
+                            status=status.HTTP_403_FORBIDDEN)
         bookings = rules.active_bookings_for(request.user)
         return Response({"results": BookingSerializer(bookings, many=True).data})
 
@@ -77,8 +106,15 @@ class BookingListCreateView(APIView):
                 )
 
         try:
+            # A signed-in customer is themselves; anyone else is whoever the form says,
+            # checked in the domain module along with every other rule.
+            person = request.user if request.user.is_authenticated else rules.guest_from(
+                name=request.data.get("name"),
+                email=request.data.get("email"),
+                phone=request.data.get("phone"),
+            )
             booking = rules.create_booking(
-                user=request.user, slot_id=request.data.get("slot"), car=car
+                user=person, slot_id=request.data.get("slot"), car=car
             )
         except rules.BookingError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)

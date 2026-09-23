@@ -125,11 +125,11 @@
     "dateGone": "The last place on that date has just gone. Please pick another.",
     "previousMonth": "Previous month",
     "nextMonth": "Next month",
-    "signUpFirst": "Create an account to book",
-    "signUpFirstBody": "It takes a minute — we email you a code, you type it in, and you come straight back to this calendar.",
     "alreadyBooked": "You already have this car booked",
     "alreadyBookedOn": "Your test drive is on {{when}}. To come at a different time, change or cancel it first.",
-    "seeMyBookings": "Go to my test drives"
+    "seeMyBookings": "Go to my test drives",
+    "yourDetails": "Your details",
+    "yourDetailsWhy": "So we can confirm the time and reach you if anything changes. No account needed."
   },
   "account": {
     "yourDetails": "Your details",

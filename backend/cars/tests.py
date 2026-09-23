@@ -1133,6 +1133,63 @@ class BookingRuleTests(FakeCognito, DynamoReset, SimpleTestCase):
 
         self.assertIsNone(booking.car_id)
 
+    def test_a_guest_can_book_without_an_account(self):
+        """A cold click from an advertisement cannot be asked to register, choose a
+        password and wait for a code before it may pick a time."""
+        guest = booking_rules.guest_from(name="Hana Sato", email="Hana@Example.com",
+                                         phone="080-1234-5678")
+
+        booking = booking_rules.create_booking(
+            user=guest, slot_id=future_slot().slot_id, car=self.car)
+
+        self.assertEqual(booking.customer_name, "Hana Sato")
+        self.assertEqual(booking.customer_email, "hana@example.com")
+        self.assertEqual(booking.customer_phone, "080-1234-5678")
+        self.assertEqual(booking.customer_sub, "guest:hana@example.com")
+        self.assertEqual(booking.status, "pending")
+
+    def test_a_guest_missing_a_detail_is_refused(self):
+        for missing in ("name", "email", "phone"):
+            with self.subTest(missing=missing):
+                details = {"name": "Hana", "email": "h@example.com", "phone": "080"}
+                details[missing] = "  "
+                with self.assertRaises(booking_rules.BookingError) as refused:
+                    booking_rules.guest_from(**details)
+                self.assertEqual(
+                    str(refused.exception),
+                    "We need a name, an email address and a phone number so we can "
+                    "confirm your test drive.",
+                )
+
+    def test_a_guest_is_bound_by_the_same_rules_as_an_account(self):
+        """The whole reason a guest is keyed on their address: one set of rules."""
+        guest = booking_rules.guest_from(name="Hana", email="hana@example.com",
+                                         phone="080")
+        booking_rules.create_booking(user=guest, slot_id=future_slot().slot_id,
+                                     car=self.car)
+
+        # Same car again, and the same address in a different case.
+        again = booking_rules.guest_from(name="Hana", email="HANA@example.com",
+                                         phone="080")
+        with self.assertRaises(booking_rules.BookingError) as refused:
+            booking_rules.create_booking(user=again, slot_id=future_slot().slot_id,
+                                         car=self.car)
+
+        self.assertIn("already have a test drive booked for this car",
+                      str(refused.exception))
+
+    def test_a_guest_gets_no_bell_entry(self):
+        """There is no app to show one in; they are reached at the address they gave."""
+        guest = booking_rules.guest_from(name="Hana", email="hana@example.com",
+                                         phone="080")
+
+        booking = booking_rules.create_booking(
+            user=guest, slot_id=future_slot().slot_id, car=self.car)
+        booking_rules.confirm_booking(booking)
+
+        self.assertEqual(
+            notification_store.recent("guest:hana@example.com"), [])
+
     def test_the_guard_item_lives_exactly_as_long_as_the_booking_is_active(self):
         """The claim its docstring makes, asserted on the item itself: written by the
         same transaction as the booking, gone with the same one that cancels it."""
@@ -1295,6 +1352,28 @@ class BookingApiTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["results"]), 1)
 
+    def test_a_guest_can_book_through_the_api(self):
+        """The whole point of opening this endpoint: an advertisement's click books in
+        one step, with no account and no emailed code in the way."""
+        slot = future_slot()
+
+        with mock.patch("cars.mail.boto3.client"):
+            response = self.client.post(
+                "/api/test-drive/bookings/",
+                {"slot": slot.slot_id, "car": self.car.slug, "name": "Hana Sato",
+                 "email": "hana@example.com", "phone": "080-1234-5678"},
+                content_type="application/json")
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["car_slug"], self.car.slug)
+        (booking,) = booking_store.for_customer("guest:hana@example.com")
+        self.assertEqual(booking.customer_name, "Hana Sato")
+
+    def test_listing_your_bookings_still_needs_an_account(self):
+        """Opening the write did not open the read: there is nothing to list without
+        an account, and a guest's bookings are not addressable by anyone else."""
+        self.assertEqual(self.client.get("/api/test-drive/bookings/").status_code, 403)
+
     def test_past_and_closed_slots_are_not_offered(self):
         future_slot(days=3)
         future_slot(days=-3)
@@ -1312,7 +1391,13 @@ class BookingApiTests(FakeCognito, DynamoReset, SimpleTestCase):
 
         self.assertEqual(results, [])
 
-    def test_anonymous_visitors_cannot_book(self):
+    def test_an_anonymous_booking_needs_the_details_rather_than_an_account(self):
+        """This endpoint used to answer 403 to a stranger. It was opened deliberately:
+        a click from an advertisement cannot be asked to register, choose a password
+        and wait for an emailed code before it may pick a time, and on a small budget
+        that wall costs more than the clicks are worth. What replaced the account is
+        the three details the shop needs to confirm the appointment -- so a booking
+        with none of them is still refused, just for the honest reason."""
         slot = future_slot()
 
         response = self.client.post(
@@ -1321,7 +1406,9 @@ class BookingApiTests(FakeCognito, DynamoReset, SimpleTestCase):
             content_type="application/json",
         )
 
-        self.assertIn(response.status_code, (401, 403))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("name, an email address and a phone number",
+                      response.json()["detail"])
 
     def test_booking_through_the_api(self):
         self.login()

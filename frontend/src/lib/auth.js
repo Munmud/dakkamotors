@@ -117,8 +117,13 @@ export async function fetchMyBookings() {
   return data.results ?? [];
 }
 
-export async function bookSlot({ slot, car }) {
-  return post("/test-drive/bookings/", { slot, car });
+/**
+ * Take a seat. `guest` carries name, email and phone for somebody with no account --
+ * a click from an advertisement, most often, which cannot be asked to register and
+ * wait for a code before it may choose a time. A signed-in customer sends neither.
+ */
+export async function bookSlot({ slot, car, guest }) {
+  return post("/test-drive/bookings/", { slot, car, ...(guest ?? {}) });
 }
 
 export async function cancelBooking(id) {

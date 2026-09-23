@@ -30,6 +30,8 @@ export default function BookTestDrive() {
   // Their live booking for this car, if they have one. The server refuses a second
   // either way; this is so nobody picks a time before being told.
   const [already, setAlready] = useState(null);
+  // Only a guest fills these in; a signed-in customer's are already on their account.
+  const [guest, setGuest] = useState({ name: "", email: "", phone: "" });
 
   useEffect(() => {
     if (state === "unknown") return undefined;
@@ -52,12 +54,20 @@ export default function BookTestDrive() {
     };
   }, [slug, customer, state]);
 
+  const set = (field) => (event) => {
+    setError(null);
+    setGuest((current) => ({ ...current, [field]: event.target.value }));
+  };
+
+  const guestReady = Boolean(
+    guest.name.trim() && guest.email.trim() && guest.phone.trim());
+
   async function confirm() {
-    if (!selected || !customer) return;
+    if (!selected) return;
     setError(null);
     setStatus("saving");
     try {
-      await bookSlot({ slot: selected, car: slug });
+      await bookSlot({ slot: selected, car: slug, guest: customer ? null : guest });
       setDone(true);
       setStatus("ready");
     } catch (err) {
@@ -80,37 +90,9 @@ export default function BookTestDrive() {
     );
   }
 
-  // A guest is asked before the calendar, not after picking a time. Choosing a slot
-  // and only then being sent away to sign up lost the choice and, until the code
-  // flow, the page; asking first means the calendar they come back to is the one
-  // they can actually book on. The register page, not sign-in: a first-time visitor
-  // has no account yet, and the form's switch link is there for the ones who do.
-  if (state === "anonymous") {
-    const here = encodeURIComponent(`/cars/${slug}/test-drive`);
-    return (
-      <section>
-        <Link className="backlink" to={`/cars/${slug}`}>
-          {car ? carTitle(car, i18n.language) : t("nav.back")}
-        </Link>
-        <h1 className="section__title">{t("booking.heading")}</h1>
-        {car && <p className="state__body">{t("booking.forCar", { car: carTitle(car, i18n.language) })}</p>}
-        <div className="state">
-          <h2 className="state__title">{t("booking.signUpFirst")}</h2>
-          <p className="state__body">{t("booking.signUpFirstBody")}</p>
-          <Link className="callbtn bookbtn" to={`/account/register?next=${here}`}>
-            {t("auth.register")}
-          </Link>
-          <p className="state__body">
-            <Link to={`/account/login?next=${here}`}>{t("auth.haveAccount")}</Link>
-          </p>
-        </div>
-      </section>
-    );
-  }
-
   // One live test drive per car. Said here rather than at the confirm button, for the
-  // same reason the sign-up prompt moved: picking a time and only then being turned
-  // away wastes the choice they just made.
+  // same reason the details are asked for after a time is picked: being turned away
+  // having already chosen wastes the choice.
   if (already) {
     return (
       <section>
@@ -165,11 +147,45 @@ export default function BookTestDrive() {
         disabled={status === "saving"}
       />
 
+      {/* A guest gives the three details the shop needs to confirm the appointment,
+          and only once they have chosen a time -- asking for them up front, before
+          anything has been decided, is the wall this page used to put in front of
+          every click from an advertisement. */}
+      {selected && !customer && state !== "unknown" && (
+        <div className="bookdetails">
+          <h2 className="bookdetails__title">{t("booking.yourDetails")}</h2>
+          <p className="bookdetails__hint">{t("booking.yourDetailsWhy")}</p>
+          <div className="authform">
+            <label className="authform__field">
+              <span>{t("auth.name")}</span>
+              <input value={guest.name} onChange={set("name")} required
+                     autoComplete="name" />
+            </label>
+            <label className="authform__field">
+              <span>{t("auth.email")}</span>
+              <input type="email" value={guest.email} onChange={set("email")} required
+                     autoComplete="email" />
+            </label>
+            <label className="authform__field">
+              <span>{t("auth.phone")}</span>
+              <input type="tel" value={guest.phone} onChange={set("phone")} required
+                     autoComplete="tel" inputMode="tel" />
+            </label>
+          </div>
+          <p className="bookdetails__hint">
+            {t("auth.haveAccount")}{" "}
+            <Link to={`/account/login?next=${encodeURIComponent(`/cars/${slug}/test-drive`)}`}>
+              {t("auth.signIn")}
+            </Link>
+          </p>
+        </div>
+      )}
+
       {slots.length > 0 && (
         <button
           type="button"
           className="callbtn bookbtn"
-          disabled={!selected || status === "saving"}
+          disabled={!selected || status === "saving" || (!customer && !guestReady)}
           onClick={confirm}
         >
           {status === "saving" ? t("booking.booking") : t("booking.confirm")}
