@@ -32,8 +32,48 @@
           {% endfor %}
         </div>
       {% endfor %}
+      {% if adopt_email %}
+        {% comment %}
+          One pool holds customers and staff, and the address is the username, so this
+          person cannot be created -- they already exist. Promoting them is confirmed
+          here rather than done silently the moment a familiar address is typed: it
+          hands somebody the staff pages, which is worth one deliberate click.
+
+          `.aside` because this is the genuinely separate thing on the page, which is
+          what the border means in this stylesheet.
+        {% endcomment %}
+        <div class="aside">
+          <p><strong>{{ adopt_email }} already has an account on this site.</strong></p>
+          <p class="help">
+            Almost always a customer account, from signing up to book a test drive. It
+            cannot be created a second time — the address is the sign-in name. Giving
+            that account staff access keeps everything attached to it, and they sign in
+            with the password they already use. No new password is issued.
+          </p>
+          <div class="actions">
+            <button type="submit" name="adopt" value="1">Give this account staff access</button>
+          </div>
+        </div>
+      {% endif %}
+
+      {% if existing_staff %}
+        <p class="help">
+          <a href="{% url 'staff:staff-edit' existing_staff.sub %}">Open {{ existing_staff.email }}</a>
+          to change their roles or deactivate them.
+        </p>
+      {% endif %}
+
       <div class="actions">
-        <button type="submit">Save</button>
+        {% comment %}
+          While the offer above is showing, it is the action that leads. Save is still
+          here -- the address may simply have been a typo, worth correcting and saving
+          -- but two primary buttons on one screen means neither of them leads.
+
+          `{% comment %}`, not `{# #}`: that one is single-line only, and a multi-line
+          `{# ... #}` is not parsed as a comment at all. It renders, in full, on the
+          page, which is exactly what happened here.
+        {% endcomment %}
+        <button type="submit" {% if adopt_email %}class="secondary"{% endif %}>Save</button>
         <a href="{% url 'staff:staff-list' %}"><button type="button" class="secondary">Cancel</button></a>
       </div>
     </form>

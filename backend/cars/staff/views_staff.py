@@ -88,38 +88,89 @@ def staff_list(request):
 @staff_required
 @requires("staff.add")
 def staff_add(request):
+    """Create a staff account -- or give staff access to one that already exists.
+
+    The second path is not a convenience. One Cognito pool holds customers and staff,
+    and the pool uses email as the username, so a colleague who has ever signed up on
+    the public site cannot be created: the address is theirs already. That used to end
+    at "Somebody already has that address." with no way onward from any page, because
+    `_roster` lists the `staff` group and `staff_edit` 404s for anyone outside it.
+
+    Adopting grants nothing that creating does not. Only an owner reaches this view at
+    all (`staff.add` is in `OWNER_ONLY`), and the form still offers `ASSIGNABLE_GROUPS`,
+    which does not include `owners`. What it does do is hand somebody the staff pages,
+    so it is confirmed on a second submit rather than happening the moment a familiar
+    address is typed.
+    """
     form = StaffAccountForm(request.POST or None)
+    # Set when the address turned out to belong to somebody already; the template then
+    # asks whether to promote them instead of pretending the save simply failed.
+    adopt_email = ""
+    existing_staff = None
+
     if request.method == "POST" and form.is_valid():
-        password = _temporary_password()
+        email = form.cleaned_data["email"]
+        name = form.cleaned_data["name"]
+        adopting = request.POST.get("adopt") == "1"
+        password = None
+        granted = False
+
         try:
-            cognito.create_staff(
-                email=form.cleaned_data["email"],
-                name=form.cleaned_data["name"],
-                temporary_password=password,
-            )
+            if adopting:
+                cognito.grant_staff(email=email, name=name)
+            else:
+                password = _temporary_password()
+                cognito.create_staff(email=email, name=name,
+                                     temporary_password=password)
+            granted = True
+        except cognito.UserAlreadyExists:
+            # Which of the two it is decides everything, and only Cognito knows.
+            if cognito.STAFF_GROUP in cognito.groups_of(email):
+                form.add_error(None, "That address already has a staff account.")
+                # The edit page is keyed by the Cognito username, which for this pool is
+                # the sub rather than the address -- `_roster` reads `Username` straight
+                # off `list_users_in_group`, so a link built from the email would 404.
+                found = cognito.user_for(email)
+                if found is not None:
+                    existing_staff = {"sub": found.sub, "email": email}
+            else:
+                adopt_email = email
         except cognito.CognitoError as exc:
             form.add_error(None, str(exc))
-        else:
-            for group in form.cleaned_data["groups"]:
-                cognito.add_to_group(form.cleaned_data["email"], group)
-            if not form.cleaned_data["is_active"]:
-                cognito.set_enabled(form.cleaned_data["email"], False)
 
-            # Shown once, in the response to the request that created it. Nothing stores
-            # it and no email carries it, so if this message is missed the owner resets
-            # the account rather than looks it up.
-            messages.success(
-                request,
-                f"Created {form.cleaned_data['email']}. Their first password is "
-                f"{password} — pass it on now, it is not shown again and they will be "
-                f"asked to change it when they sign in.",
-            )
+        if granted:
+            for group in form.cleaned_data["groups"]:
+                cognito.add_to_group(email, group)
+            if not form.cleaned_data["is_active"]:
+                cognito.set_enabled(email, False)
+
+            if adopting:
+                # No password was issued and none may be implied: they sign in with the
+                # one they already have, and saying otherwise would send the owner off
+                # to read out a password that does not exist.
+                messages.success(
+                    request,
+                    f"Gave {email} staff access. They sign in with the password they "
+                    f"already use on this site.",
+                )
+            else:
+                # Shown once, in the response to the request that created it. Nothing
+                # stores it and no email carries it, so if this message is missed the
+                # owner resets the account rather than looks it up.
+                messages.success(
+                    request,
+                    f"Created {email}. Their first password is {password} — pass it on "
+                    f"now, it is not shown again and they will be asked to change it "
+                    f"when they sign in.",
+                )
             return redirect(reverse("staff:staff-list"))
 
     return render(request, "staff/accounts/form.html", {
         "title": "Add a staff account",
         "form": form,
         "person": None,
+        "adopt_email": adopt_email,
+        "existing_staff": existing_staff,
     })
 
 

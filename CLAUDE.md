@@ -302,6 +302,17 @@ An owner adds people at `/api/staff/accounts/add/`. **The pool sends no email**,
 page shows the temporary password once, in the response to the request that created it --
 pass it on there and then. Cognito forces a change at first sign-in.
 
+**An address that already has a customer account cannot be created, and is promoted
+instead.** One pool holds both, and email is the username, so a colleague who ever
+signed up on the public site is not addable -- `create_staff` gets
+`UsernameExistsException`. The page now recognises that and offers `grant_staff`, on a
+second submit, with no password issued: they sign in with the one they already have, and
+they keep the same `sub`, so their bookings and questions stay attached. It is no
+escalation -- `staff.add` is `OWNER_ONLY` and the form still offers only
+`ASSIGNABLE_GROUPS` -- but it *is* handing somebody the staff pages, which is why it is
+confirmed rather than silent. A duplicate who is already staff is still refused, with a
+link to their page.
+
 The form offers `ASSIGNABLE_GROUPS`, which is `inventory-managers` only. `owners` is
 deliberately absent, so a POST carrying it fails validation rather than being quietly
 dropped -- which means **a second owner can only be made from the CLI**:

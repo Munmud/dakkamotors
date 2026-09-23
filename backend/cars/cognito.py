@@ -37,6 +37,19 @@ class CognitoError(Exception):
     """Something Cognito refused, in words the caller can act on."""
 
 
+class UserAlreadyExists(CognitoError):
+    """That address is already somebody in this pool.
+
+    Its own type because the caller has to tell two very different situations apart, and
+    matching on a sentence to do it is how wording becomes load-bearing. One pool holds
+    both customers and staff -- the pool uses email as the username, so an address can be
+    only one account -- which means this is usually not a duplicate staff member at all
+    but a customer who has signed up on the public site.
+
+    The message stays what it was, so anything that only prints it is unchanged.
+    """
+
+
 @functools.lru_cache(maxsize=1)
 def client():
     """One client per warm container.
@@ -464,11 +477,33 @@ def create_staff(*, email, name="", temporary_password):
             TemporaryPassword=temporary_password, MessageAction="SUPPRESS",
         )
     except client().exceptions.UsernameExistsException as exc:
-        raise CognitoError("Somebody already has that address.") from exc
+        raise UserAlreadyExists("Somebody already has that address.") from exc
     except client().exceptions.InvalidPasswordException as exc:
         raise CognitoError(_password_message(exc)) from exc
 
     add_to_group(email, STAFF_GROUP)
+
+
+def grant_staff(*, email, name=""):
+    """Give an account that already exists staff access.
+
+    The other half of `create_staff`, for the case that used to be a dead end: one pool
+    holds customers and staff alike, so a colleague who has ever signed up on the public
+    site cannot be *created* -- the address is taken by their own account. Until this
+    existed the only way through was `admin-add-user-to-group` from a laptop.
+
+    No password is set or reset. They have one, it is the one they already sign in with,
+    and issuing a temporary password here would lock them out of the account they are
+    being promoted from. That is also why the caller's success message must not offer
+    one.
+    """
+    try:
+        add_to_group(email, STAFF_GROUP)
+    except client().exceptions.UserNotFoundException as exc:
+        raise CognitoError("There is no account with that address.") from exc
+    if name:
+        first, _, last = name.partition(" ")
+        update_attributes(email, first_name=first, last_name=last)
 
 
 def set_enabled(email, enabled):

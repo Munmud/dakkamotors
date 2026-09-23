@@ -257,7 +257,10 @@ class CreationTests(StaffAccountTestCase):
         self.assertIn("Their first password is", body)
         self.assertIn("it is not shown again", body)
 
-    def test_a_duplicate_address_is_refused_in_words(self):
+    def test_a_duplicate_staff_address_is_refused_in_words(self):
+        """It used to say "Somebody already has that address", which is true of a
+        colleague and equally true of a customer -- and the two need opposite answers.
+        This one is the genuine duplicate."""
         self.make_colleague()
         self.sign_in_as_owner()
 
@@ -266,7 +269,87 @@ class CreationTests(StaffAccountTestCase):
             "is_active": "on",
         })
 
-        self.assertContains(response, "Somebody already has that address.")
+        self.assertContains(response, "That address already has a staff account.")
+        # And somewhere to go: the edit page is keyed by sub, not by the address.
+        self.assertContains(response, "Open colleague@example.com")
+
+
+class AdoptAnExistingAccountTests(StaffAccountTestCase):
+    """One pool holds customers and staff, and the address is the username.
+
+    So a colleague who has ever signed up on the public site cannot be *created* -- and
+    before this, could not be reached at all: `_roster` lists the `staff` group and
+    `staff_edit` 404s for anyone outside it. The only way through was the AWS CLI.
+    """
+
+    def make_customer_account(self, email="buyer@example.com"):
+        """A pool user in no groups, exactly as self sign-up leaves one."""
+        cognito.sign_up(email=email, password="customer-pw-123456", name="A Buyer")
+        cognito.confirm(email)
+        return email
+
+    def add(self, email, **extra):
+        payload = {"email": email, "name": "A Buyer", "groups": [], "is_active": "on"}
+        payload.update(extra)
+        return self.client.post(reverse("staff:staff-add"), payload)
+
+    def test_a_customer_address_is_offered_rather_than_refused(self):
+        email = self.make_customer_account()
+        self.sign_in_as_owner()
+
+        response = self.add(email)
+
+        self.assertContains(response, "already has an account on this site")
+        self.assertContains(response, "Give this account staff access")
+        # Nothing has happened yet. Promoting somebody is a deliberate second click,
+        # not a consequence of typing a familiar address.
+        self.assertEqual(cognito.groups_of(email), [])
+
+    def test_confirming_grants_staff_access_and_the_chosen_roles(self):
+        email = self.make_customer_account()
+        self.sign_in_as_owner()
+
+        response = self.add(email, adopt="1", groups=[cognito.INVENTORY_GROUP])
+
+        # A redirect to the roster, the same as a successful create.
+        self.assertEqual(response.status_code, 302)
+        groups = set(cognito.groups_of(email))
+        self.assertIn(cognito.STAFF_GROUP, groups)
+        self.assertIn(cognito.INVENTORY_GROUP, groups)
+        self.assertNotIn(cognito.OWNERS_GROUP, groups)
+
+    def test_adopting_promises_no_password_because_none_is_issued(self):
+        """They sign in with the one they already have. Offering a temporary password
+        would send the owner off to read out something that does not exist."""
+        email = self.make_customer_account()
+        self.sign_in_as_owner()
+
+        response = self.client.post(
+            reverse("staff:staff-add"),
+            {"email": email, "name": "A Buyer", "groups": [], "is_active": "on",
+             "adopt": "1"},
+            follow=True)
+
+        body = response.content.decode()
+        self.assertIn("staff access", body)
+        self.assertNotIn("Their first password is", body)
+        self.assertIn("password they already use", body)
+
+    def test_adopting_still_cannot_grant_owners(self):
+        """The form offers ASSIGNABLE_GROUPS and nothing else, on both paths."""
+        email = self.make_customer_account()
+        self.sign_in_as_owner()
+
+        self.add(email, adopt="1", groups=[cognito.OWNERS_GROUP])
+
+        self.assertNotIn(cognito.OWNERS_GROUP, cognito.groups_of(email))
+
+    def test_a_manager_cannot_adopt_either(self):
+        email = self.make_customer_account()
+        self.sign_in_as_manager()
+
+        self.assertEqual(self.add(email, adopt="1").status_code, 403)
+        self.assertEqual(cognito.groups_of(email), [])
 
 
 class ThereIsNoDeleteTests(StaffAccountTestCase):
