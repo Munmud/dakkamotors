@@ -1,0 +1,48 @@
+/* ==================================================================================
+   86 — Legal pages
+   The privacy page, and anything like it later. Its own partial rather than borrowing
+   `.prose`, which is for text staff typed: that carries `white-space: pre-line` so a
+   car description keeps the line breaks somebody put in it, and these paragraphs come
+   from the locale files, where a stray newline would become a visible blank line.
+
+   Long-form reading, so it is measure-capped and given more space between paragraphs
+   than the site's dense listing pages -- someone is here to find one sentence, and
+   headings they can scan past are how they find it.
+   ================================================================================== */
+
+.legal {
+  max-width: var(--measure);
+  overflow-wrap: anywhere;
+}
+
+.legal__meta {
+  margin: 0.25rem 0 2rem;
+  color: var(--road);
+  font-size: 0.9rem;
+}
+
+.legal__section {
+  margin-top: 2.25rem;
+}
+
+.legal__head {
+  margin: 0 0 0.6rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.legal__body {
+  margin: 0 0 0.9rem;
+  line-height: 1.75;
+  color: var(--ink);
+}
+
+/* The phone number inside a sentence. `a { color: inherit }` in 01-base means an
+   unstyled anchor here would be indistinguishable from the text around it, and this
+   one is the page's only way to act on what it says. */
+.legal__tel {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  font-weight: 700;
+}

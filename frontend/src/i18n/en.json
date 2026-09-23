@@ -63,7 +63,8 @@
     "addressLine2": "Shinmeidai Tempo C-1F",
     "addressLine3": "Hamura, Tokyo 205-0023",
     "callPrompt": "Questions about a car?",
-    "rights": "Dakka Motors"
+    "rights": "Dakka Motors",
+    "privacy": "Privacy"
   },
   "auth": {
     "signIn": "Sign in",
@@ -193,5 +194,22 @@
     "doneBody": "We will call or email when we find something. Meanwhile, the lot is always open.",
     "backToLot": "Back to the cars",
     "failed": "We could not send that. Please try again, or call us."
+  },
+  "privacy": {
+    "title": "Privacy",
+    "updated": "Last updated 23 September 2026",
+    "intro": "Dakka Motors is a used car dealership in Hamura, Tokyo. This page says what happens to your information when you use this website. It is short because we do little with it.",
+    "collectTitle": "What you give us",
+    "collectBody": "To book a test drive we ask for your name, email address and phone number, and we record which car and which time you chose. We use them to confirm the appointment, to reach you if anything changes, and to answer questions you ask about a car. If you create an account the same details are stored with it. We do not sell them, and we do not pass them to anyone other than the services listed below that we use to run the shop.",
+    "adsTitle": "Advertising on Facebook and Instagram",
+    "adsBody": "We sometimes advertise one car at a time on Facebook and Instagram. This site carries a Meta pixel, which tells Meta which pages of this site a visitor looked at and whether they went on to book a test drive. That is how we tell whether an advertisement for a particular car was worth running.",
+    "adsBody2": "Your name, email address and phone number are never sent to Meta. What it receives is the page you were on, the car's listing name, and the IP address and browser that every website you visit receives. Meta may connect that to an account you are signed in to and use it to choose which advertisements to show you.",
+    "adsOptOut": "To stop this: turn off ad personalisation in your Facebook or Instagram settings, use a browser or extension that blocks trackers, or browse in private mode. Nothing on this site stops working if you do.",
+    "cookiesTitle": "Cookies",
+    "cookiesBody": "Signing in sets a cookie that keeps you signed in, and a second that stops a form being submitted from another site. Both are necessary and neither follows you anywhere else. The Meta pixel sets cookies of its own, which is what the section above is about.",
+    "storageTitle": "Where it is kept",
+    "storageBody": "The site runs on Amazon Web Services in Tokyo and your details are stored there. Email is sent through Brevo. We keep a booking or a question for as long as it is useful to the shop.",
+    "contactTitle": "Ask us about any of this",
+    "contactBody": "Call us on <1>{{phone}}</1>, or reply to any email we have sent you. If you want to know what we hold about you, or want it deleted, that is how to ask."
   }
 }

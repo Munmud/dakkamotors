@@ -9,6 +9,7 @@ import SpecTable from "../components/SpecTable";
 import { ErrorState, LoadingState } from "../components/States";
 import { carField, carTitle, formatPrice, pickDescription } from "../lib/format";
 import { takeInitialData } from "../lib/initialData";
+import { viewedCar } from "../lib/pixel";
 
 /**
  * Poster frame for every video in the gallery, and the image behind their thumbnails.
@@ -64,6 +65,14 @@ export default function CarDetail() {
 
     return () => controller.abort();
   }, [slug, seeded]);
+
+  // The car an advertisement was for. Everything the campaign reports is tied back to
+  // this slug, so it is sent as soon as the page is on screen rather than waiting for
+  // the refetch -- a visitor who reads the page and leaves still counts as having
+  // looked at that car.
+  useEffect(() => {
+    viewedCar(slug);
+  }, [slug]);
 
   if (status === "loading") return <LoadingState />;
 

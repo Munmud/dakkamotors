@@ -49,6 +49,15 @@ env = environ.Env(
     # The CloudFront distribution a staff save tells to forget a changed car. Blank
     # everywhere but production, where cars/cdn.py becomes a no-op.
     CLOUDFRONT_DISTRIBUTION_ID=(str, ""),
+    # Advertising. The pixel id is not a secret -- it is in the page source of every
+    # site that uses one -- so it lives in zappa_settings.json with the Cognito ids.
+    # Blank everywhere else, which keeps the snippet out of tests, local development
+    # and the screenshot passes: the same bargain CLOUDFRONT_DISTRIBUTION_ID makes.
+    META_PIXEL_ID=(str, ""),
+    # The one advertising secret: a system-user token with `ads_management`, used to
+    # pause a car's ad set once that car is booked. From SSM in production, blank
+    # everywhere else, which makes cars/meta_ads.py a no-op. See docs/ADS.md.
+    META_ADS_TOKEN=(str, ""),
     # DynamoDB. The table name is fixed by CloudFormation; the endpoint override is
     # empty everywhere except local development and CI, where it points at
     # DynamoDB Local. Never set it in production.
@@ -231,6 +240,15 @@ AWS_S3_REGION_NAME = env("AWS_S3_REGION_NAME")
 # Blank locally and under test, which makes `cdn.invalidate` a no-op. Set in
 # zappa_settings.json; the distribution lives in infra/edge.yaml and docs/INFRA.md.
 CLOUDFRONT_DISTRIBUTION_ID = env("CLOUDFRONT_DISTRIBUTION_ID")
+
+# Advertising
+# --------------------------------------------------------------------------------------
+# Both blank outside production. `META_PIXEL_ID` blank means pages.py injects no
+# snippet at all and `window.fbq` never exists, so lib/pixel.js does nothing;
+# `META_ADS_TOKEN` blank means cars/meta_ads.py refuses to call Meta. Neither is
+# needed for the site to work -- they are measurement and a cost control.
+META_PIXEL_ID = env("META_PIXEL_ID")
+META_ADS_TOKEN = env("META_ADS_TOKEN")
 
 STATIC_URL = "/static/"
 MEDIA_URL = "/media/"

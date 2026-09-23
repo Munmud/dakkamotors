@@ -1,4 +1,5 @@
-import { Route, Routes } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, Route, Routes, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import CallButton from "./components/CallButton";
@@ -9,9 +10,40 @@ import VerifyEmail from "./pages/VerifyEmail";
 import BookTestDrive from "./pages/BookTestDrive";
 import CarDetail from "./pages/CarDetail";
 import Home from "./pages/Home";
+import Privacy from "./pages/Privacy";
 import RequestCar from "./pages/RequestCar";
 import { AuthProvider } from "./lib/AuthContext";
 import { NotificationProvider } from "./lib/NotificationContext";
+import { pageView } from "./lib/pixel";
+
+/**
+ * The path the pixel has already counted.
+ *
+ * Module scope rather than a ref, because it has to survive StrictMode mounting this
+ * twice in development -- otherwise every local run double-counts, which is exactly
+ * the kind of discrepancy that gets blamed on the pixel later.
+ */
+let counted;
+
+/**
+ * Report every navigation after the first.
+ *
+ * Meta's base snippet fires one PageView, for the document the browser loaded. In a
+ * single page app that is the landing page and nothing else -- so a visitor arriving
+ * from an advertisement and then browsing the lot would look like a bounce.
+ *
+ * The first path is recorded without reporting it, because the snippet has counted it
+ * already.
+ */
+function PixelPageViews() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    if (counted === pathname) return;
+    if (counted !== undefined) pageView();
+    counted = pathname;
+  }, [pathname]);
+  return null;
+}
 
 function Footer() {
   const { t } = useTranslation();
@@ -50,7 +82,12 @@ function Footer() {
         </div>
 
         <p className="footer__legal u-nums">
-          © {year} {t("footer.rights")}
+          © {year} {t("footer.rights")} ·{" "}
+          {/* The site runs a Meta pixel, and Meta's terms require a link to a page
+              saying so from where it runs -- which is every page. It sits in the
+              legal line rather than the columns because that is where a reader
+              looking for it will look. */}
+          <Link className="footer__link" to="/privacy">{t("footer.privacy")}</Link>
         </p>
         {/*
           No staff login link here any more. It sat on every page of a public site
@@ -69,6 +106,7 @@ export default function App() {
     <AuthProvider>
       <NotificationProvider>
         <div className="l-shell">
+          <PixelPageViews />
           <Header />
           <main className="l-main">
             <Routes>
@@ -76,6 +114,7 @@ export default function App() {
               <Route path="/cars/:slug" element={<CarDetail />} />
               <Route path="/cars/:slug/test-drive" element={<BookTestDrive />} />
               <Route path="/request-a-car" element={<RequestCar />} />
+              <Route path="/privacy" element={<Privacy />} />
               <Route path="/account" element={<Account />} />
               <Route path="/account/login" element={<Account mode="login" />} />
               <Route path="/account/register" element={<Account mode="register" />} />

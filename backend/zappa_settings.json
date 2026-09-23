@@ -61,8 +61,20 @@
             "MAIL_FROM": "noreply@dakkamotors.com",
             "MAIL_FROM_NAME": "Dakka Motors",
             "MAIL_REPLY_TO": "moontasir042@gmail.com",
-            "STAFF_ALERT_EMAIL": "moontasir042@gmail.com"
+            "STAFF_ALERT_EMAIL": "moontasir042@gmail.com",
+            "META_PIXEL_ID": ""
         },
+        "_comment_ads": [
+            "META_PIXEL_ID is blank until the owner creates the pixel in Meta Events",
+            "Manager and pastes its id here. Blank means cars/pages.py injects no",
+            "snippet at all, so the site ships and waits rather than half-working.",
+            "It is not a secret: a pixel id is in the page source of every site that",
+            "runs one, which is why it is here and reviewable rather than in SSM.",
+            "",
+            "The token that pauses an ad set IS a secret and is not here. It lives in",
+            "SSM at /dakkamotors/META_ADS_TOKEN, which config/ssm.py already loads.",
+            "See docs/ADS.md."
+        ],
         "keep_warm": false,
         "_comment_roles": [
             "Zappa rewrites its execution role's inline policy on every deploy, which",

@@ -1481,6 +1481,79 @@ class AccountPageTests(DynamoReset, SimpleTestCase):
         self.assertIn('name="robots" content="noindex, nofollow"', body)
 
 
+@mock.patch("cars.pages.asset_tags", return_value="")
+class MetaPixelTests(DynamoReset, SimpleTestCase):
+    """The pixel is opt-in by configuration, the way the CDN invalidation is.
+
+    Nothing in the app branches on being tested: with `META_PIXEL_ID` blank -- which is
+    every environment but production -- no snippet is rendered, so `window.fbq` never
+    exists and `frontend/src/lib/pixel.js` reports nothing. That is what keeps local
+    development, the suite and the screenshot passes from sending anything to Meta.
+    """
+
+    def test_no_pixel_is_rendered_without_an_id(self, _tags):
+        body = self.client.get("/").content.decode()
+
+        self.assertNotIn("connect.facebook.net", body)
+        self.assertNotIn("fbq(", body)
+
+    @override_settings(META_PIXEL_ID="1234567890")
+    def test_the_pixel_is_rendered_on_the_public_pages_when_configured(self, _tags):
+        car = make_car("PIX-1", brand="Honda", model_name="N-Box")
+
+        for path in ("/", car.get_absolute_url(), f"/cars/{car.slug}/test-drive",
+                     "/privacy"):
+            with self.subTest(path=path):
+                body = self.client.get(path).content.decode()
+                self.assertIn("connect.facebook.net/en_US/fbevents.js", body)
+                self.assertIn("fbq('init', '1234567890')", body)
+                # The <noscript> beacon, which is how a visitor with JavaScript off is
+                # counted at all. Meta's own snippet, kept whole.
+                self.assertIn("facebook.com/tr?id=1234567890", body)
+
+    @override_settings(META_PIXEL_ID="'); alert(1); //")
+    def test_a_pixel_id_that_is_not_digits_renders_nothing(self, _tags):
+        """It reaches a <script> block on a public page cached at the edge for minutes,
+        so a quote in it would be script injection on every page of the site. A
+        misconfigured id is better as no pixel than as a broken page."""
+        body = self.client.get("/").content.decode()
+
+        self.assertNotIn("alert(1)", body)
+        self.assertNotIn("connect.facebook.net", body)
+
+
+@mock.patch("cars.pages.asset_tags", return_value="")
+class PrivacyPageTests(DynamoReset, SimpleTestCase):
+    def test_the_privacy_page_discloses_the_pixel_in_both_languages(self, _tags):
+        """Meta's business tools terms require the disclosure before a pixel may run,
+        and it is the APPI notice. The rendered body carries the words rather than only
+        a heading, because a crawler checking for it does not run the app."""
+        english = self.client.get("/privacy").content.decode()
+
+        self.assertIn("<title>Privacy | Dakka Motors</title>", english)
+        self.assertIn("Meta pixel", english)
+        self.assertIn("never sent to Meta", english)
+        self.assertIn("080-9282-3601", english)
+
+        japanese = self.client.get("/privacy", headers={"accept-language": "ja"}).content.decode()
+
+        self.assertIn("Meta", japanese)
+        self.assertIn("プライバシー", japanese)
+
+    def test_the_privacy_page_is_indexable_and_in_the_sitemap(self, _tags):
+        """Unlike the account and booking shells. Meta's advertisement review looks for
+        this page, and so does anyone deciding whether to hand over a phone number."""
+        body = self.client.get("/privacy").content.decode()
+
+        self.assertNotIn('name="robots"', body)
+        self.assertIn('rel="canonical" href="https://dakkamotors.com/privacy"', body)
+        self.assertIn("https://dakkamotors.com/privacy",
+                      self.client.get("/sitemap.xml").content.decode())
+
+    def test_the_trailing_slash_form_answers_too(self, _tags):
+        self.assertEqual(self.client.get("/privacy/").status_code, 200)
+
+
 @override_settings(
     OUTBOX_BUCKET="test-outbox",
     MAIL_FROM="noreply@dakkamotors.com",

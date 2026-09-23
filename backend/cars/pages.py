@@ -124,6 +124,46 @@ def _head(*, title, description, canonical, language, image=None, robots=None,
     return tags
 
 
+def _pixel():
+    """Meta's base pixel snippet, or nothing at all.
+
+    Nothing is what every environment but production gets: `META_PIXEL_ID` is blank
+    locally, under test and in the screenshot passes, so `window.fbq` never exists and
+    `frontend/src/lib/pixel.js` -- which only ever calls it when it does -- is inert.
+    The id is not a secret; it is in the page source of every site that runs a pixel.
+
+    The snippet is Meta's, copied rather than rewritten, because it is what their
+    documentation and their diagnostics both expect to find. The only change is that
+    the id is checked to be digits before it goes in: it comes from an environment
+    variable into a `<script>` block on a public page cached at the edge, and a
+    quotation mark in it would be script injection on every page of the site. A
+    misconfigured id is better as no pixel than as a broken page.
+
+    `fbq('track', 'PageView')` here covers the first page load only. The app fires the
+    rest, including a PageView per client-side navigation -- see lib/pixel.js.
+    """
+    pixel_id = getattr(settings, "META_PIXEL_ID", "")
+    if not pixel_id:
+        return ""
+    if not str(pixel_id).isdigit():
+        logger.error("META_PIXEL_ID is not numeric; no pixel rendered")
+        return ""
+    return f"""<script>
+      !function(f,b,e,v,n,t,s)
+      {{if(f.fbq)return;n=f.fbq=function(){{n.callMethod?
+      n.callMethod.apply(n,arguments):n.queue.push(arguments)}};
+      if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+      n.queue=[];t=b.createElement(e);t.async=!0;
+      t.src=v;s=b.getElementsByTagName(e)[0];
+      s.parentNode.insertBefore(t,s)}}(window,document,'script',
+      'https://connect.facebook.net/en_US/fbevents.js');
+      fbq('init', '{pixel_id}');
+      fbq('track', 'PageView');
+    </script>
+    <noscript><img height="1" width="1" style="display:none" alt=""
+      src="https://www.facebook.com/tr?id={pixel_id}&amp;ev=PageView&amp;noscript=1" /></noscript>"""
+
+
 def _render(*, language, head, body, initial_data=None):
     """Assemble a complete document around the built asset tags.
 
@@ -154,6 +194,7 @@ def _render(*, language, head, body, initial_data=None):
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap" rel="stylesheet" />
     {head}
+    {_pixel()}
     {asset_tags()}
   </head>
   <body>
@@ -426,6 +467,59 @@ def request_car_page(request):
             head=_head(title=title, description=description,
                        canonical=f"{seo.SITE_URL}/request-a-car", language=language),
             body=f"<h1>{_esc(heading)}</h1><p>{_esc(description)}</p>",
+        )
+    )
+
+
+def privacy_page(request):
+    """The privacy notice, rendered rather than shelled.
+
+    Indexable, unlike the account and booking routes: Meta's review of an advertisement
+    looks for this page, and a reviewer -- or anybody checking what a shop does with
+    their details before handing them over -- should find it in a search rather than
+    only from the footer.
+
+    The body carries the real text, not just a heading, for the same reason the car
+    pages do: a reader with no JavaScript, and every crawler that does not run any,
+    would otherwise be shown a privacy page with no privacy notice in it. The copy
+    lives in the locale files, so this is deliberately a short summary of it with the
+    part that actually needs disclosing -- the pixel -- stated in full.
+    """
+    language = _language_from(request)
+    if language == "ja":
+        title = "プライバシー｜ダッカモータース"
+        description = ("ダッカモータースが当サイトでお客様の情報をどのように取り扱うか。"
+                       "FacebookおよびInstagramの広告に使用するMetaピクセルについての説明を含みます。")
+        heading = "プライバシー"
+        body_text = (
+            "試乗のご予約には、お名前・メールアドレス・お電話番号をお伺いし、ご予約の確定と"
+            "ご連絡にのみ使用します。当サイトにはMetaピクセルを設置しており、閲覧されたページと"
+            "試乗のご予約に進まれたかどうかがMetaに送信されますが、お名前・メールアドレス・"
+            "お電話番号が送信されることはありません。"
+            f"ご不明な点は{seo.BUSINESS['telephone_display']}までお問い合わせください。"
+        )
+    else:
+        title = "Privacy | Dakka Motors"
+        description = ("What Dakka Motors does with your information on this site, "
+                       "including the Meta pixel used for advertising on Facebook and "
+                       "Instagram.")
+        heading = "Privacy"
+        body_text = (
+            "Booking a test drive asks for your name, email address and phone number, "
+            "and they are used to confirm the appointment and to reach you about it. "
+            "This site carries a Meta pixel, which tells Meta which pages were visited "
+            "and whether a test drive was booked; your name, email address and phone "
+            "number are never sent to Meta. Ad personalisation can be turned off in "
+            "your Facebook or Instagram settings. "
+            f"Call {seo.BUSINESS['telephone_display']} with any question about this."
+        )
+
+    return HttpResponse(
+        _render(
+            language=language,
+            head=_head(title=title, description=description,
+                       canonical=f"{seo.SITE_URL}/privacy", language=language),
+            body=f"<h1>{_esc(heading)}</h1><p>{_esc(body_text)}</p>",
         )
     )
 

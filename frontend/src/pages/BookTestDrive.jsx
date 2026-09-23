@@ -8,6 +8,7 @@ import { bookSlot, errorMessage, fetchMyBookings, fetchSlots } from "../lib/auth
 import { useAuth } from "../lib/AuthContext";
 import { formatSlotFull } from "../lib/datetime";
 import { carTitle, phoneDisplay } from "../lib/format";
+import { bookedTestDrive, startedBooking } from "../lib/pixel";
 
 /**
  * Pick a time to test drive one specific car.
@@ -54,6 +55,13 @@ export default function BookTestDrive() {
     };
   }, [slug, customer, state]);
 
+  // Opening this page is the step that used to meet the account wall, so it is the
+  // number worth watching against the one below it: how many of the people an
+  // advertisement sent to a car went as far as looking for a time.
+  useEffect(() => {
+    startedBooking(slug);
+  }, [slug]);
+
   const set = (field) => (event) => {
     setError(null);
     setGuest((current) => ({ ...current, [field]: event.target.value }));
@@ -68,6 +76,10 @@ export default function BookTestDrive() {
     setStatus("saving");
     try {
       await bookSlot({ slot: selected, car: slug, guest: customer ? null : guest });
+      // Only after the server accepted it. A booking the calendar refused is not a
+      // conversion, and counting it would overstate exactly the number the decision
+      // to keep paying for an advertisement rests on.
+      bookedTestDrive(slug);
       setDone(true);
       setStatus("ready");
     } catch (err) {

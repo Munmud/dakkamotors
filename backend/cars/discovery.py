@@ -65,6 +65,10 @@ def sitemap_xml(request):
 
     entry(f"{seo.SITE_URL}/", priority="1.0")
     entry(f"{seo.SITE_URL}/request-a-car", priority="0.6")
+    # Low, because nobody is searching for it -- but listed, because a crawler that
+    # cannot find the privacy notice from the sitemap reports the site as not having
+    # one, and Meta's advertisement review is one of the things that looks.
+    entry(f"{seo.SITE_URL}/privacy", priority="0.2")
     for car in cars:
         entry(f"{seo.SITE_URL}{car.get_absolute_url()}", car.updated_at)
 

@@ -63,6 +63,10 @@ urlpatterns = [
     path("cars/<slug:slug>/test-drive", pages.book_test_drive_page),
     path("request-a-car", pages.request_car_page, name="request-car"),
     path("request-a-car/", pages.request_car_page),
+    # Indexable, unlike the account routes below: Meta looks for this page when it
+    # reviews an advertisement, and it is linked from the footer of every page.
+    path("privacy", pages.privacy_page, name="privacy"),
+    path("privacy/", pages.privacy_page),
     path("account", pages.account_page),
     path("account/", pages.account_page),
     path("account/<path:rest>", pages.account_page),

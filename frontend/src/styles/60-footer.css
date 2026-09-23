@@ -71,6 +71,20 @@
   color: #8f9ca5;
 }
 
+/* Brighter than the copyright beside it: this one is a link, and grey-on-ink at
+   #8f9ca5 does not carry enough to read as one. Underlined for the same reason --
+   colour alone is not a link on a line that is already coloured. */
+.footer__link {
+  color: #c9d3d9;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.footer__link:hover,
+.footer__link:focus-visible {
+  color: #fff;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
