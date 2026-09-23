@@ -121,9 +121,13 @@ export async function fetchMyBookings() {
  * Take a seat. `guest` carries name, email and phone for somebody with no account --
  * a click from an advertisement, most often, which cannot be asked to register and
  * wait for a code before it may choose a time. A signed-in customer sends neither.
+ *
+ * `language` is snapshotted onto the booking and decides which of two versions each of
+ * its three emails is written in. Sent rather than looked up later because a guest has
+ * no account to hold a preference, and the messages arrive over several days.
  */
-export async function bookSlot({ slot, car, guest }) {
-  return post("/test-drive/bookings/", { slot, car, ...(guest ?? {}) });
+export async function bookSlot({ slot, car, guest, language }) {
+  return post("/test-drive/bookings/", { slot, car, language, ...(guest ?? {}) });
 }
 
 export async function cancelBooking(id) {

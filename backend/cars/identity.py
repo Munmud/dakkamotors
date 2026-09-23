@@ -13,6 +13,26 @@ errors, which is why nothing here raises.
 """
 
 
+#: What a guest's `sub` is built from -- see `booking.Guest`. Keyed on the address they
+#: gave, which is what lets `customer_pk(sub)` hand them a partition and every booking
+#: guard bind them exactly as it binds an account holder.
+#:
+#: Here rather than in `booking.py` because three other modules now need to ask "is this
+#: person somebody Cognito has heard of" -- the mail does, to decide whether an /account
+#: link means anything to them -- and `booking.py` imports `mail`, so the constant could
+#: not live there without a cycle.
+GUEST_PREFIX = "guest:"
+
+
+def is_guest(sub):
+    """Whether this subject identifier belongs to somebody who booked without an account.
+
+    A guest has no Cognito user, no password and no way to sign in, so anything that
+    would send them to a page behind sign-in has to ask this first.
+    """
+    return bool(sub) and str(sub).startswith(GUEST_PREFIX)
+
+
 def sub_of(user):
     """The store's identifier for a customer, or None if there is nobody."""
     if user is None:
@@ -70,6 +90,11 @@ def user_for_sub(sub):
     answer rather than a failure.
     """
     if not sub:
+        return None
+    if is_guest(sub):
+        # The prefix already answers it. Without this the sub goes to `AdminGetUser`,
+        # which spends a round trip discovering there is no such user -- on every staff
+        # confirm and every cancel of a guest booking, through `_bell_items`.
         return None
 
     from . import cognito

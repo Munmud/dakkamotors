@@ -114,7 +114,11 @@ class BookingListCreateView(APIView):
                 phone=request.data.get("phone"),
             )
             booking = rules.create_booking(
-                user=person, slot_id=request.data.get("slot"), car=car
+                user=person, slot_id=request.data.get("slot"), car=car,
+                # Which language to write to them in, snapshotted onto the booking.
+                # The page sends whichever one they were reading; the domain module
+                # normalises it, as `cars/request_views.py` does for the same field.
+                language=request.data.get("language") or "en",
             )
         except rules.BookingError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)

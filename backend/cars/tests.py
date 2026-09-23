@@ -1677,22 +1677,32 @@ class BookingEmailTests(FakeCognito, DynamoReset, SimpleTestCase):
             )
         )
 
-        self.assertEqual(len(messages), 1)
-        alert = messages[0]
-        self.assertEqual(alert["to"], ["staff@example.com"])
+        # Two now -- the customer gets one too. Selected rather than indexed, so this
+        # test is about the staff alert and stays about it.
+        alert, = [m for m in messages if m["to"] == ["staff@example.com"]]
         self.assertIn("Honda N-Box", alert["subject"])
         self.assertIn("not been told it is confirmed", alert["text"])
         # Replying to the alert should reach the customer, not a noreply void.
         self.assertEqual(alert["replyTo"], "buyer@example.com")
 
-    def test_booking_does_not_email_the_customer(self):
-        """They are told on screen that it is awaiting confirmation; the email only
-        goes out once staff accept."""
+    def test_booking_acknowledges_the_customer_straight_away(self):
+        """This asserted the opposite until guest booking shipped.
+
+        The old rule was that nothing went to the customer until staff accepted: they
+        had been told on screen it was awaiting confirmation, and a signed-in customer
+        could open /account meanwhile. A guest can do neither -- no account, and the
+        screen is the one they are closing -- so a stranger from an advertisement handed
+        over an email address and heard nothing for hours. The silence was the feature
+        that broke; the test went with it.
+        """
         messages = self.queued_messages(
             lambda: booking_rules.create_booking(user=self.user, slot_id=future_slot().slot_id)
         )
 
-        self.assertNotIn("buyer@example.com", [to for m in messages for to in m["to"]])
+        acknowledgement, = [m for m in messages if m["to"] == ["buyer@example.com"]]
+        self.assertIn("Test drive requested", acknowledgement["subject"])
+        # And it still must not read as an appointment anybody agreed to.
+        self.assertIn("This is not a confirmation yet.", acknowledgement["text"])
 
     def test_confirming_emails_the_customer_with_time_address_and_phone(self):
         booking = booking_rules.create_booking(
@@ -2507,3 +2517,167 @@ class BookingNotificationTests(FakeCognito, DynamoReset, SimpleTestCase):
 # Deleted rather than ported, because every one of them reached into Django's auth
 # internals: `User.objects`, `PendingRegistration`, `check_password`, the session. None
 # of that is what the app does any more.
+
+
+@override_settings(**MAIL_SETTINGS)
+class BookingAcknowledgementTests(FakeCognito, DynamoReset, SimpleTestCase):
+    """The message a customer gets the moment they ask, before staff have seen it.
+
+    It exists because guest booking made the silence unacceptable. A signed-in customer
+    could at least open /account while they waited; a guest arriving from a video
+    advertisement had nothing at all but the sentence on the screen they were closing.
+    """
+
+    def queued(self, call, *args, **kwargs):
+        """Run one mail function and return the message it put in the outbox."""
+        with mock.patch("cars.mail.boto3.client") as client:
+            call(*args, **kwargs)
+            body = client.return_value.put_object.call_args.kwargs["Body"]
+        return json.loads(body.decode())
+
+    def test_booking_acknowledges_the_customer_as_well_as_the_shop(self):
+        user, _ = make_customer("hana@example.com", name="Hana Sato")
+        slot = future_slot()
+        car = make_car("ACK-1", brand="Honda", model_name="N-Box")
+
+        with mock.patch("cars.mail.queue_email", return_value=True) as queued:
+            booking_rules.create_booking(user=user, slot_id=slot.slot_id, car=car)
+
+        subjects = [call.kwargs["subject"] for call in queued.call_args_list]
+        self.assertEqual(len(subjects), 2, subjects)
+        self.assertTrue(any(s.startswith("Test drive requested") for s in subjects),
+                        subjects)
+        self.assertTrue(any(s.startswith("Test drive request") and "—" in s
+                            for s in subjects), subjects)
+
+    def test_it_says_request_rather_than_confirmed(self):
+        """The whole risk of sending this at all: somebody reads "test drive", sees a
+        time, and drives to Hamura on an appointment nobody agreed to."""
+        user, _ = make_customer("hana@example.com", name="Hana Sato")
+        booking = make_booking(user, future_slot(), car_label="2021 Honda N-Box")
+
+        message = self.queued(mail.acknowledge_booking, booking, user)
+
+        self.assertIn("This is not a confirmation yet.", message["html"])
+        self.assertIn("This is not a confirmation yet.", message["text"])
+        self.assertIn("Test drive requested", message["subject"])
+        self.assertNotIn("is confirmed", message["text"])
+
+    def test_it_is_written_in_the_language_the_booking_was_made_in(self):
+        user, _ = make_customer("hana@example.com", name="Hana Sato")
+        slot = future_slot()
+
+        booking = booking_rules.create_booking(
+            user=user, slot_id=slot.slot_id, language="ja")
+
+        self.assertEqual(booking.language, "ja")
+        message = self.queued(mail.acknowledge_booking, booking, user)
+        self.assertIn("試乗のご希望を承りました", message["subject"])
+        self.assertIn("まだ確定ではありません", message["html"])
+        self.assertNotIn("This is not a confirmation", message["html"])
+
+    def test_anything_but_japanese_is_english(self):
+        """Normalised in the domain module, never trusted into a format string.
+
+        A fresh customer each time: three live bookings is the cap, and hitting it here
+        would fail this test for a reason that has nothing to do with language.
+        """
+        for index, posted in enumerate(("en", "fr", "", "ja-JP")):
+            with self.subTest(posted=posted):
+                user, _ = make_customer(f"lang{index}@example.com")
+                booking = booking_rules.create_booking(
+                    user=user, slot_id=future_slot().slot_id, language=posted)
+                self.assertEqual(booking.language, "en")
+
+    def test_a_booking_written_before_this_existed_still_reads_as_english(self):
+        """No migrations: an old item simply has no `language` attribute."""
+        user, _ = make_customer("hana@example.com")
+        booking = make_booking(user, future_slot())
+        booking.language = None
+
+        self.assertIn("Test drive requested",
+                      self.queued(mail.acknowledge_booking, booking, user)["subject"])
+
+    def test_a_dead_outbox_does_not_cost_the_customer_their_booking(self):
+        """Same bargain as the staff alert and the advertisement pause: queued, never
+        sent inline, and S3 falling over is swallowed inside `queue_email`.
+
+        The failure is injected at boto3 rather than at `queue_email`, because that is
+        where a real one happens -- mocking `queue_email` itself to raise would be
+        testing a thing that cannot occur.
+        """
+        user, _ = make_customer("hana@example.com")
+        slot = future_slot()
+
+        with mock.patch("cars.mail.boto3.client", side_effect=RuntimeError("s3 down")):
+            booking = booking_rules.create_booking(user=user, slot_id=slot.slot_id)
+
+        self.assertIsNotNone(booking.booking_id)
+        self.assertTrue(booking.is_active)
+
+
+@override_settings(**MAIL_SETTINGS)
+class GuestHasNowhereToSignInTests(FakeCognito, DynamoReset, SimpleTestCase):
+    """Guest booking shipped and three messages went on pointing at /account.
+
+    Every one of them was right when everybody who could book could also sign in. A
+    guest has no Cognito user and no password, so that page is a sign-in form with
+    nothing behind it -- `BookingCancelView` and `BookingRescheduleView` are
+    `IsAuthenticated` too. They are told to phone, which is the truth.
+    """
+
+    def queued(self, call, *args, **kwargs):
+        with mock.patch("cars.mail.boto3.client") as client:
+            call(*args, **kwargs)
+            body = client.return_value.put_object.call_args.kwargs["Body"]
+        return json.loads(body.decode())
+
+    def guest_booking(self, **kwargs):
+        guest = booking_rules.guest_from(
+            name="Hana Sato", email="guest@example.com", phone="080-1234-5678")
+        return booking_rules.create_booking(
+            user=guest, slot_id=future_slot().slot_id, **kwargs)
+
+    def test_a_guests_confirmation_offers_the_phone_not_the_account_page(self):
+        booking = self.guest_booking()
+
+        message = self.queued(mail.confirm_booking_with_customer, booking)
+
+        self.assertNotIn("/account", message["html"])
+        self.assertNotIn("/account", message["text"])
+        self.assertIn(seo.BUSINESS["telephone_display"], message["text"])
+        self.assertIn("To change or cancel, call us on", message["text"])
+
+    def test_a_guests_cancellation_sends_them_back_to_the_car_not_to_sign_in(self):
+        car = make_car("GUEST-CANCEL", brand="Honda", model_name="N-Box")
+        booking = self.guest_booking(car=car)
+
+        message = self.queued(mail.notify_customer_of_cancellation, booking)
+
+        self.assertNotIn("/account", message["html"])
+        self.assertIn(f"/cars/{car.slug}/test-drive", message["html"])
+
+    def test_an_account_holder_keeps_the_manage_link_word_for_word(self):
+        """The existing message is not being reworded, only given a guest sibling."""
+        user, _ = make_customer("hana@example.com", name="Hana Sato")
+        booking = make_booking(user, future_slot())
+
+        message = self.queued(mail.confirm_booking_with_customer, booking, user)
+
+        self.assertIn("Change or cancel this booking", message["html"])
+        self.assertIn("https://dakkamotors.com/account", message["html"])
+        self.assertIn("Change or cancel: https://dakkamotors.com/account",
+                      message["text"])
+        self.assertIn("Please bring your driving licence.", message["text"])
+
+    def test_a_guest_sub_is_recognised_without_asking_cognito(self):
+        """`user_for_sub` used to hand `guest:...` to AdminGetUser and spend a round
+        trip discovering what the prefix already said -- on every staff confirm and
+        every cancel of a guest booking, through `_bell_items`."""
+        self.assertTrue(identity.is_guest("guest:hana@example.com"))
+        self.assertFalse(identity.is_guest("8a7c-real-cognito-sub"))
+        self.assertFalse(identity.is_guest(None))
+
+        with mock.patch.object(cognito, "attributes_of") as looked_up:
+            self.assertIsNone(identity.user_for_sub("guest:hana@example.com"))
+        looked_up.assert_not_called()

@@ -388,6 +388,21 @@ and a second Lambda sends it via Brevo (not SES). Brevo is reachable directly no
 the outbox is a choice rather than a constraint: it is fire-and-forget by design, and a
 customer's booking must never fail -- or wait 600ms -- because of an email.
 
+**Every customer-facing email is bilingual, off a stored language.** `CarQuestion`,
+`PendingRegistration`, `CarRequest` and now `Booking` each carry one, snapshotted when
+the record is made -- not looked up from the account, because the three messages a
+booking sends are days apart and a guest has no account to consult. `mail._when` uses
+Django's `date_format`, never `strftime`: its Japanese line was `%Y年%-m月%-d日` for a
+year and had never once run, and `%-m` is glibc-only while Windows raises on 年 outright.
+
+**A guest has nowhere to sign in, and `mail._can_sign_in` is the only place that
+decides.** `identity.is_guest` reads the `guest:` prefix (`identity.GUEST_PREFIX`, not
+`booking`'s -- `booking` imports `mail`, so the constant cannot live there). Three
+messages pointed at `/account` for a day after guest booking shipped, which is a sign-in
+form with nothing behind it for them: cancel and reschedule are `IsAuthenticated`. They
+are told to phone. `identity.user_for_sub` short-circuits on the same prefix rather than
+spending an `AdminGetUser` discovering what it already said.
+
 **The stylesheet is partials, and the order is the cascade.** `frontend/src/styles.css`
 is an import barrel and nothing else; the numbered files under `frontend/src/styles/`
 are the sheet. Reordering the imports changes what wins. Vite inlines them into one

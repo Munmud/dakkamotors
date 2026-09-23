@@ -69,7 +69,7 @@ def _car_id(car):
     return getattr(car, "car_id", None) or str(getattr(car, "pk", "")) or None
 
 
-def create(*, customer, slot, car, now, max_active):
+def create(*, customer, slot, car, now, max_active, language="en"):
     """Take a seat, or raise something the domain layer can turn into a sentence."""
     booking_id = keys.new_id()
     sub = customer.sub
@@ -87,6 +87,7 @@ def create(*, customer, slot, car, now, max_active):
         car_id=_car_id(car),
         car_label=car_label,
         car_slug=getattr(car, "slug", None),
+        language=language,
         status=BookingStatus.PENDING,
         created_at=now,
         updated_at=now,

@@ -179,7 +179,11 @@ def _explain(exc, now):
 #: limit, the per-slot Seat guard and the per-car CarBooking guard all bind them exactly
 #: as they bind an account holder -- no second set of rules, and nothing in the store
 #: learns that guests exist.
-GUEST_PREFIX = "guest:"
+#:
+#: It lives in `identity` now, because `mail` has to ask the same question -- an
+#: /account link is a dead end for somebody who cannot sign in -- and `booking` imports
+#: `mail`, so it could not stay here without a cycle.
+GUEST_PREFIX = identity.GUEST_PREFIX
 
 MAX_GUEST_FIELD = 120
 
@@ -227,7 +231,7 @@ def guest_from(*, name, email, phone):
     return Guest(name=name, email=email.lower(), phone=phone)
 
 
-def create_booking(*, user, slot_id, car=None, now=None):
+def create_booking(*, user, slot_id, car=None, now=None, language="en"):
     """Take a seat, or explain why not.
 
     `user` is a signed-in customer or a `Guest`; the rules do not distinguish, which is
@@ -240,6 +244,10 @@ def create_booking(*, user, slot_id, car=None, now=None):
     """
     now = now or timezone.now()
     sub = identity.sub_of(user)
+    # Normalised here rather than trusted: it is snapshotted onto the booking and then
+    # decides which of two messages a customer receives, three times over several days.
+    # Same one-liner `cars/requests.py` uses on the same posted field.
+    language = "ja" if language == "ja" else "en"
 
     # The counter the limit is enforced against has to exist before it can be
     # incremented. Conditional, so two concurrent first bookings cannot reset it.
@@ -252,7 +260,7 @@ def create_booking(*, user, slot_id, car=None, now=None):
     try:
         booking = booking_store.create(
             customer=_CustomerRef(user, sub), slot=slot, car=car, now=now,
-            max_active=MAX_ACTIVE_BOOKINGS,
+            max_active=MAX_ACTIVE_BOOKINGS, language=language,
         )
     except Exception as exc:  # noqa: BLE001 - re-raised by _explain
         _explain(exc, now)
@@ -261,6 +269,13 @@ def create_booking(*, user, slot_id, car=None, now=None):
     # Failures are swallowed there - losing a notification must never cost the customer
     # their booking, nor make them wait on Brevo for it.
     mail.notify_staff_of_booking(booking, user)
+
+    # And the customer, who until now heard nothing at all until staff got round to
+    # confirming -- possibly hours. A signed-in customer could at least see it at
+    # /account; a guest, who is most of the traffic an advertisement buys, had no
+    # written record that anything had happened. Queued, so it cannot cost them the
+    # booking it is telling them about.
+    mail.acknowledge_booking(booking, user)
 
     # The advertisement for this car, if it has one, has now done the one thing it was
     # bought to do. Same bargain as the email above: it swallows everything, because a

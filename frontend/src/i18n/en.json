@@ -130,7 +130,9 @@
     "alreadyBookedOn": "Your test drive is on {{when}}. To come at a different time, change or cancel it first.",
     "seeMyBookings": "Go to my test drives",
     "yourDetails": "Your details",
-    "yourDetailsWhy": "So we can confirm the time and reach you if anything changes. No account needed."
+    "yourDetailsWhy": "So we can confirm the time and reach you if anything changes. No account needed.",
+    "guestChange": "We have also emailed you a copy. To change or cancel it, call us on {{phone}} — you booked without an account, so there is nothing to sign in to.",
+    "backToCar": "Back to the car"
   },
   "account": {
     "yourDetails": "Your details",

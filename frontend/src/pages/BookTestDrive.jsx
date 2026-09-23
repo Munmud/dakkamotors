@@ -75,7 +75,8 @@ export default function BookTestDrive() {
     setError(null);
     setStatus("saving");
     try {
-      await bookSlot({ slot: selected, car: slug, guest: customer ? null : guest });
+      await bookSlot({ slot: selected, car: slug, guest: customer ? null : guest,
+                       language: i18n.language });
       // Only after the server accepted it. A booking the calendar refused is not a
       // conversion, and counting it would overstate exactly the number the decision
       // to keep paying for an advertisement rests on.
@@ -134,9 +135,26 @@ export default function BookTestDrive() {
         <p className="state__body">
           {t("booking.requestedNote", { phone: phoneDisplay })}
         </p>
-        <Link className="btn" to="/account">
-          {t("booking.myBookings")}
-        </Link>
+        {/* "My test drives" goes to /account, which a guest can never get past: they
+            have no password and nothing to sign in with. They are told to phone, which
+            is the truth -- cancelling and rescheduling need an account -- and it is
+            what the confirmation email now says too. Sending somebody who has just
+            handed over their details to a sign-in wall is the worst possible last
+            screen for a click an advertisement paid for. */}
+        {customer ? (
+          <Link className="btn" to="/account">
+            {t("booking.myBookings")}
+          </Link>
+        ) : (
+          <>
+            <p className="state__body">
+              {t("booking.guestChange", { phone: phoneDisplay })}
+            </p>
+            <Link className="btn" to={`/cars/${slug}`}>
+              {t("booking.backToCar")}
+            </Link>
+          </>
+        )}
       </section>
     );
   }

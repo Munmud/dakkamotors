@@ -458,6 +458,16 @@ class Booking(BaseItem, discriminator="booking"):
     customer_email = UnicodeAttribute(null=True)
     customer_phone = UnicodeAttribute(null=True)
 
+    # Which language to write to them in. Snapshotted like the three above, and for the
+    # same reason: the three messages a booking sends are spread over days, and a guest
+    # has no account whose preference could be looked up later.
+    #
+    # `CarQuestion`, `PendingRegistration` and `CarRequest` have carried one from the
+    # start. A booking was the only customer-facing record without it, which is the only
+    # reason its emails went out in English to somebody who had read the site in
+    # Japanese. `default="en"` covers every booking written before this existed.
+    language = UnicodeAttribute(default="en")
+
     status = UnicodeAttribute(default=BookingStatus.PENDING)
     confirmed_at = UTCDateTimeAttribute(null=True)
     cancelled_at = UTCDateTimeAttribute(null=True)

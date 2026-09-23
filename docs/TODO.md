@@ -99,8 +99,12 @@ Both were consciously skipped to get booking working, and both matter.
       is created at all until the emailed link is clicked, so there is no such thing as
       an unverified account. Password reset by email is in too.
 - [x] Confirmation email to the customer when staff confirm, and when staff cancel.
-- [ ] An acknowledgement to the customer at the moment they request a slot, before staff
-      have confirmed it. They currently see it on screen but get nothing in writing.
+- [x] An acknowledgement to the customer at the moment they request a slot, before staff
+      have confirmed it. Done, and bilingual. It stayed deferred while everybody who
+      could book also had an account and could see it at `/account`; guest booking made
+      it the **first** thing a stranger from an advertisement receives, and the silence
+      until staff got round to confirming could be hours. A booking now carries the
+      language it was made in, so all three of its messages are written in it.
 
 Email runs through **Brevo**, not SES. `dakkamotors.com` is authenticated (DKIM, SPF,
 DMARC in Route53) and the free tier covers 300 messages a day.

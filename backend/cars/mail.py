@@ -19,6 +19,7 @@ import uuid
 import boto3
 from django.conf import settings
 from django.utils import timezone
+from django.utils.formats import date_format
 
 from . import email_theme as theme
 from . import identity
@@ -83,17 +84,33 @@ def queue_email(*, to, subject, html, text="", reply_to=None):
 # --------------------------------------------------------------------------------------
 
 
+#: Monday first, matching `datetime.weekday()`. Written out rather than taken from
+#: Django's locale data, because `LANGUAGE_CODE` is "en-us" and activating a translation
+#: just to format seven characters would make the output depend on process state.
+JA_WEEKDAYS = ("月", "火", "水", "木", "金", "土", "日")
+
+
 def _when(starts_at, ends_at, language="en"):
     """Format an appointment window.
 
     Takes the two instants rather than a slot row: a booking carries snapshots of its
     own window now, so there is no row to pass, and a booking must read correctly even
     after the slot it pointed at is gone.
+
+    Django's `date_format`, not strftime. The Japanese line used to be
+    `f"{local:%Y年%-m月%-d日…}"` and had never once run -- nothing passed a language until
+    bookings started carrying one -- and it does not work: `%-m` is a glibc extension,
+    and on Windows, where this suite runs, strftime goes through the locale codec and
+    raises on 年 outright. `Y`, `n`, `j` and `H:i` are Django's own and are the same
+    everywhere.
     """
     local = timezone.localtime(starts_at)
+    ends = timezone.localtime(ends_at)
     if language == "ja":
-        return f"{local:%Y年%-m月%-d日（%a）%H:%M}〜{timezone.localtime(ends_at):%H:%M}"
-    return f"{local:%A %d %B %Y, %H:%M}–{timezone.localtime(ends_at):%H:%M}"
+        return (f"{date_format(local, 'Y年n月j日')}"
+                f"（{JA_WEEKDAYS[local.weekday()]}）"
+                f"{date_format(local, 'H:i')}〜{date_format(ends, 'H:i')}")
+    return f"{local:%A %d %B %Y, %H:%M}–{ends:%H:%M}"
 
 
 def _email_for(customer, booking):
@@ -114,13 +131,44 @@ def _greeting_for(customer, booking):
             or "there")
 
 
-def _address_lines():
+def _address_lines(language="en"):
+    """Where the shop is, as lines to stack. Same two forms the email footer uses."""
     b = seo.BUSINESS
+    if language == "ja":
+        return [
+            b["name_ja"],
+            f"〒{b['postal_code']}",
+            f"{b['region_ja']}{b['locality_ja']}{b['street_address_ja']}",
+        ]
     return [
         b["name"],
         b["street_address"],
         f"{b['locality']}, {b['region']} {b['postal_code']}, Japan",
     ]
+
+
+def _language_of(booking):
+    """Which language to write this booking's messages in.
+
+    Read off the booking rather than the account, because the three messages a booking
+    sends are spread over days and a guest has no account to consult. Anything that is
+    not Japanese is English, so an old booking with no attribute at all still works.
+    """
+    return "ja" if getattr(booking, "language", "") == "ja" else "en"
+
+
+def _can_sign_in(booking):
+    """Whether a link to /account means anything to the person who made this booking.
+
+    A guest has no Cognito user and no password, so that page is a sign-in form they can
+    never get past -- and `BookingCancelView` and `BookingRescheduleView` are
+    `IsAuthenticated` anyway, so there is nothing behind it for them either. They are
+    told to phone, which is what the shop would have done regardless.
+
+    This was wrong for a day: guest booking shipped and three messages went on pointing
+    at a wall, because until then everybody who could book could also sign in.
+    """
+    return not identity.is_guest(getattr(booking, "customer_sub", ""))
 
 
 def notify_staff_of_booking(booking, customer=None):
@@ -261,6 +309,112 @@ def notify_staff_of_paused_ad(car, booking, *, paused=True):
     )
 
 
+def acknowledge_booking(booking, customer=None):
+    """Tell the customer we have their request -- immediately, before staff see it.
+
+    The gap this closes: a booking used to send two messages, both of them after staff
+    had acted. Between clicking Confirm and somebody in the shop opening the queue --
+    which can be a whole evening -- the customer had nothing in writing at all. A
+    signed-in one could at least open /account; a guest, who is most of what an
+    advertisement buys, had only the sentence on the screen they were about to close.
+
+    The hard part is what it must NOT say. This is a request, not an appointment, and a
+    message that reads like a confirmation would have somebody driving to Hamura on a
+    time nobody agreed to. So the callout says so before the details do.
+    """
+    email = _email_for(customer, booking)
+    if not email:
+        return False
+
+    b = seo.BUSINESS
+    language = _language_of(booking)
+    when = _when(booking.slot_starts_at, booking.slot_ends_at, language)
+    car = booking.car_label or ""
+    greeting = _greeting_for(customer, booking)
+    address_html = "<br>".join(_esc(line) for line in _address_lines(language)[1:])
+
+    if language == "ja":
+        heading = "試乗のご希望を承りました"
+        preheader = f"{when}｜確定し次第改めてご連絡いたします"
+        lead = (f"{_esc(greeting)} 様 — "
+                + (f"<strong>{_esc(car)}</strong> の" if car else "")
+                + "試乗をご希望いただき、"
+                  "ありがとうございます。")
+        callout = ("<strong>この段階ではまだ確定ではありません。</strong>"
+                   "ご希望のお時間を仮押さえして確認しております。"
+                   "確定いたしましたら、改めてメールでお知らせいたします。")
+        rows = [
+            ("ご希望日時", f"<strong>{_esc(when)}</strong>"),
+            ("車両", _esc(car)),
+            ("場所", address_html),
+            ("お電話", f'<a href="tel:{b["telephone"]}" style="color:{theme.INK};">'
+                       f'{b["telephone_display"]}</a>'),
+        ]
+        note = (f'お急ぎの場合やご変更の際は、'
+                f'<a href="tel:{b["telephone"]}" style="color:{theme.MUTED};">'
+                f'{b["telephone_display"]}</a> までお電話ください。')
+        subject = f"試乗のご希望を承りました：{when}"
+        text = (
+            f"{greeting} 様\n\n"
+            f"試乗のご希望を承りました。"
+            f"この段階ではまだ確定ではありません。\n"
+            f"確定いたしましたら、改めてメールでお知らせいたします。\n\n"
+            f"ご希望日時：{when}\n"
+            + (f"車両：{car}\n" if car else "")
+            + "\n場所：\n  "
+            + "\n  ".join(_address_lines("ja"))
+            + f"\n\nお電話：{b['telephone_display']}\n\n"
+            f"{b['name_ja']}\n"
+        )
+    else:
+        heading = "We have your test drive request"
+        preheader = f"{when} — we will confirm it shortly"
+        lead = (f"Hello {_esc(greeting)} — thanks for asking to test drive "
+                + (f"the <strong>{_esc(car)}</strong>." if car else "with us."))
+        callout = ("<strong>This is not a confirmation yet.</strong> We are holding the "
+                   "time while we check the diary, and we will email you again as soon "
+                   "as it is settled.")
+        rows = [
+            ("Requested", f"<strong>{_esc(when)}</strong><br>"
+                          f'<span style="font-size:12px;color:{theme.MUTED};">Japan time</span>'),
+            ("Car", _esc(car)),
+            ("Where", address_html),
+            ("Phone", f'<a href="tel:{b["telephone"]}" style="color:{theme.INK};">'
+                      f'{b["telephone_display"]}</a>'),
+        ]
+        note = (f'Need it sooner, or need to change it? Call us on '
+                f'<a href="tel:{b["telephone"]}" style="color:{theme.MUTED};">'
+                f'{b["telephone_display"]}</a>.')
+        subject = f"Test drive requested: {when}"
+        text = (
+            f"Hello {greeting},\n\n"
+            f"We have your test drive request. This is not a confirmation yet.\n"
+            f"We will email you again as soon as the time is settled.\n\n"
+            f"Requested: {when} (Japan time)\n"
+            + (f"Car:       {car}\n" if car else "")
+            + "\nWhere:\n  "
+            + "\n  ".join(_address_lines())
+            + f"\n\nPhone: {b['telephone_display']}\n\n"
+            f"{b['name']}\n"
+        )
+
+    html = theme.render(
+        language=language,
+        heading=heading,
+        preheader=preheader,
+        body="".join([
+            theme.lead(lead),
+            # Before the details, not after. Somebody who skims the time and stops
+            # reading has to have met the word "not" first.
+            theme.callout(callout),
+            theme.details([(label, value) for label, value in rows if value]),
+            theme.note(note),
+        ]),
+    )
+
+    return queue_email(to=email, subject=subject, html=html, text=text)
+
+
 def confirm_booking_with_customer(booking, customer=None):
     """Tell the customer the appointment is on, and everything they need to turn up."""
     email = _email_for(customer, booking)
@@ -268,55 +422,108 @@ def confirm_booking_with_customer(booking, customer=None):
         return False
 
     b = seo.BUSINESS
-    when = _when(booking.slot_starts_at, booking.slot_ends_at)
+    language = _language_of(booking)
+    when = _when(booking.slot_starts_at, booking.slot_ends_at, language)
     car = booking.car_label or ""
     greeting = _greeting_for(customer, booking)
     manage_url = f"{seo.SITE_URL}/account"
-    address_html = "<br>".join(_esc(line) for line in _address_lines()[1:])
+    address_html = "<br>".join(_esc(line) for line in _address_lines(language)[1:])
+    # A guest cannot sign in, so the manage page is a wall. They get the phone instead,
+    # which is the only thing that would actually have worked for them anyway.
+    can_manage = _can_sign_in(booking)
 
-    html = theme.render(
-        heading="Your test drive is confirmed",
-        preheader=f"{when} at {b['name']}, Hamura",
-        body="".join([
-            theme.lead(f"Hello {_esc(greeting)} — we will have the car ready for you."),
-            theme.details([
-                ("When", f"<strong>{_esc(when)}</strong><br>"
-                         f'<span style="font-size:12px;color:{theme.MUTED};">Japan time</span>'),
-                ("Car", _esc(car)),
-                ("Where", address_html),
-                ("Phone", f'<a href="tel:{b["telephone"]}" style="color:{theme.INK};">'
-                          f'{b["telephone_display"]}</a>'),
+    if language == "ja":
+        manage_block = (
+            theme.button("予約を変更・キャンセルする", manage_url) if can_manage
+            else theme.paragraph(
+                f'ご変更・キャンセルは '
+                f'<a href="tel:{b["telephone"]}" style="color:{theme.INK};">'
+                f'{b["telephone_display"]}</a> までお電話ください。')
+        )
+        html = theme.render(
+            language="ja",
+            heading="試乗のご予約が確定しました",
+            preheader=f"{when}｜{b['name_ja']}（羽村市）",
+            body="".join([
+                theme.lead(f"{_esc(greeting)} 様 — お車をご用意してお待ちしております。"),
+                theme.details([
+                    ("日時", f"<strong>{_esc(when)}</strong><br>"
+                             f'<span style="font-size:12px;color:{theme.MUTED};">日本時間</span>'),
+                    ("車両", _esc(car)),
+                    ("場所", address_html),
+                    ("お電話", f'<a href="tel:{b["telephone"]}" style="color:{theme.INK};">'
+                               f'{b["telephone_display"]}</a>'),
+                ]),
+                theme.callout("運転免許証を必ずお持ちください。ご提示のない場合は運転していただけません。"),
+                manage_block,
+                theme.note(
+                    f'遅れそうな場合やご都合が悪くなった場合は、'
+                    f'<a href="tel:{b["telephone"]}" style="color:{theme.MUTED};">'
+                    f'{b["telephone_display"]}</a> までご連絡ください。お車はお取り置きします。'
+                ),
             ]),
-            theme.callout("Please bring your driving licence — we cannot let you drive without it."),
-            theme.button("Change or cancel this booking", manage_url),
-            theme.note(
-                f'Running late or cannot make it? Call us on '
-                f'<a href="tel:{b["telephone"]}" style="color:{theme.MUTED};">'
-                f'{b["telephone_display"]}</a> and we will hold the car.'
-            ),
-        ]),
-    )
+        )
+        text = (
+            f"{greeting} 様\n\n"
+            f"{b['name_ja']}での試乗のご予約が確定しました。\n\n"
+            f"日時：{when}（日本時間）\n"
+            + (f"車両：{car}\n" if car else "")
+            + "\n場所：\n  "
+            + "\n  ".join(_address_lines("ja"))
+            + f"\n\nお電話：{b['telephone_display']}／遅れそうな場合はご連絡ください。\n\n"
+            f"運転免許証を必ずお持ちください。お車をご用意してお待ちしております。\n"
+            + (f"変更・キャンセル：{manage_url}\n\n" if can_manage
+               else f"ご変更・キャンセルは {b['telephone_display']} までお電話ください。\n\n")
+            + f"{b['name_ja']}\n"
+        )
+        subject = f"試乗のご予約が確定しました：{when}"
+    else:
+        manage_block = (
+            theme.button("Change or cancel this booking", manage_url) if can_manage
+            else theme.paragraph(
+                f'To change or cancel, call us on '
+                f'<a href="tel:{b["telephone"]}" style="color:{theme.INK};">'
+                f'{b["telephone_display"]}</a>.')
+        )
+        html = theme.render(
+            heading="Your test drive is confirmed",
+            preheader=f"{when} at {b['name']}, Hamura",
+            body="".join([
+                theme.lead(f"Hello {_esc(greeting)} — we will have the car ready for you."),
+                theme.details([
+                    ("When", f"<strong>{_esc(when)}</strong><br>"
+                             f'<span style="font-size:12px;color:{theme.MUTED};">Japan time</span>'),
+                    ("Car", _esc(car)),
+                    ("Where", address_html),
+                    ("Phone", f'<a href="tel:{b["telephone"]}" style="color:{theme.INK};">'
+                              f'{b["telephone_display"]}</a>'),
+                ]),
+                theme.callout("Please bring your driving licence — we cannot let you drive without it."),
+                manage_block,
+                theme.note(
+                    f'Running late or cannot make it? Call us on '
+                    f'<a href="tel:{b["telephone"]}" style="color:{theme.MUTED};">'
+                    f'{b["telephone_display"]}</a> and we will hold the car.'
+                ),
+            ]),
+        )
+        text = (
+            f"Hello {greeting},\n\n"
+            f"Your test drive at {b['name']} is confirmed.\n\n"
+            f"When:  {when} (Japan time)\n"
+            + (f"Car:   {car}\n" if car else "")
+            + "\nWhere:\n  "
+            + "\n  ".join(_address_lines())
+            + f"\n\nPhone: {b['telephone_display']} - call us if you are running late "
+            f"or cannot make it.\n\n"
+            f"Please bring your driving licence. We will have the car ready.\n"
+            + (f"Change or cancel: {manage_url}\n\n" if can_manage
+               else f"To change or cancel, call us on {b['telephone_display']}\n\n")
+            + f"See you soon.\n{b['name']}\n"
+        )
+        subject = f"Test drive confirmed: {when}"
 
-    text = (
-        f"Hello {greeting},\n\n"
-        f"Your test drive at {b['name']} is confirmed.\n\n"
-        f"When:  {when} (Japan time)\n"
-        + (f"Car:   {car}\n" if car else "")
-        + "\nWhere:\n  "
-        + "\n  ".join(_address_lines())
-        + f"\n\nPhone: {b['telephone_display']} - call us if you are running late "
-        f"or cannot make it.\n\n"
-        f"Please bring your driving licence. We will have the car ready.\n"
-        f"Change or cancel: {manage_url}\n\n"
-        f"See you soon.\n{b['name']}\n"
-    )
-
-    return queue_email(
-        to=email,
-        subject=f"Test drive confirmed: {when}",
-        html=html,
-        text=text,
-    )
+    return queue_email(to=email, subject=subject, html=html, text=text)
 
 
 def notify_customer_of_cancellation(booking, customer=None):
@@ -326,38 +533,73 @@ def notify_customer_of_cancellation(booking, customer=None):
         return False
 
     b = seo.BUSINESS
-    when = _when(booking.slot_starts_at, booking.slot_ends_at)
+    language = _language_of(booking)
+    when = _when(booking.slot_starts_at, booking.slot_ends_at, language)
     greeting = _greeting_for(customer, booking)
-    book_url = f"{seo.SITE_URL}/account"
+    # The car's own page, not /account, when there is one: a guest cannot sign in, and
+    # "find another time" for the car they actually wanted beats a generic list anyway.
+    can_manage = _can_sign_in(booking)
+    book_url = (f"{seo.SITE_URL}/account" if can_manage
+                else f"{seo.SITE_URL}/cars/{booking.car_slug}/test-drive"
+                if booking.car_slug else seo.SITE_URL)
 
-    html = theme.render(
-        heading="We had to cancel your test drive",
-        preheader=f"Your booking for {when} is cancelled. We can find you another time.",
-        body="".join([
-            theme.lead(
-                f"Hello {_esc(greeting)} — we are sorry. Your test drive on "
-                f"<strong>{_esc(when)}</strong> is cancelled."
-            ),
-            theme.paragraph(
-                "We would still like to get you behind the wheel. Pick another time that "
-                "suits you, or call and we will sort it out between us."
-            ),
-            theme.button("Find another time", book_url),
-            theme.note(
-                f'Or call us on <a href="tel:{b["telephone"]}" style="color:{theme.MUTED};">'
-                f'{b["telephone_display"]}</a>.'
-            ),
-        ]),
-    )
+    if language == "ja":
+        html = theme.render(
+            language="ja",
+            heading="試乗のご予約をキャンセルさせていただきました",
+            preheader=f"{when} のご予約はキャンセルとなりました。別のお時間をご案内できます。",
+            body="".join([
+                theme.lead(
+                    f"{_esc(greeting)} 様 — 申し訳ございません。"
+                    f"<strong>{_esc(when)}</strong> の試乗はキャンセルとなりました。"
+                ),
+                theme.paragraph(
+                    "ぜひ改めてお乗りいただきたく存じます。"
+                    "ご都合のよいお時間をお選びいただくか、お電話いただければ調整いたします。"
+                ),
+                theme.button("別の日時を選ぶ", book_url),
+                theme.note(
+                    f'お電話は <a href="tel:{b["telephone"]}" style="color:{theme.MUTED};">'
+                    f'{b["telephone_display"]}</a> まで。'
+                ),
+            ]),
+        )
+        text = (
+            f"{greeting} 様\n\n"
+            f"申し訳ございません。{when} の試乗のご予約をキャンセルさせていただきました。\n\n"
+            f"{b['telephone_display']} までお電話いただければ別のお時間をご案内いたします。"
+            f"ご自身でお選びいただく場合は {book_url}\n\n{b['name_ja']}\n"
+        )
+        subject = f"試乗のご予約をキャンセルさせていただきました：{when}"
+    else:
+        html = theme.render(
+            heading="We had to cancel your test drive",
+            preheader=f"Your booking for {when} is cancelled. We can find you another time.",
+            body="".join([
+                theme.lead(
+                    f"Hello {_esc(greeting)} — we are sorry. Your test drive on "
+                    f"<strong>{_esc(when)}</strong> is cancelled."
+                ),
+                theme.paragraph(
+                    "We would still like to get you behind the wheel. Pick another time that "
+                    "suits you, or call and we will sort it out between us."
+                ),
+                theme.button("Find another time", book_url),
+                theme.note(
+                    f'Or call us on <a href="tel:{b["telephone"]}" style="color:{theme.MUTED};">'
+                    f'{b["telephone_display"]}</a>.'
+                ),
+            ]),
+        )
+        text = (
+            f"Hello {greeting},\n\n"
+            f"We are sorry, but we have had to cancel your test drive on {when}.\n\n"
+            f"Please call us on {b['telephone_display']} and we will find another time, "
+            f"or book one yourself at {book_url}\n\n{b['name']}\n"
+        )
+        subject = f"Test drive cancelled: {when}"
 
-    text = (
-        f"Hello {greeting},\n\n"
-        f"We are sorry, but we have had to cancel your test drive on {when}.\n\n"
-        f"Please call us on {b['telephone_display']} and we will find another time, "
-        f"or book one yourself at {book_url}\n\n{b['name']}\n"
-    )
-
-    return queue_email(to=email, subject=f"Test drive cancelled: {when}", html=html, text=text)
+    return queue_email(to=email, subject=subject, html=html, text=text)
 
 
 # --------------------------------------------------------------------------------------
