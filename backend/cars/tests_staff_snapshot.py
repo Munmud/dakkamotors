@@ -21,7 +21,9 @@ from pathlib import Path
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
+from .store import cars as car_store
 from .store import requests as request_store
 from .tests import (
     DynamoReset, MAIL_SETTINGS, attach_photo, attach_video, future_slot, make_booking,
@@ -57,7 +59,14 @@ class StaffSnapshot(FakeCognito, DynamoReset, SimpleTestCase):
             {"label_en": "Inspection until", "label_ja": "車検有効期限",
              "value_en": "March 2028", "value_ja": "2028年3月"},
         ]
+        # Advertised, and already stopped by a booking. Both halves matter to a review
+        # pass: the ad set id is the only free-text field in the Listing group, and the
+        # "stopped itself" note under it is the longest help text on the page -- which
+        # is what would show a phone-width problem first.
+        car.ad_set_id = "120210000000000123"
         car.save()
+        car_store.claim_ad_pause(car.car_id, timezone.now())
+        car = car_store.detail(car.car_id)
         attach_photo(car, 1200, 900)
         attach_photo(car, 1200, 900)
         attach_video(car, "walkaround.mp4")

@@ -52,7 +52,14 @@ matter will not fit through it, which is the whole reason the direct path exists
               {{ field.label }}{% if field.field.required %} <span class="req" title="Required">*</span>{% endif %}
             </label>
             {{ field }}
-            {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
+            {% comment %}
+              `safe`, as django.contrib.admin renders its own help text. Every string
+              here is a literal in cars/forms.py -- nothing a customer or a staff member
+              typed reaches this -- and one field needs a <strong> in it, because a
+              sentence about state reading exactly like the standing instructions around
+              it is the same as not saying it.
+            {% endcomment %}
+            {% if field.help_text %}<p class="help">{{ field.help_text|safe }}</p>{% endif %}
             {% for error in field.errors %}
               <p class="error">{{ error }}</p>
             {% endfor %}

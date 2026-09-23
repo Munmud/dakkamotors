@@ -13,6 +13,9 @@ instance, it puts the storage name into `cleaned_data` for the view to use.
 """
 
 from django import forms
+from django.utils import timezone
+from django.utils.formats import date_format
+from django.utils.html import format_html
 
 from .choices import CarStatus, FuelType
 from .specs import FIELDS as SPEC_FIELDS, MAX_LABEL, MAX_VALUE
@@ -101,9 +104,17 @@ class CarForm(DirectUploadMixin, forms.Form):
 
     ad_set_id = forms.CharField(
         required=False, max_length=40, label="Meta ad set ID",
-        help_text=("From Ads Manager, the ad set running for this one car. "
-                   "The advertisement stops itself as soon as somebody books a test "
-                   "drive for it. Clear this box to advertise the car again."),
+        # Both halves of "advertise this car again" are spelled out, because the short
+        # version -- "clear this box" -- was read by the owner and meant nothing. It was
+        # also wrong for the common case: the pause stamp is cleared by the id
+        # *changing*, so pasting a new one over the old is enough. Emptying the box is
+        # only needed for the case where nothing changes, which is re-running the same
+        # ad set. See `__init__` below for what a paused car is additionally told.
+        help_text=("From Ads Manager, the ad set running for this one car. The "
+                   "advertisement stops itself as soon as somebody books a test drive "
+                   "for it. To advertise this car again, paste the new ad set ID over "
+                   "this one — or, to re-run this same ad set, empty the box, Save, "
+                   "then type it back in."),
     )
 
     description_en = forms.CharField(
@@ -129,6 +140,35 @@ class CarForm(DirectUploadMixin, forms.Form):
     #: Fields whose box should be the width of their answer, not the width of the page.
     #: A four-digit year in a 34rem input reads as a text field waiting for a sentence.
     SHORT_FIELDS = ("manufacture_year", "seat_capacity", "price_jpy")
+
+    def __init__(self, *args, car=None, **kwargs):
+        """`car` is passed when editing, so the page can report state the store holds.
+
+        Only one field needs it so far. `ad_paused_at` decides whether a future booking
+        will stop this car's advertisement -- `store.cars.claim_ad_pause` refuses for any
+        car that already carries one -- and until now it was invisible here. There was no
+        way to look at a car and tell whether its advertisement was armed or already
+        spent, which is what made the help text below unreadable however it was worded.
+
+        Appended to the help text rather than rendered as its own thing, because the
+        template walks `groups()` generically and a per-field special case there is
+        exactly the kind of drift the staff pages are kept free of.
+        """
+        super().__init__(*args, **kwargs)
+        paused_at = getattr(car, "ad_paused_at", None)
+        if paused_at:
+            # Django's own date formatting, not strftime: the "j" here is a day with no
+            # leading zero, which in strftime is the glibc-only "%-d" and raises on
+            # Windows, where this suite also runs. Same format the booking pages use.
+            when = date_format(timezone.localtime(paused_at), "j M Y")
+            field = self.fields["ad_set_id"]
+            # Bold, and the template renders help text with `safe` for this one reason:
+            # a sentence about *this car* set in the same grey as the standing
+            # instructions around it is the same as not writing it.
+            field.help_text = format_html(
+                "<strong>Stopped itself on {}, when this car was booked. It will not "
+                "stop another advertisement until this ID changes.</strong> {}",
+                when, field.help_text)
 
     def groups(self):
         for title, names in self.GROUPS:

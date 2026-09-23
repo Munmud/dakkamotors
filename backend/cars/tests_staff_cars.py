@@ -18,6 +18,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.formats import date_format
 from PIL import Image
 
 from .specs import MAX_PAIRS
@@ -331,6 +332,29 @@ class StaffCarEditTests(FakeCognito, DynamoReset, SimpleTestCase):
 
         page = self.client.get(reverse("staff:car-edit", args=[car.car_id]))
         self.assertContains(page, "1234567890123")
+
+    def test_a_paused_car_says_so_on_its_page(self):
+        """`ad_paused_at` decides whether a future booking stops anything, and it was
+        invisible here -- there was no way to look at a car and tell whether its
+        advertisement was armed or already spent."""
+        car = make_car("AD-FORM-3", ad_set_id="1234567890123")
+        car_store.claim_ad_pause(car.car_id, timezone.now())
+
+        page = self.client.get(reverse("staff:car-edit", args=[car.car_id]))
+
+        self.assertContains(page, "Stopped itself on")
+        self.assertContains(page, "will not stop another advertisement")
+        self.assertContains(page, date_format(timezone.localtime(), "j M Y"))
+
+    def test_a_car_that_has_not_paused_says_nothing_of_the_sort(self):
+        car = make_car("AD-FORM-4", ad_set_id="1234567890123")
+
+        page = self.client.get(reverse("staff:car-edit", args=[car.car_id]))
+
+        self.assertNotContains(page, "Stopped itself on")
+        # The standing instructions are still there, both halves of them.
+        self.assertContains(page, "paste the new ad set ID over this one")
+        self.assertContains(page, "empty the box, Save, then type it back in")
 
     def test_clearing_the_ad_set_id_leaves_no_attribute_behind(self):
         """Absent, not empty: `stop_for` decides on a plain truth test, and clearing

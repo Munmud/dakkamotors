@@ -243,7 +243,7 @@ def car_edit(request, car_id):
 
     return render(request, "staff/cars/form.html", {
         "title": car.seo_title_plain,
-        "form": CarForm(initial=_initial(car)),
+        "form": CarForm(initial=_initial(car), car=car),
         "car": car,
         "images": car.images,
         "gallery": car.media,
@@ -259,7 +259,10 @@ def _initial(car):
 
 
 def _save(request, car):
-    form = CarForm(request.POST, request.FILES)
+    # `car` as it stands BEFORE the save, which is what the form should report: the only
+    # path that re-renders is `invalid()`, where nothing was written. A successful save
+    # redirects, and the next GET builds a fresh form from the updated car.
+    form = CarForm(request.POST, request.FILES, car=car)
     formset = ImageFormSet(request.POST, request.FILES, prefix="images")
     videoset = VideoFormSet(request.POST, request.FILES, prefix="videos")
     specset = SpecFormSet(request.POST, prefix="specs")

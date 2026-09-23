@@ -220,7 +220,10 @@ must never fail over an advertisement, which would lose the thing the advertisem
 bought to produce. `store.cars.claim_ad_pause` is a **conditional** update on
 `ad_paused_at`, so two bookings in the same second cannot both pause and both email; and
 `ad_paused_at` rides with `ad_set_id` in `store.cars.update`, because a stamp left over
-from the last campaign would make the next one unable to ever stop itself. When Meta
+from the last campaign would make the next one unable to ever stop itself. It rides on
+the id **changing**, so re-running the *same* ad set takes two saves -- clear, save,
+retype, save -- and the staff form says so, and names the date it stopped, because that
+state is otherwise invisible and unguessable. When Meta
 refuses, the owner gets the **opposite** message -- the ad set is still spending and only
 a person can stop it now.
 

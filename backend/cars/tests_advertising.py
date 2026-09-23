@@ -161,6 +161,30 @@ class AdSetLifetimeTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.assertIsNone(fresh.ad_set_id)
         self.assertIsNone(fresh.ad_paused_at)
 
+    def test_saving_the_same_ad_set_id_does_not_re_arm_it(self):
+        """The case the staff help text exists for.
+
+        The reset rides on the id *changing*, so writing the same one back is not a new
+        campaign and the stamp stays -- meaning a second booking stops nothing. That is
+        correct: unpausing an ad set in Ads Manager and leaving the id alone is
+        indistinguishable here from not touching it at all. It is also the one thing
+        about this field somebody could get wrong without any sign, which is why the
+        page now names the date it stopped and says to empty the box and save first.
+        """
+        car = make_car("AD-11", ad_set_id=AD_SET)
+        with mock.patch.object(meta_ads, "pause_ad_set", return_value=True),                 mock.patch("cars.mail.queue_email", return_value=True):
+            advertising.stop_for(booking_for(car))
+
+        car_store.update(car_store.get(car.car_id), now=timezone.now(),
+                         ad_set_id=AD_SET)
+
+        self.assertIsNotNone(car_store.get(car.car_id).ad_paused_at)
+        # And the two-save dance the help text describes does re-arm it.
+        car_store.update(car_store.get(car.car_id), now=timezone.now(), ad_set_id=None)
+        car_store.update(car_store.get(car.car_id), now=timezone.now(),
+                         ad_set_id=AD_SET)
+        self.assertIsNone(car_store.get(car.car_id).ad_paused_at)
+
     def test_an_unrelated_edit_leaves_the_pause_alone(self):
         """Only a change to the id resets it. A price edit is not a new campaign."""
         car = make_car("AD-10", ad_set_id=AD_SET)

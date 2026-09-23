@@ -163,9 +163,19 @@ That is the whole connection. The next booking for that car pauses that ad set.
 Nothing more is spent.
 
 **To advertise the same car again** — it fell through, or the buyer never turned up —
-**clear the Meta ad set ID box first**, then paste the new one in. Changing or clearing
-the id clears the pause stamp with it; a stamp left over from the last campaign would
-mean the new advertisement could never stop itself. Silent, and visible only as a bill.
+what matters is that the **Meta ad set ID changes**. That is what clears the car's
+record of having already stopped an ad; a record left over from the last campaign would
+leave the new advertisement unable to ever stop itself. Silent, and visible only as a
+bill. So:
+
+* **A new ad set** (the normal case, and what a new campaign gets): paste its id
+  straight over the old one and Save. Nothing else.
+* **The same ad set**, unpaused in Ads Manager: the id is not changing, so empty the
+  box, **Save**, type it back in, **Save** again. Two saves, on purpose — leaving the
+  id alone is indistinguishable from not touching the car at all.
+
+The car's page says which state it is in: a car whose ad has already stopped itself
+shows the date it happened under the ad set id box.
 
 **To move the budget to a different car**, clear the id on the old car so nothing is
 left pointing at a dead ad set, and set it on the new one.
