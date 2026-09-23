@@ -15,12 +15,18 @@ most of this had to be built before a system user was even possible.
 | | |
 |---|---|
 | Business portfolio | `Dakka Motors` |
-| Pixel | `Dakka Motors` — **`1652862756270917`**, in `zappa_settings.json` |
+| Pixel | `Dakka Motors` — **`2158231298411165`**, in `zappa_settings.json` |
 | App | `Dakka Motors Site` — Marketing API use case, **unpublished**, contact `moontasir042@gmail.com` |
 | Ad account | `Dakka Motors`, inside the portfolio. **JPY, Asia/Tokyo** |
 | System user | `dakkamotors-site` — `61594633623059`, role Employee |
 | Its assets | the ad account with *Manage campaigns*; the app with *Develop app* (Meta offers no token permissions without it) |
 | Its token | `ads_management`, expiry **Never**, in SSM at `/dakkamotors/META_ADS_TOKEN` |
+
+The pixel was **`1652862756270917`** until 2026-09-23. Events recorded before the swap
+belong to that one and did not move: a pixel keeps its own history, and the new one
+started empty. If anything in Ads Manager still points at the old id — an ad set, a
+custom audience, a conversion — repoint it by hand; changing `META_PIXEL_ID` only moves
+what the site sends.
 
 The **old personal ad account `339950103411609` is not used** and is unchanged. Meta
 refused to move it into the portfolio because it has never taken a payment; a fresh
