@@ -64,6 +64,10 @@ class AlreadyBooked(StoreError):
     """This customer already holds a live booking for this slot."""
 
 
+class CarAlreadyBooked(StoreError):
+    """This customer already holds a live booking for this car."""
+
+
 class LimitReached(StoreError):
     """The customer is at MAX_ACTIVE_BOOKINGS."""
 

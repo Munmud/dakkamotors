@@ -27,6 +27,7 @@ from .store import schedules as schedule_store
 from .store import slots as slot_store
 from .store.errors import (
     AlreadyBooked,
+    CarAlreadyBooked,
     LimitReached,
     NotActive,
     NotFound,
@@ -164,6 +165,11 @@ def _explain(exc, now):
         ) from exc
     if isinstance(exc, AlreadyBooked):
         raise BookingError("You have already booked that time.") from exc
+    if isinstance(exc, CarAlreadyBooked):
+        raise BookingError(
+            "You already have a test drive booked for this car. "
+            "Change or cancel it from My test drives."
+        ) from exc
     raise exc
 
 

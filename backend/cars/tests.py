@@ -31,6 +31,7 @@ from .store import cars as car_store
 from .store import customers as customer_store
 from .store import images as image_store
 from .store.models import Car as StoreCar
+from .store.models import CarBooking
 from .store.models import PendingRegistration as StorePending
 from .tasks import build_derivatives_task
 from .store import keys as store_keys
@@ -1085,6 +1086,79 @@ class BookingRuleTests(FakeCognito, DynamoReset, SimpleTestCase):
         # the appointment survives the car being sold and removed - which is the whole
         # reason car_label exists.
         self.assertIn("Daihatsu Tanto", booking.car_label)
+
+    def test_one_live_test_drive_per_car(self):
+        """Three appointments to look at one car reads to staff like three buyers, and
+        holds seats other people wanted."""
+        booking_rules.create_booking(user=self.user, slot_id=future_slot().slot_id,
+                                     car=self.car)
+
+        with self.assertRaises(booking_rules.BookingError) as refused:
+            booking_rules.create_booking(user=self.user, slot_id=future_slot().slot_id,
+                                         car=self.car)
+
+        self.assertEqual(
+            str(refused.exception),
+            "You already have a test drive booked for this car. "
+            "Change or cancel it from My test drives.",
+        )
+
+    def test_cancelling_frees_the_car_again(self):
+        booking = booking_rules.create_booking(
+            user=self.user, slot_id=future_slot().slot_id, car=self.car)
+        booking_rules.cancel_booking(user=self.user, booking_id=booking.booking_id)
+
+        again = booking_rules.create_booking(
+            user=self.user, slot_id=future_slot().slot_id, car=self.car)
+
+        self.assertEqual(again.car_id, self.car.car_id)
+
+    def test_another_car_is_still_bookable(self):
+        other = make_car("BOOK-2", brand="Suzuki", model_name="Alto")
+        booking_rules.create_booking(user=self.user, slot_id=future_slot().slot_id,
+                                     car=self.car)
+
+        booking = booking_rules.create_booking(
+            user=self.user, slot_id=future_slot().slot_id, car=other)
+
+        self.assertEqual(booking.car_id, other.car_id)
+
+    def test_two_bookings_with_no_car_do_not_collide(self):
+        """A booking with no car has nothing to guard, and one shared key would make
+        every car-less booking block the last one."""
+        booking_rules.create_booking(user=self.user, slot_id=future_slot().slot_id)
+
+        booking = booking_rules.create_booking(user=self.user,
+                                               slot_id=future_slot().slot_id)
+
+        self.assertIsNone(booking.car_id)
+
+    def test_the_guard_item_lives_exactly_as_long_as_the_booking_is_active(self):
+        """The claim its docstring makes, asserted on the item itself: written by the
+        same transaction as the booking, gone with the same one that cancels it."""
+        booking = booking_rules.create_booking(
+            user=self.user, slot_id=future_slot().slot_id, car=self.car)
+        key = (store_keys.customer_pk(self.user.sub),
+               store_keys.car_booking_sk(self.car.car_id))
+
+        guard = CarBooking.get(*key)
+        self.assertEqual(guard.booking_id, booking.booking_id)
+        self.assertEqual(guard.car_id, self.car.car_id)
+
+        booking_rules.cancel_booking(user=self.user, booking_id=booking.booking_id)
+
+        with self.assertRaises(CarBooking.DoesNotExist):
+            CarBooking.get(*key)
+
+    def test_another_customer_may_book_the_same_car(self):
+        other_customer, _ = make_customer("second@example.com")
+        booking_rules.create_booking(user=self.user, slot_id=future_slot().slot_id,
+                                     car=self.car)
+
+        booking = booking_rules.create_booking(
+            user=other_customer, slot_id=future_slot().slot_id, car=self.car)
+
+        self.assertEqual(booking.car_id, self.car.car_id)
 
     def test_a_slot_in_the_past_cannot_be_booked(self):
         past = future_slot(days=-2)

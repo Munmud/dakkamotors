@@ -28,16 +28,18 @@ from ..choices import ACTIVE_STATUSES, BookingStatus
 from . import keys
 from .errors import (
     AlreadyBooked,
+    CarAlreadyBooked,
     LimitReached,
     NotActive,
     NotFound,
     SlotUnavailable,
 )
-from .models import Booking, Customer, Seat, Slot
+from .models import Booking, CarBooking, Customer, Seat, Slot
 from .txn import Txn, failed, reason_for
 
 #: Transaction labels. Never index `cancellation_reasons` by number -- see store/txn.py.
 SLOT, CUSTOMER, SEAT, BOOKING = "slot", "customer", "seat", "booking"
+CAR_GUARD = "car_guard"
 OLD_SLOT, OLD_SEAT = "old_slot", "old_seat"
 
 
@@ -117,6 +119,22 @@ def create(*, customer, slot, car, now, max_active):
     )
     tx.save(SEAT, seat, condition=Seat.sk.does_not_exist())
     tx.save(BOOKING, booking, condition=Booking.sk.does_not_exist())
+    # One live booking per car, and only for a booking that names one: a car-less
+    # booking has nothing to guard, and every one of them would share a single key.
+    if booking.car_id:
+        tx.save(
+            CAR_GUARD,
+            CarBooking(
+                pk=keys.customer_pk(sub),
+                sk=keys.car_booking_sk(booking.car_id),
+                booking_id=booking_id,
+                customer_sub=sub,
+                car_id=booking.car_id,
+                car_label=car_label,
+                created_at=now,
+            ),
+            condition=CarBooking.sk.does_not_exist(),
+        )
 
     _commit(tx, on_slot_failure=SLOT)
     return booking
@@ -167,6 +185,8 @@ def _commit(tx, *, on_slot_failure):
             raise LimitReached() from exc
         if SEAT in order and failed(exc, SEAT, order):
             raise AlreadyBooked() from exc
+        if CAR_GUARD in order and failed(exc, CAR_GUARD, order):
+            raise CarAlreadyBooked() from exc
         raise
 
 
@@ -260,6 +280,12 @@ def set_status(booking, status, now, extra=None):
         # Unconditional: a cancel must never wedge because the guard is already gone.
         tx.delete(SEAT, Seat(pk=keys.slot_pk(booking.slot_id),
                              sk=keys.seat_sk(booking.customer_sub)))
+        if booking.car_id:
+            # Same reasoning, and the reason cancelling frees the car: the guard's
+            # lifetime is exactly the booking's active lifetime.
+            tx.delete(CAR_GUARD,
+                      CarBooking(pk=keys.customer_pk(booking.customer_sub),
+                                 sk=keys.car_booking_sk(booking.car_id)))
 
     order = tx.labels_in_wire_order()
     try:

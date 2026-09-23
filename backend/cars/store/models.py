@@ -406,6 +406,26 @@ class Seat(BaseItem, discriminator="seat"):
     created_at = UTCDateTimeAttribute(null=True)
 
 
+class CarBooking(BaseItem, discriminator="carbook"):
+    """The live-booking guard one level up from `Seat`: one live booking per car.
+
+    Same lifetime and the same reasoning: written conditionally when a booking is
+    taken, deleted unconditionally when it leaves ACTIVE_STATUSES. Where `Seat` stops
+    a customer taking one appointment twice, this stops them taking three appointments
+    to look at one car -- which reads to staff like three buyers and holds seats other
+    people wanted.
+
+    Only written for a booking that names a car. A booking with none has nothing to
+    guard, and one shared key would make every car-less booking collide with the last.
+    """
+
+    booking_id = UnicodeAttribute(null=True)
+    customer_sub = UnicodeAttribute(null=True)
+    car_id = UnicodeAttribute(null=True)
+    car_label = UnicodeAttribute(null=True)
+    created_at = UTCDateTimeAttribute(null=True)
+
+
 class Booking(BaseItem, discriminator="booking"):
     booking_id = UnicodeAttribute(null=True)
     customer_sub = UnicodeAttribute(null=True)

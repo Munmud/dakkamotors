@@ -105,6 +105,20 @@ def booking_sk(booking_id):
     return f"BOOKING#{booking_id}"
 
 
+def car_booking_sk(car_id):
+    """The one-live-booking-per-car guard, in the customer's own item collection.
+
+    `seat_sk` is the same idea one level down -- one live booking per slot -- and this
+    is deliberately its twin: a customer looking at one car needs one appointment, not
+    three. A separate prefix rather than a flag on the booking, because a guard has to
+    be a key a conditional write can refuse.
+
+    `bookings.for_customer` reads `begins_with(sk, "BOOKING#")`, so these are invisible
+    to it and to everything else that walks the partition.
+    """
+    return f"CARBOOK#{car_id}"
+
+
 def notification_sk(created_at, notification_id):
     return f"NOTIF#{iso(created_at)}#{notification_id}"
 

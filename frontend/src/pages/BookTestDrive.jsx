@@ -4,8 +4,9 @@ import { useTranslation } from "react-i18next";
 
 import SlotPicker from "../components/SlotPicker";
 import { fetchCar } from "../api/client";
-import { bookSlot, errorMessage, fetchSlots } from "../lib/auth";
+import { bookSlot, errorMessage, fetchMyBookings, fetchSlots } from "../lib/auth";
 import { useAuth } from "../lib/AuthContext";
+import { formatSlotFull } from "../lib/datetime";
 import { carTitle, phoneDisplay } from "../lib/format";
 
 /**
@@ -26,21 +27,30 @@ export default function BookTestDrive() {
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState(null);
   const [done, setDone] = useState(false);
+  // Their live booking for this car, if they have one. The server refuses a second
+  // either way; this is so nobody picks a time before being told.
+  const [already, setAlready] = useState(null);
 
   useEffect(() => {
+    if (state === "unknown") return undefined;
     let cancelled = false;
-    Promise.all([fetchCar(slug), fetchSlots()])
-      .then(([carData, slotData]) => {
+    // A guest has no bookings to fetch, and asking would be a guaranteed 403.
+    const mine = customer ? fetchMyBookings().catch(() => []) : Promise.resolve([]);
+    Promise.all([fetchCar(slug), fetchSlots(), mine])
+      .then(([carData, slotData, bookings]) => {
         if (cancelled) return;
         setCar(carData);
         setSlots(slotData);
+        // The endpoint returns active bookings only, so anything here for this car
+        // is live: pending or confirmed.
+        setAlready(bookings.find((booking) => booking.car_slug === slug) ?? null);
         setStatus("ready");
       })
       .catch(() => !cancelled && setStatus("error"));
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [slug, customer, state]);
 
   async function confirm() {
     if (!selected || !customer) return;
@@ -93,6 +103,31 @@ export default function BookTestDrive() {
           <p className="state__body">
             <Link to={`/account/login?next=${here}`}>{t("auth.haveAccount")}</Link>
           </p>
+        </div>
+      </section>
+    );
+  }
+
+  // One live test drive per car. Said here rather than at the confirm button, for the
+  // same reason the sign-up prompt moved: picking a time and only then being turned
+  // away wastes the choice they just made.
+  if (already) {
+    return (
+      <section>
+        <Link className="backlink" to={`/cars/${slug}`}>
+          {car ? carTitle(car, i18n.language) : t("nav.back")}
+        </Link>
+        <h1 className="section__title">{t("booking.heading")}</h1>
+        {car && <p className="state__body">{t("booking.forCar", { car: carTitle(car, i18n.language) })}</p>}
+        <div className="state">
+          <h2 className="state__title">{t("booking.alreadyBooked")}</h2>
+          <p className="state__body">
+            {t("booking.alreadyBookedOn",
+               { when: formatSlotFull(already.starts_at, i18n.language) })}
+          </p>
+          <Link className="callbtn bookbtn" to="/account">
+            {t("booking.seeMyBookings")}
+          </Link>
         </div>
       </section>
     );

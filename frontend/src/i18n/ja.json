@@ -126,7 +126,10 @@
     "previousMonth": "前の月",
     "nextMonth": "次の月",
     "signUpFirst": "予約にはアカウントが必要です",
-    "signUpFirstBody": "1分で完了します。メールで届く確認コードを入力すると、このカレンダーに戻ります。"
+    "signUpFirstBody": "1分で完了します。メールで届く確認コードを入力すると、このカレンダーに戻ります。",
+    "alreadyBooked": "この車の試乗はすでにご予約済みです",
+    "alreadyBookedOn": "ご予約は{{when}}です。別の時間をご希望の場合は、先に変更またはキャンセルしてください。",
+    "seeMyBookings": "予約を確認する"
   },
   "account": {
     "yourDetails": "お客様情報",
