@@ -7,6 +7,7 @@ code, so they are tested.
 """
 
 import json
+import re
 from unittest import mock
 
 from django.test import SimpleTestCase, override_settings
@@ -20,6 +21,8 @@ from .tests import (
     make_manager, make_question,
 )
 from . import cognito
+from .staff import context
+from .staff.permissions import may
 from . import tests_fake_cognito as fake_cognito
 from .tests_fake_cognito import FakeCognito, sign_in
 
@@ -320,3 +323,63 @@ class MastheadCountTests(FakeCognito, DynamoReset, SimpleTestCase):
         request_store.resolve(wish, staff_sub="x")
 
         self.assertNotIn("nav__count", self.nav())
+
+
+class MastheadShowsOnlyWhatOpensTests(FakeCognito, DynamoReset, SimpleTestCase):
+    """The menu used to offer all eight sections to everybody.
+
+    The Staff link was the visible half -- `staff.*` is OWNER_ONLY, so a manager
+    following it got a 403. Hiding a link is not the control and is not tested as one:
+    the `@requires` guards are asserted elsewhere and still hold. What is asserted here
+    is that the menu agrees with them.
+    """
+
+    def nav_links(self, user):
+        """The hrefs the masthead offers this person, from a page they can load."""
+        sign_in(self.client, user, staff=True)
+        response = self.client.get(reverse("staff:index"), follow=True)
+        html = response.content.decode()
+        if "<nav>" not in html:
+            return []
+        nav = html.split("<nav>")[1].split("</nav>")[0]
+        return re.findall(r'href="([^"]+)"', nav)
+
+    def test_a_manager_is_not_offered_the_staff_page(self):
+        manager, _ = make_staff()
+
+        links = self.nav_links(manager)
+
+        self.assertNotIn(reverse("staff:staff-list"), links)
+        # And still has the sections that are theirs.
+        for route in ("staff:car-list", "staff:booking-list", "staff:customer-list"):
+            self.assertIn(reverse(route), links)
+
+    def test_an_owner_is_offered_the_staff_page(self):
+        owner, _ = make_owner()
+
+        self.assertIn(reverse("staff:staff-list"), self.nav_links(owner))
+
+    def test_a_new_starter_with_no_role_is_offered_nothing(self):
+        """Asserted on the processor rather than on a page, because there is no page.
+
+        Every template carrying the masthead is behind `@requires`, and this account may
+        open none of them -- `staff:index` answers it with a bare sentence and no
+        masthead at all. So the menu it would be shown is only reachable here. It is
+        still worth pinning: the day somebody gives this group one action, the menu has
+        to be right, and it will be for the same reason.
+        """
+        starter = make_staff_without_permissions()
+        request = mock.Mock(staff=starter)
+
+        offered = context.can(request)["can"]
+
+        self.assertEqual(sorted(name for name, ok in offered.items() if ok), [])
+        self.assertEqual(self.nav_links(starter), [])
+
+    def test_the_menu_and_the_guards_read_the_same_table(self):
+        """The invariant NAV_ACTIONS exists for: every item names an action the
+        permission layer actually knows, so a link can never be guarded by a typo."""
+        for name, action in context.NAV_ACTIONS.items():
+            with self.subTest(item=name):
+                self.assertTrue(may({cognito.OWNERS_GROUP}, action),
+                                f"{action!r} is not an action an owner may take")

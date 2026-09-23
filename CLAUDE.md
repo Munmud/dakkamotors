@@ -277,6 +277,15 @@ on a phone in the lot: 16px base so iOS does not zoom on focus, 44px on every co
 and no inline `style=` attributes -- `grep -rn 'style="' templates/staff/` is meant to
 return nothing, because inline styles are how the previous drift happened.
 
+**The masthead offers only what the viewer may open.** `context.NAV_ACTIONS` maps each
+menu item to the action its view requires, and `context.can` resolves it per request --
+one table, so a link and the `@requires` behind it cannot disagree, and a test follows
+every offered link to prove it. Same rule `views_auth.LANDING` uses to decide where
+`/api/staff/` lands. It is not the control: every view keeps its guard. It exists
+because the menu used to show all eight to everybody, including a `staff`-only account
+that may open **none** of them -- `GROUP_ACTIONS` gives that group nothing, and Roles is
+optional on the add form.
+
 `cars/tests_staff_snapshot.py` renders every staff page to a folder for screenshotting
 (`STAFF_SNAPSHOT_DIR=... manage.py test cars.tests_staff_snapshot`; it skips otherwise).
 It is a test module because signing in is only possible in-process -- `sign_in` patches

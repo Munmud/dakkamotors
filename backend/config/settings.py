@@ -151,9 +151,11 @@ TEMPLATES = [
             "context_processors": [
                 "django.template.context_processors.request",
                 "django.contrib.messages.context_processors.messages",
-                # The counts on the staff masthead. A no-op for anything that is not
-                # a signed-in staff page; see cars/staff/context.py.
+                # The staff masthead: the counts on it, and which of its links this
+                # person may open. Both are a no-op for anything that is not a
+                # signed-in staff page; see cars/staff/context.py.
                 "cars.staff.context.attention",
+                "cars.staff.context.can",
             ],
         },
     },

@@ -504,17 +504,29 @@ shove the page sideways.
     <div class="masthead__inner">
       <a class="brand" href="{% url 'staff:index' %}">Dakka Motors staff</a>
       <nav>
-        <a href="{% url 'staff:car-list' %}">Cars</a>
-        <a href="{% url 'staff:booking-list' %}">Test drives{% if attention.bookings %} <span class="nav__count">{{ attention.bookings }}<span class="sr-only"> waiting</span></span>{% endif %}</a>
-        <a href="{% url 'staff:slot-list' %}">Slots</a>
-        <a href="{% url 'staff:schedule-list' %}">Availability</a>
-        <a href="{% url 'staff:question-list' %}">Questions{% if attention.questions %} <span class="nav__count">{{ attention.questions }}<span class="sr-only"> waiting</span></span>{% endif %}</a>
-        <a href="{% url 'staff:request-list' %}">Requests{% if attention.requests %} <span class="nav__count">{{ attention.requests }}<span class="sr-only"> waiting</span></span>{% endif %}</a>
-        <a href="{% url 'staff:customer-list' %}">Customers</a>
         {% comment %}
-          Owners only. A manager following this link gets a 403, not a broken page.
+          Only what this person may actually open. `can` comes from
+          cars/staff/context.py, whose NAV_ACTIONS maps each item to the action the view
+          behind it requires -- one table, so a link and its guard cannot disagree.
+
+          This used to render all eight to everybody, with a comment noting that a
+          manager following the Staff link got a 403 rather than a broken page. True,
+          and still a menu that lied: `staff.*` is OWNER_ONLY, so that item was never
+          theirs. And an account in the `staff` group and nothing else may open none of
+          them, which is one unticked Roles box away on the add form -- it saw eight
+          links above a page already telling it there was nothing to show.
+
+          Hiding is not the control. Every view keeps its @requires; this is the menu
+          agreeing with it.
         {% endcomment %}
-        <a href="{% url 'staff:staff-list' %}">Staff</a>
+        {% if can.cars %}<a href="{% url 'staff:car-list' %}">Cars</a>{% endif %}
+        {% if can.bookings %}<a href="{% url 'staff:booking-list' %}">Test drives{% if attention.bookings %} <span class="nav__count">{{ attention.bookings }}<span class="sr-only"> waiting</span></span>{% endif %}</a>{% endif %}
+        {% if can.slots %}<a href="{% url 'staff:slot-list' %}">Slots</a>{% endif %}
+        {% if can.schedules %}<a href="{% url 'staff:schedule-list' %}">Availability</a>{% endif %}
+        {% if can.questions %}<a href="{% url 'staff:question-list' %}">Questions{% if attention.questions %} <span class="nav__count">{{ attention.questions }}<span class="sr-only"> waiting</span></span>{% endif %}</a>{% endif %}
+        {% if can.requests %}<a href="{% url 'staff:request-list' %}">Requests{% if attention.requests %} <span class="nav__count">{{ attention.requests }}<span class="sr-only"> waiting</span></span>{% endif %}</a>{% endif %}
+        {% if can.customers %}<a href="{% url 'staff:customer-list' %}">Customers</a>{% endif %}
+        {% if can.staff %}<a href="{% url 'staff:staff-list' %}">Staff</a>{% endif %}
         {% comment %}
           The way back out. Same tab on purpose: this is somebody leaving the staff
           pages, not opening a reference beside them. The staff cookie is scoped to

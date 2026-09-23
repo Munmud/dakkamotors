@@ -14,6 +14,8 @@ lock themselves out, and the group list is the only thing between a form post an
 `owners`.
 """
 
+import re
+
 from django.urls import reverse
 
 from . import cognito
@@ -363,3 +365,41 @@ class ThereIsNoDeleteTests(StaffAccountTestCase):
         names = {p.name for p in staff_urls.urlpatterns}
 
         self.assertNotIn("staff-delete", names)
+
+
+class EveryOfferedLinkOpensTests(StaffAccountTestCase):
+    """The invariant `context.NAV_ACTIONS` exists for.
+
+    Here rather than in `tests_staff.py` because it actually follows the links, and the
+    Staff page reads the pool through `users_in_group` -- which needs the real backend
+    this case brings, not the stand-in that only patches token verification.
+    """
+
+    def nav_links(self):
+        response = self.client.get(reverse("staff:index"), follow=True)
+        html = response.content.decode()
+        if "<nav>" not in html:
+            return []
+        nav = html.split("<nav>")[1].split("</nav>")[0]
+        return re.findall(r'href="([^"]+)"', nav)
+
+    def test_nothing_the_masthead_offers_is_refused(self):
+        """A ninth section wired to the wrong action fails here rather than in the shop,
+        and it fails for whichever role it is wrong about."""
+        for role, sign_in in (("owner", self.sign_in_as_owner),
+                              ("manager", self.sign_in_as_manager)):
+            sign_in()
+            links = self.nav_links()
+            self.assertTrue(links, f"{role} was offered no menu at all")
+            for href in links:
+                if not href.startswith("/api/staff/"):
+                    continue  # "View site" leaves the staff pages entirely
+                with self.subTest(role=role, href=href):
+                    self.assertNotEqual(self.client.get(href).status_code, 403)
+
+    def test_the_staff_page_is_offered_to_one_role_and_not_the_other(self):
+        self.sign_in_as_owner()
+        self.assertIn(reverse("staff:staff-list"), self.nav_links())
+
+        self.sign_in_as_manager()
+        self.assertNotIn(reverse("staff:staff-list"), self.nav_links())
