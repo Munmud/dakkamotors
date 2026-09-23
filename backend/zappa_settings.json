@@ -62,12 +62,12 @@
             "MAIL_FROM_NAME": "Dakka Motors",
             "MAIL_REPLY_TO": "moontasir042@gmail.com",
             "STAFF_ALERT_EMAIL": "moontasir042@gmail.com",
-            "META_PIXEL_ID": ""
+            "META_PIXEL_ID": "1652862756270917"
         },
         "_comment_ads": [
-            "META_PIXEL_ID is blank until the owner creates the pixel in Meta Events",
-            "Manager and pastes its id here. Blank means cars/pages.py injects no",
-            "snippet at all, so the site ships and waits rather than half-working.",
+            "META_PIXEL_ID is the \"Dakka Motors\" pixel in Events Manager, created",
+            "2026-09-23. Blank would mean cars/pages.py injects no snippet at all, so",
+            "emptying this is how the pixel is switched off -- no code change needed.",
             "It is not a secret: a pixel id is in the page source of every site that",
             "runs one, which is why it is here and reviewable rather than in SSM.",
             "",

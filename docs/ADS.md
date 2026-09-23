@@ -5,7 +5,35 @@ Hamura, and stops the moment somebody books a test drive for that car. This file
 half of that which is not code: what to create in Meta, what to paste where, and how to
 set the campaign up so ¥1,000 actually buys something.
 
-The code is inert until the two things below exist, so it can ship and wait.
+---
+
+## What exists
+
+Created 2026-09-23. The login had no business portfolio and no developer account, so
+most of this had to be built before a system user was even possible.
+
+| | |
+|---|---|
+| Business portfolio | `Dakka Motors` |
+| Pixel | `Dakka Motors` — **`1652862756270917`**, in `zappa_settings.json` |
+| App | `Dakka Motors Site` — Marketing API use case, **unpublished**, contact `moontasir042@gmail.com` |
+| Ad account | `Dakka Motors`, inside the portfolio. **JPY, Asia/Tokyo** |
+| System user | `dakkamotors-site` — `61594633623059`, role Employee |
+| Its assets | the ad account with *Manage campaigns*; the app with *Develop app* (Meta offers no token permissions without it) |
+| Its token | `ads_management`, expiry **Never**, in SSM at `/dakkamotors/META_ADS_TOKEN` |
+
+The **old personal ad account `339950103411609` is not used** and is unchanged. Meta
+refused to move it into the portfolio because it has never taken a payment; a fresh
+account was created instead. Its currency and time zone can never be changed, and it
+cannot be taken back out of the portfolio.
+
+### Before the first campaign can run
+
+* **The ad account has no payment method.** Nothing will deliver until one is added.
+* **The app is unpublished**, which is fine for this: a system user calling the
+  Marketing API against an ad account the same business owns does not need App Review.
+  If the pause ever fails with a permissions error rather than a token error, that
+  assumption is the thing to check first.
 
 ---
 
@@ -25,6 +53,9 @@ a person can stop it. See `backend/cars/advertising.py`.
 ---
 
 ## One-time setup
+
+Already done — see *What exists* above. Kept because it is how the next pixel, the
+next token, or a rebuild from nothing would be made.
 
 ### 1. The pixel
 
@@ -70,6 +101,20 @@ aws ssm put-parameter --region ap-northeast-1 \
 
 `config/ssm.py` loads everything under `/dakkamotors/` at settings import, so the next
 deploy picks it up with no other change. Blank means `meta_ads.pause_ad_set` is a no-op.
+
+### Rotating the token
+
+Do this whenever the token has been somewhere it should not have been -- pasted into a
+chat, a ticket, an email -- and not only when it stops working. It is two minutes and
+it invalidates the copy that got out.
+
+1. Business Settings → Users → System users → `dakkamotors-site` → the token →
+   **Revoke**. The old one stops working immediately.
+2. Generate a new one, same app, same `ads_management`, expiry Never.
+3. Run the `put-parameter` above with `--overwrite`.
+4. **Redeploy.** `config/ssm.py` reads SSM at settings import, so a warm Lambda keeps
+   using the revoked token until it is replaced -- and a revoked token means every
+   booking sends a *Pause this ad by hand* email until then.
 
 ---
 
