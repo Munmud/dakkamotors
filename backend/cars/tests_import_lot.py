@@ -17,6 +17,7 @@ from django.test import SimpleTestCase
 from PIL import Image
 
 from .choices import CarStatus, FuelType
+from .specs import MAX_PAIRS
 from .store import cars as car_store
 from .store import images as image_store
 from .tests import DynamoReset
@@ -173,3 +174,90 @@ class ImportLotTests(DynamoReset, SimpleTestCase):
 
         self.assertEqual(len(self.sold()), 1)
         self.assertIn("already imported as toyota-prius", output)
+
+
+class ImportedSpecsTests(DynamoReset, SimpleTestCase):
+    """What the photographs cannot say, which is most of what a listing needs.
+
+    Mileage, a shaken date, whether it has a navi -- none of it is visible in a photo,
+    so the manifest is the only place it can come from. It goes through
+    `cars/specs.py`, not onto the item as written, because that module is the one
+    definition of a valid row and the staff form is the other caller.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.root = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(self._clean)
+        jpeg(self.root / "one-car" / "a.jpg")
+
+    def _clean(self):
+        import shutil
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def run_with(self, entry, *, apply=True):
+        manifest = self.root / "lot.json"
+        manifest.write_text(json.dumps({"cars": [{"folder": "one-car", **entry}]}),
+                            encoding="utf-8")
+        out = io.StringIO()
+        args = ["import_lot", "--from", str(self.root), "--manifest", str(manifest)]
+        if apply:
+            args.append("--apply")
+        call_command(*args, stdout=out, stderr=out)
+        return out.getvalue()
+
+    def only_car(self):
+        (car,) = car_store.list_by_status(CarStatus.SOLD)
+        return car
+
+    def test_specs_land_in_the_order_the_manifest_gives_them(self):
+        """List order *is* display order, so it has to survive the import."""
+        self.run_with({"brand": "Toyota", "model_name": "Prius", "specs": [
+            {"label_en": "Mileage", "label_ja": "走行距離",
+             "value_en": "215,000+ km", "value_ja": "215,000km超"},
+            {"label_en": "Shaken until", "label_ja": "車検有効期限",
+             "value_en": "27 November 2026", "value_ja": "2026年11月27日"},
+        ]})
+
+        specs = self.only_car().specs
+        self.assertEqual([row["label_en"] for row in specs],
+                         ["Mileage", "Shaken until"])
+        self.assertEqual(specs[0]["value_ja"], "215,000km超")
+
+    def test_a_row_with_no_value_is_dropped_rather_than_stored(self):
+        """`clean` refuses it for the form too: a label with no value renders as an
+        empty table row, which makes the car look under-documented."""
+        self.run_with({"brand": "Toyota", "model_name": "Prius", "specs": [
+            {"label_en": "Mileage", "value_en": "215,000+ km"},
+            {"label_en": "Turbo", "value_en": "", "value_ja": ""},
+        ]})
+
+        self.assertEqual([row["label_en"] for row in self.only_car().specs], ["Mileage"])
+
+    def test_no_specs_leaves_the_attribute_absent_rather_than_empty(self):
+        """`attribute_not_exists(specs)` is what "no specs" means, the same way
+        `price_jpy` distinguishes absent from zero."""
+        self.run_with({"brand": "Toyota", "model_name": "Prius"})
+
+        self.assertIsNone(self.only_car().specs)
+
+    def test_too_many_specs_stops_the_run_before_a_photo_is_uploaded(self):
+        """Loudly, and named. Truncating would lose a row with no sign, and there is
+        no form here to show an error on."""
+        rows = [{"label_en": f"Row {n}", "value_en": "yes"}
+                for n in range(MAX_PAIRS + 1)]
+
+        with self.assertRaises(CommandError) as caught:
+            self.run_with({"brand": "Toyota", "model_name": "Prius", "specs": rows})
+
+        self.assertIn("one-car", str(caught.exception))
+        self.assertEqual(car_store.list_by_status(CarStatus.SOLD), [])
+
+    def test_descriptions_round_trip_in_both_languages(self):
+        self.run_with({"brand": "Toyota", "model_name": "Prius",
+                       "description_en": "Fuel efficient and well kept.",
+                       "description_ja": "低燃費で状態良好です。"})
+
+        car = self.only_car()
+        self.assertEqual(car.description_en, "Fuel efficient and well kept.")
+        self.assertEqual(car.description_ja, "低燃費で状態良好です。")

@@ -6,10 +6,15 @@ and a fifty-photo upload does not belong in a request.
 
     python manage.py import_lot --from ../database_source --manifest lot.json [--apply]
 
-The manifest says what the photographs cannot: make, model, colour, how many seats.
-Everything absent from it is left absent from the car -- a missing year is a car
-without a year, not a car with a guessed one. A folder with no manifest entry is
-skipped and named, so a typo is visible rather than silent.
+The manifest says what the photographs cannot: make, model, colour, how many seats,
+the price, and the spec rows and description that carry everything else -- mileage, a
+shaken date, what equipment the car happens to have. Everything absent from it is left
+absent from the car -- a missing year is a car without a year, not a car with a guessed
+one. A folder with no manifest entry is skipped and named, so a typo is visible rather
+than silent.
+
+`specs` goes through `cars/specs.py` rather than onto the item as written, because that
+module is the single definition of a valid row shared with the staff form.
 
 Idempotent on the folder name, which is recorded in `import_key`: a second run reports
 what is already there and writes nothing. That matters more than usual here, because
@@ -26,6 +31,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from cars import images as image_ops
+from cars import specs as spec_rules
 from cars.choices import CarStatus, FuelType
 from cars.store import cars as car_store
 from cars.store import images as image_store
@@ -132,6 +138,14 @@ class Command(BaseCommand):
 
     def import_one(self, entry, paths):
         now = timezone.now()
+        try:
+            specs = spec_rules.clean(entry.get("specs") or [])
+        except spec_rules.TooManySpecs as exc:
+            # Loudly, and before a single photo is uploaded. `clean` refuses rather
+            # than truncating because losing row 41 silently is a data loss bug, and
+            # this is the one caller with nobody to show a form error to.
+            raise CommandError(f"{entry['folder']}: {exc}") from exc
+
         car = Car(
             car_id=keys.new_id(),
             brand=entry.get("brand"),
@@ -151,6 +165,15 @@ class Command(BaseCommand):
             # Optional, and normally absent: a photograph does not say when a car
             # sold. A car with no date sits below every car that has one.
             sold_at=entry.get("sold_at"),
+            description_en=entry.get("description_en"),
+            description_ja=entry.get("description_ja"),
+            # Through `clean`, never assigned raw. `cars/specs.py` is the one definition
+            # of a valid row precisely so the form, this importer and the tests cannot
+            # drift -- it is what drops a row with a label and no value, and what
+            # refuses a manifest over MAX_PAIRS instead of quietly importing forty of
+            # forty-one. A photograph says none of this; the manifest is the only place
+            # it can come from.
+            specs=specs,
             import_key=entry["folder"],
         )
         try:
