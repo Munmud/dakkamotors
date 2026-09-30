@@ -3,12 +3,13 @@ import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { fetchCar } from "../api/client";
-import CarQuestions from "../components/CarQuestions";
 import Gallery from "../components/Gallery";
+import LeadForm from "../components/LeadForm";
 import SpecTable from "../components/SpecTable";
 import { ErrorState, LoadingState } from "../components/States";
 import { carField, carTitle, formatPrice, pickDescription } from "../lib/format";
 import { takeInitialData } from "../lib/initialData";
+import { usePageTitle } from "../lib/title";
 import { viewedCar } from "../lib/pixel";
 
 /**
@@ -34,6 +35,13 @@ export default function CarDetail() {
   const [seeded] = useState(() => takeInitialData("car", slug));
   const [car, setCar] = useState(seeded);
   const [status, setStatus] = useState(seeded ? "ready" : "loading");
+  // Shared by both copies of the form on this page: once one is sent, the other
+  // shows the confirmation rather than an empty form asking the same question.
+  const [sent, setSent] = useState(false);
+
+  // Nothing until the car has loaded -- an empty title would blank the tab for the
+  // moment a cold navigation takes, which is worse than the previous page's.
+  usePageTitle(car ? carTitle(car, i18n.language) : null, i18n.language);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -115,41 +123,59 @@ export default function CarDetail() {
             <h1 className="summary__title">
               {carField(car, "brand", i18n.language)} {carField(car, "model_name", i18n.language)}
             </h1>
-            {car.grade && <p className="summary__grade">{car.grade}</p>}
           </div>
 
-          <div className="pricebox">
+          <div className={`pricebox${car.status === "available" ? "" : " pricebox--gone"}`}>
             {/* A sold car with no price shows none. "Call for price" is an invitation
                 to ring up about a number nobody can act on any more; the status flag
                 below is the whole answer. The listing card already works this way. */}
             {price ? (
-              <span className="pricebox__amount u-nums">
-                {t("price.yen", { amount: price })}
-              </span>
+              /*
+                The label above the number and the sentence below it, because the
+                number alone is read as the bad case. In Japan a listed price is
+                usually 車両本体価格 and the 諸費用 arrive at the desk, so a bare
+                figure invites the suspicion that this one does too. It does not --
+                this price is 支払総額 -- and that is the strongest thing this shop
+                can say to somebody deciding whether to ring.
+              */
+              <>
+                <span className="pricebox__label">{t("price.total")}</span>
+                <span className="pricebox__amount u-nums">
+                  {t("price.yen", { amount: price })}
+                </span>
+                <span className="pricebox__note">{t("price.totalNote")}</span>
+              </>
             ) : car.status === "sold" ? null : (
-              <span className="pricebox__amount pricebox__amount--call">
-                {t("price.callFor")}
-              </span>
+              /* The plate at full size, and the sentence under it. Setting the
+                 sentence *in* the plate shrank it to `--step-1`, so a car with no
+                 price ended up with less visual weight than one with a price --
+                 backwards, since it is the car you most need to ring about. */
+              <>
+                <span className="pricebox__amount">{t("price.onApplication")}</span>
+                <span className="pricebox__note">{t("price.callFor")}</span>
+              </>
             )}
 
             {car.status !== "available" && (
-              <span className="card__flag" style={{ position: "static", justifySelf: "start" }}>
-                {t(`status.${car.status}`)}
-              </span>
-            )}
-
-            {/*
-              The page's one action, and so the one thing besides the price that takes
-              the yellow. The call button used to sit here too; the phone number lives
-              in the footer of every page, and two yellow buttons in one column meant
-              neither led.
-            */}
-            {car.status === "available" && (
-              <Link className="callbtn bookbtn" to={`/cars/${car.slug}/test-drive`}>
-                {t("booking.book")}
-              </Link>
+              <span className="pricebox__flag">{t(`status.${car.status}`)}</span>
             )}
           </div>
+
+          {/*
+            The form itself, beside the price, above everything else on the page.
+
+            It used to be a link here — "Book a test drive" — which led to a calendar
+            and, for a stranger, a sign-up wall. Nobody ever came out the other end.
+            A form a visitor can see and fill without navigating is the difference
+            between a page that asks for a decision and one that asks for a number.
+
+            Only for a car somebody can still buy. On a sold car the shelf is a
+            record, and inviting a call about it wastes both people's time.
+          */}
+          {car.status !== "sold" && (
+            <LeadForm car={car.slug} id="ask" sent={sent} onSent={() => setSent(true)}
+                      reserved={car.status === "reserved"} />
+          )}
         </div>
       </div>
 
@@ -158,16 +184,26 @@ export default function CarDetail() {
         <SpecTable car={car} />
       </section>
 
-      <section className="section">
-        <h2 className="section__title">{t("detail.about")}</h2>
-        {description ? (
+      {description && (
+        <section className="section">
+          <h2 className="section__title">{t("detail.about")}</h2>
           <p className="prose">{description}</p>
-        ) : (
-          <p className="prose prose--muted">{t("detail.noDescription")}</p>
-        )}
-      </section>
+        </section>
+      )}
 
-      <CarQuestions car={car} />
+      {/*
+        Again at the bottom, for the reader who scrolled all the way through the specs
+        and made up their mind there. Sending them back up to find the form is the
+        kind of small friction that loses the ones who were nearly convinced.
+      */}
+      {car.status !== "sold" && (
+        <section className="section">
+          <h2 className="section__title">{t("lead.bottomHeading")}</h2>
+          <p className="prose">{t("lead.bottomBody")}</p>
+          <LeadForm car={car.slug} sent={sent} onSent={() => setSent(true)} bare
+                    reserved={car.status === "reserved"} />
+        </section>
+      )}
     </>
   );
 }

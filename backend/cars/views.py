@@ -63,7 +63,7 @@ class CarListView(APIView):
 
 
 class CarDetailView(APIView):
-    """One car, its photos and its published questions.
+    """One car, with its photos and videos.
 
     Retrieval is deliberately not restricted to available cars: someone sent a link to
     a car that has since been reserved should still see the page, with its status shown,
@@ -104,13 +104,10 @@ class SignUploadView(APIView):
     Staff only: signing is effectively granting write access to the media bucket, so it
     must never be reachable by the public read-only API's AllowAny default.
 
-    `authentication_classes` **replaces** the project default rather than extending it,
-    and that is the whole point. The default is `CognitoCookieAuthentication`, which reads
-    the customer cookie -- so a staff member who happens to also hold a customer session
-    authenticates as a customer here, and because their customer token still carries
-    `cognito:groups` containing `staff`, `IsAdminUser` passes. It looks like it works.
-    Everyone without a customer session gets a 403 and silently falls back to posting
-    through Lambda. Leaving the default in the list would preserve exactly that.
+    `authentication_classes` names the staff class explicitly rather than relying on a
+    project default. There is no default any more -- customer sessions are gone -- but
+    naming it here is what makes the requirement visible at the one endpoint that has
+    it, rather than something a reader has to go and look up in settings.
     """
 
     authentication_classes = [StaffCookieAuthentication]

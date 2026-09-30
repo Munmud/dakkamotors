@@ -5,7 +5,8 @@
    and both times the first thing a buyer saw on a six-car lot was not a car. */
 .masthead {
   background: var(--ink);
-  color: #fff;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
 }
 
 .masthead__bar {
@@ -29,8 +30,7 @@
   flex-wrap: wrap;
 }
 
-.masthead__account,
-.masthead__admin {
+.masthead__account {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
@@ -38,41 +38,18 @@
   font-size: 0.92rem;
   font-weight: 700;
   text-decoration: none;
-  color: #c3ccd2;
+  color: var(--text-dim);
   border-radius: var(--radius-control);
 }
 
-/* Deliberately quiet: staff need to find it, customers should not be drawn to it. */
-.masthead__admin {
-  color: #8f9ca5;
-}
-
 .masthead__account:hover,
-.masthead__account:focus-visible,
-.masthead__admin:hover,
-.masthead__admin:focus-visible {
-  color: #fff;
-}
-
-/* The invitation of the pair: a pill beside the plain "Sign in", white on the ink band.
-   Never the plate yellow -- on a car page the one yellow action is the booking button,
-   and a yellow control in the masthead would compete with it on every page. */
-.masthead__account--primary {
-  padding: 0 0.85rem;
-  border: 1px solid #c3ccd2;
-  border-radius: 999px;
-  color: #fff;
-}
-
-.masthead__account--primary:hover,
-.masthead__account--primary:focus-visible {
-  border-color: #fff;
-  background: #ffffff1a;
+.masthead__account:focus-visible {
+  color: var(--text);
 }
 
 .langswitch {
   display: inline-flex;
-  border: 1px solid #44555f;
+  border: 1px solid var(--line);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -81,7 +58,7 @@
   appearance: none;
   border: 0;
   background: transparent;
-  color: #c3ccd2;
+  color: var(--text-dim);
   font: inherit;
   font-size: 0.88rem;
   font-weight: 700;
@@ -94,6 +71,45 @@
 }
 
 .langswitch__option[aria-pressed="true"] {
-  background: #fff;
+  background: var(--text);
   color: var(--ink);
+}
+
+/*
+   One row on a phone, whatever it costs.
+
+   The bar wrapped to three -- monogram, then "ホーム" beside the call pill, then the
+   language switch -- and took 170px off the top of every page. On a car page that
+   was 170 of the 664px somebody has, spent before the name of the car.
+
+   "ホーム" goes. The comment on it is right that a monogram is not a word, but the
+   phone is where the argument loses: the only other page a visitor can be on is a
+   car page, and that already carries a "在庫一覧" link back to the lot. On a screen
+   this size the monogram, the number and the language are what fit, and the number
+   is why anybody is here.
+
+   Removing "ホーム" and sizing `.callbtn--compact` is the whole fix. **`flex-wrap`
+   stays `wrap`**: forcing `nowrap` here also produced one row, and produced a
+   horizontally scrolling page at 320px, which is the bug the wrap was added to fix
+   in the first place. Wrapping is the correct behaviour -- it just needs to be given
+   content that fits, and then it never fires.
+*/
+@media (max-width: 559px) {
+  .masthead__bar {
+    gap: 0.4rem;
+  }
+
+  .langswitch__option {
+    padding: 0 0.6rem;
+  }
+}
+
+/* "ホーム" is hidden up to 767px, not 559. Above 559 the wordmark comes back, and
+   "ダッカモータース" plus "ホーム" plus the number plus the language toggle wrapped
+   the bar to two rows again on every small tablet -- the same 50px, arriving at a
+   width nobody thinks to check. */
+@media (max-width: 767px) {
+  .masthead__home {
+    display: none;
+  }
 }

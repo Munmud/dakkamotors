@@ -1,7 +1,7 @@
 # Advertising one car at a time
 
 The shop makes a video for one car, spends about **¥1,000** showing it to people around
-Hamura, and stops the moment somebody books a test drive for that car. This file is the
+Hamura, and stops the moment somebody asks about that car. This file is the
 half of that which is not code: what to create in Meta, what to paste where, and how to
 set the campaign up so ¥1,000 actually buys something.
 
@@ -49,8 +49,15 @@ cannot be taken back out of the portfolio.
 |---|---|
 | Any page loads | The Meta pixel fires `PageView` |
 | A car page opens | `ViewContent`, carrying that car's slug as `content_ids` |
-| Its booking page opens | `InitiateCheckout` |
-| A booking is accepted | `Schedule` — and the car's ad set is **paused** |
+| Somebody leaves their number | `Lead` — and the car's ad set is **paused** |
+
+Three events, not five. `InitiateCheckout` and `Schedule` went with test-drive booking:
+there is no booking page to open and no time to confirm. The form is on the car page,
+it asks for a name and a phone number, and `Lead` is Meta's own standard event for
+exactly that.
+
+The pixel loads *after* first paint rather than in `<head>`. It is 773 KB and nothing
+on the site waits for it.
 
 The pause emails the owner. If Meta refuses the pause, it emails too, and says the
 opposite thing: *Pause this ad by hand* — because the ad set is still spending and only
@@ -120,7 +127,7 @@ it invalidates the copy that got out.
 3. Run the `put-parameter` above with `--overwrite`.
 4. **Redeploy.** `config/ssm.py` reads SSM at settings import, so a warm Lambda keeps
    using the revoked token until it is replaced -- and a revoked token means every
-   booking sends a *Pause this ad by hand* email until then.
+   lead sends a *Pause this ad by hand* email until then.
 
 ---
 
@@ -136,7 +143,7 @@ conversions a week** to leave Meta's learning phase. ¥1,000 will produce single
 Below that threshold Meta keeps under-delivering while it waits for data that never
 arrives — the budget goes unspent and the video is barely shown. Optimising for landing
 page views asks Meta for something it can actually find fifty of, and the pixel still
-records every `ViewContent` and `Schedule` for you to read afterwards.
+records every `ViewContent` and `Lead` for you to read afterwards.
 
 | Setting | Value |
 |---|---|
@@ -150,23 +157,23 @@ records every `ViewContent` and `Schedule` for you to read afterwards.
 | Destination | `https://dakkamotors.com/cars/<slug>` — the car's own page |
 | Creative | The video, 4:5 or 9:16, first three seconds showing the car |
 
-Send the ad to the **car's page**, not the booking page. The video sells the car and the
-page confirms it — photos, price, specs — and it is the car page that fires
-`ViewContent` for that slug. The yellow Book button is right there.
+Send the ad to the **car's page**. The video sells the car and the page confirms it —
+photos, price, specs — and it is the car page that fires `ViewContent` for that slug.
+The form is on it, above the specs: two fields, a name and a number.
 
 ### Then, in the staff pages
 
 Copy the **Ad set ID** from Ads Manager (the ad set, not the campaign or the ad) and
 paste it into **Meta ad set ID** on the car's page, under *Listing*.
 
-That is the whole connection. The next booking for that car pauses that ad set.
+That is the whole connection. The next lead on that car pauses that ad set.
 
 ---
 
 ## Afterwards
 
-**A booking arrives.** Two emails: the usual test drive request, and *Ad stopped*.
-Nothing more is spent.
+**A lead arrives.** Two emails: the lead itself, with the phone number in the subject
+line, and *Ad stopped*. Nothing more is spent. Ring them.
 
 **To advertise the same car again** — it fell through, or the buyer never turned up —
 what matters is that the **Meta ad set ID changes**. That is what clears the car's
@@ -187,11 +194,18 @@ shows the date it happened under the ad set id box.
 left pointing at a dead ad set, and set it on the new one.
 
 **Reading the results.** Ads Manager will show landing page views. Events Manager →
-your pixel → **Overview** shows `ViewContent`, `InitiateCheckout` and `Schedule`, and
-filtering `ViewContent` by `content_ids` gives the numbers for one car. The question
-worth asking is the ratio: views → booking page → booking. A video that gets views and
-no `InitiateCheckout` is a video problem; `InitiateCheckout` and no `Schedule` is a
-calendar or price problem.
+your pixel → **Overview** shows `ViewContent` and `Lead`, and filtering `ViewContent`
+by `content_ids` gives the numbers for one car.
+
+The ratio worth watching is now a single step: **views → lead.** That is the point of
+having collapsed the funnel. When it was views → booking page → booking there were two
+places to lose somebody and no way to tell a bad video from a bad calendar. Now a video
+that gets views and no leads is either the wrong car or the wrong price, and there is
+nothing else it can be.
+
+Before reading anything into a zero, check the ad actually delivered: an ad account
+with no payment method spends nothing and reports nothing, which is what happened on
+2026-09-23.
 
 ---
 
@@ -200,7 +214,7 @@ calendar or price problem.
 | Symptom | Cause |
 |---|---|
 | *Pause this ad by hand* email | Meta refused. Usually the token expired or lost `ads_management`. The ad set is still spending — pause it in Ads Manager, then reissue the token |
-| No email at all after a booking | No ad set id on the car, or `STAFF_ALERT_EMAIL` unset |
+| No email at all after a lead | No ad set id on the car, or `STAFF_ALERT_EMAIL` unset |
 | No `ViewContent` in Events Manager | `META_PIXEL_ID` blank in `zappa_settings.json`, or the deploy has not gone out |
 | Events arrive but the ad set never pauses | `META_ADS_TOKEN` not in SSM. The pixel and the pause are independent — one working says nothing about the other |
 | Ad barely delivers, budget unspent | The objective is Conversions. See above; switch it to Traffic |

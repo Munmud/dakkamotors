@@ -10,7 +10,7 @@ import datetime as dt
 from .store import cars, images, keys
 from .store.errors import ConditionFailed, NotFound
 from .store.models import (
-    Car, CarQuestion, ChassisGuard, LegacyCarPointer, SlugGuard,
+    Car, ChassisGuard, LegacyCarPointer, SlugGuard,
 )
 from .tests_store import DynamoTestCase
 
@@ -119,8 +119,6 @@ class CarStoreTests(DynamoTestCase):
     def test_deleting_a_car_takes_its_guards_and_children(self):
         car = cars.create(make_car("1"), now=self.now)
         images.create(car_id="1", image_name="cars/a.jpg", now=self.now)
-        CarQuestion(pk=keys.car_pk("1"), sk=keys.question_sk(self.now, "q1"),
-                    question_id="q1", car_id="1", question="?").save()
 
         cars.delete(car)
 
@@ -172,17 +170,12 @@ class CarDetailTests(DynamoTestCase):
         self.now = dt.datetime.now(UTC)
         self.car = cars.create(make_car("1"), now=self.now)
 
-    def test_detail_returns_car_images_and_questions_from_one_partition(self):
+    def test_detail_returns_the_car_and_its_photos_from_one_partition(self):
         images.create(car_id="1", image_name="cars/b.jpg", order=1, now=self.now)
         images.create(car_id="1", image_name="cars/a.jpg", order=0, now=self.now)
-        CarQuestion(pk=keys.car_pk("1"), sk=keys.question_sk(self.now, "q1"),
-                    question_id="q1", car_id="1", question="Accident free?",
-                    answer="Yes.", is_published=True, created_at=self.now).save()
-
         car = cars.detail("1")
         self.assertEqual([i.image_name for i in car.images],
                          ["cars/a.jpg", "cars/b.jpg"])
-        self.assertEqual(len(car.questions), 1)
         self.assertEqual(car.seo_title_plain, "2008 Daihatsu Tanto")
 
     def test_detail_by_slug_works_and_missing_slugs_raise(self):

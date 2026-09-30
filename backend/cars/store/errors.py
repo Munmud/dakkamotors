@@ -3,7 +3,7 @@ predicate that tells a refused condition from a real fault.
 
 The split matters: the store knows *which condition failed*, the domain modules know
 *what to tell the customer*. Keeping the wording out of here is what lets every
-`BookingError` string in `booking.py` survive the migration unchanged -- and those
+`RequestError` string in `requests.py` survive a storage change unchanged -- and those
 strings are asserted verbatim throughout the test suite.
 """
 
@@ -65,31 +65,3 @@ class Retryable(StoreError):
     boto3 does not auto-retry `TransactionCanceledException`, so this is raised only
     after `txn.transact_write` has exhausted its own attempts.
     """
-
-
-class SlotUnavailable(StoreError):
-    """The slot could not take the booking. `slot` is the item as it actually stood."""
-
-    def __init__(self, slot=None):
-        super().__init__("slot unavailable")
-        self.slot = slot
-
-
-class SeatTaken(StoreError):
-    """Capacity was full at the moment of writing."""
-
-
-class AlreadyBooked(StoreError):
-    """This customer already holds a live booking for this slot."""
-
-
-class CarAlreadyBooked(StoreError):
-    """This customer already holds a live booking for this car."""
-
-
-class LimitReached(StoreError):
-    """The customer is at MAX_ACTIVE_BOOKINGS."""
-
-
-class NotActive(StoreError):
-    """The booking is no longer pending or confirmed, so it cannot be changed."""

@@ -39,7 +39,7 @@ The exceptions above always carry an explicit `--region us-east-1`.
 | API Gateway (Zappa) | `https://q0zvyay9pa.execute-api.ap-northeast-1.amazonaws.com/production` |
 | DynamoDB table | `dakkamotors` |
 | Cognito user pool | `ap-northeast-1_czNqEUiq5` |
-| Cognito customer client | `61o4ucujbcoknsqtnt4pd68lmr` (no secret) |
+| Cognito customer client | **deleted 2026-09-29** with customer accounts. Was `61o4ucujbcoknsqtnt4pd68lmr`; the pool itself is unchanged and `Retain` |
 | Cognito staff client | `kti6vuj2t4e927pav3rq3cst0` (secret in SSM at `/dakkamotors/COGNITO_STAFF_CLIENT_SECRET`) |
 | Cognito hosted UI | `dakkamotors-staff.auth.ap-northeast-1.amazoncognito.com` |
 | Final Aurora snapshot | `dakkamotors-core-snapshot-dbcluster-m8ulwb0bdvyl` — the cluster was deleted 2026-09-18 |
@@ -101,11 +101,12 @@ which is the role Cognito creates when wired to SES. **Do not wire it to SES.**
 
 ### Three settings that will bite if changed
 
-* **`MinimumLength: 6`, no complexity.** A pool has exactly one password policy.
-  A stricter one rejects every existing customer whose password is six or seven
-  characters *at the moment the migration trigger tries to verify it* -- on the sign-in
-  screen, in Cognito's words. The stricter staff rule lives in application code because
-  the customer-lax/staff-strict split cannot be expressed in a pool at all.
+* **`MinimumLength: 6`, no complexity.** A pool has exactly one password policy, and
+  this one was set lax so the migration trigger could verify six-character customer
+  passwords carried over from Django. Both the trigger and the customers are gone, so
+  the constraint that forced it has gone with them -- but the setting stays, because
+  only staff are in this pool now and the stricter rule that actually applies to them
+  lives in application code, where it always did.
 * **`Schema` is effectively immutable.** CloudFormation fails rather than replaces on
   most edits and there is no API to remove a custom attribute, so a wrong attribute list
   means rebuilding the pool and losing every user. Build and tear one down in a scratch
@@ -114,45 +115,42 @@ which is the role Cognito creates when wired to SES. **Do not wire it to SES.**
   E.164 and customers type `080-9282-3601`. The standard one would reject the existing
   data and make phone a sign-in alias and an MFA channel.
 
-### Passwords cannot be migrated
+### Two inline triggers, removed 2026-09-29
 
-Django stores `pbkdf2_sha256$...`; Cognito will not accept a hash on `AdminCreateUser`.
-The alternative to solving this is emailing every customer to say their password no
-longer works, which for a small dealership is a measurable loss of accounts.
+The pool carried two Lambda triggers, both written inline in `infra/data.yaml`, and
+both deleted with customer accounts. They are recorded because the problems they solved
+are real ones that recur, and because anybody reading the template's history will find
+them.
 
-Instead the importer writes a `LEGACYPW#<email>` item per customer and a Cognito
-**UserMigration** trigger verifies against it on first sign-in, then deletes it. The
-items carry a 90-day TTL regardless. The trigger is inline in `infra/data.yaml` and needs
-no Django: the hash format is verifiable in about fifteen lines of stdlib `hashlib`.
+**UserMigration.** Django stores `pbkdf2_sha256$...` and Cognito will not accept a hash
+on `AdminCreateUser`, so migrating a customer's password is impossible by the front
+door. The importer wrote a `LEGACYPW#<email>` item per customer and the trigger verified
+against it on first sign-in, then deleted it; the items carried a 90-day TTL regardless.
+It needed no Django -- the hash format is verifiable in about fifteen lines of stdlib
+`hashlib`, and a trigger that has to import an ORM to check a password is a trigger that
+will break. It never ran in production: the cutover found no data to migrate.
 
-### The sign-up code signs a customer in
+**LinkAuth**, named when the confirmation was a link. Cognito never hands a password
+back, so once an emailed code had confirmed an address, Django had nothing to sign the
+customer in with, and for a while verification ended on the sign-in form one screen
+short of the car they had come from. The custom auth flow is the one way Cognito issues
+tokens without a password: the trigger defined a single challenge, "present the code",
+and Django answered it with `AdminInitiateAuth` immediately after confirming the
+address. Knowing the code had already proved the address; letting it open the session
+added no new secret. `ALLOW_CUSTOM_AUTH` on the customer client was safe for exactly
+that reason -- the trigger could never issue a password challenge, and a test asserted
+it.
 
-The second inline trigger, **LinkAuth** (named when it was a link), is the three
-custom-auth steps in one function. Cognito never hands a password back, so once the
-emailed code has confirmed an address Django has nothing to sign the customer in with
--- and for a while verification ended on the sign-in form, one screen short of the car
-they had come from. The custom auth flow is the one way Cognito issues tokens without
-a password: the trigger defines a single challenge, "present the code", and checks the
-answer against the `PENDING#<email>` item, read by the signing-in address and compared
-as a hash. Django answers it with `AdminInitiateAuth` immediately after confirming the
-address and before deleting the item. Knowing the code already proved the address;
-letting it also open the session adds no new secret.
-
-`ALLOW_CUSTOM_AUTH` is therefore enabled on the customer app client, which a browser
-can reach with the public client id. That is acceptable because the flow can only ever
-ask for the code -- the trigger never issues a password challenge, and there is a test
-for that -- and Django has already refused five wrong ones before it ever asks.
-
-**Adding it was a stack update**, the same command as step 1 of the cutover:
+Removing them, the customer app client, `ALLOW_CUSTOM_AUTH` and the `CustomerClientId`
+output is a stack **update**:
 
 ```bash
 aws cloudformation deploy --region ap-northeast-1   --template-file infra/data.yaml --stack-name dakkamotors-data   --capabilities CAPABILITY_NAMED_IAM
 ```
 
-It is safe in either order relative to the backend deploy. A backend that runs ahead of
-the stack sees `InvalidParameterException` from Cognito, logs it, and still confirms
-the account -- the customer is sent to the sign-in form as before. A stack that runs
-ahead of the backend is simply a trigger nothing calls yet.
+The pool is `Retain` and its `Schema`, groups, domain, MFA settings and users are
+untouched by it. The backend deploy is safe in either order: it no longer calls any of
+the removed things.
 
 ---
 
@@ -164,10 +162,10 @@ repo and at the `pre-dynamo` tag because they were written, tested and may be wa
 a future restore -- but the cutover does not run them, and nothing here depends on the
 export being correct. That removes the riskiest part of the original plan outright.
 
-It also means the `UserMigration` trigger has nothing to carry: there are no `LEGACYPW#`
-items and no existing customers whose passwords must survive. It is still deployed,
-because it is correct and costs nothing, and because the first real customer import --
-if there ever is one -- would need it.
+It also meant the `UserMigration` trigger had nothing to carry: there were no
+`LEGACYPW#` items and no existing customers whose passwords had to survive. It stayed
+deployed for a while on the grounds that it was correct and cost nothing. It was
+deleted on 2026-09-29 along with customer accounts themselves, having never run.
 
 ### It has run. State as of 2026-09-18
 
@@ -227,9 +225,8 @@ step 4 is the one nobody guesses.
    aws cloudformation describe-stacks --region ap-northeast-1      --stack-name dakkamotors-data      --query 'Stacks[0].Outputs[].[OutputKey,OutputValue]' --output table
    ```
 
-   `COGNITO_POOL_ID`, `COGNITO_CUSTOMER_CLIENT_ID`, `COGNITO_STAFF_CLIENT_ID` and
-   `COGNITO_DOMAIN` go into `backend/zappa_settings.json`, which has all four as empty
-   strings today. The staff client secret goes to SSM at
+   `COGNITO_POOL_ID`, `COGNITO_STAFF_CLIENT_ID` and `COGNITO_DOMAIN` go into
+   `backend/zappa_settings.json`. There is no customer client any more. The staff client secret goes to SSM at
    `/dakkamotors/COGNITO_STAFF_CLIENT_SECRET`, where `config/ssm.py` reads it at
    settings import. Then bake the
    pool's signing keys into the deploy, so a cold start is not coupled to a Cognito
@@ -347,7 +344,7 @@ That single constraint shaped three things:
   at settings import.
 
 All three are now choices rather than constraints. The outbox is worth keeping on its
-merits -- a booking must not fail, or wait 600ms, because of an email. The other two are
+merits -- a lead must not fail, or wait 600ms, because of an email. The other two are
 in the outstanding list above.
 
 
@@ -404,7 +401,7 @@ and is the only place a role is defined.
 | Group | Can do |
 |---|---|
 | `owners` | Everything, including staff administration |
-| `inventory-managers` | Cars, photos, questions, schedules, slots; view and change bookings; view customers |
+| `inventory-managers` | Cars, photos, videos; view and resolve leads |
 | `staff` | Nothing by itself -- it is what gets somebody *past* the door, not through any particular one |
 
 ### Why staff administration is owners-only
@@ -427,8 +424,9 @@ power: an owner cannot deactivate their own account, and the group list on the f
 `ASSIGNABLE_GROUPS` only -- `owners` is not a choice, so a POST carrying it fails
 validation rather than being silently dropped.
 
-**There is no delete.** Deactivating is the reversible verb, and a removed account would
-orphan every booking, question and notification keyed on that sub.
+**There is no delete.** Deactivating is the reversible verb, and a removed account
+would orphan everything keyed on that sub -- which, now that customer records are gone,
+means the `resolved_by` on every lead that person dealt with.
 
 
 ### Adding someone

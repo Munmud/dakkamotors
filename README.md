@@ -1,9 +1,10 @@
 # Dakka Motors
 
-Bilingual (English / 日本語) used-car listing site for **dakkamotors.com**. Visitors browse
-inventory, open a car's detail page, ask a question, and book a test drive. Staff
-answer, confirm and manage stock through server-rendered pages at `/api/staff/`, signed in
-through Cognito's hosted UI.
+Bilingual used-car listing site for **dakkamotors.com** — Japanese by default, English
+a click away. A visitor browses the lot, opens a car and leaves a name and a phone
+number; the shop rings them back. There are no customer accounts and nothing to sign up
+for. Staff manage stock and answer leads through server-rendered pages at
+`/api/staff/`, signed in through Cognito's hosted UI.
 
 | | |
 |---|---|
@@ -90,8 +91,7 @@ cd backend && python manage.py test
 | `AWS_STORAGE_BUCKET_NAME` | Media/static bucket. Unset locally to store uploads on disk. |
 | `DYNAMODB_ENDPOINT_URL` | Points the store at DynamoDB Local. **Never set in production.** |
 | `DDB_TABLE` | Table name. Defaults to `dakkamotors`; use `dakkamotors_test` for tests. |
-| `COGNITO_POOL_ID` | User pool. Without it the auth endpoints cannot work. |
-| `COGNITO_CUSTOMER_CLIENT_ID` | App client for customers. No secret. |
+| `COGNITO_POOL_ID` | User pool. Staff only; there are no customer accounts. |
 | `COGNITO_STAFF_CLIENT_ID` / `COGNITO_STAFF_CLIENT_SECRET` | Hosted-UI client for staff. |
 | `COGNITO_DOMAIN` | Hosted-UI domain. Unset means the staff pages return 503. |
 | `COGNITO_ENDPOINT_URL` | Points Cognito at a local stand-in. Tests only. |

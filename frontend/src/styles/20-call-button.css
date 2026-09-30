@@ -42,6 +42,31 @@
   background: var(--plate-deep);
 }
 
+/*
+   The masthead one. It had no rule at all -- `CallButton` has pushed this class since
+   it was written and no stylesheet ever defined it -- so the bar carried the full
+   48px, step-1, 1.35rem-padded button meant for the bottom of a page.
+
+   It only became visible when the phone masthead was forced onto one row: the number
+   had nowhere left to go and broke across two lines *inside* the pill, "080-9282-"
+   over "3601". `white-space: nowrap` is the actual fix; the smaller type and padding
+   are what make one row fit a 360px phone at all.
+
+   Still 44px tall. It is the most-tapped control on the site and it is tapped by
+   somebody holding the phone in one hand.
+*/
+.callbtn--compact {
+  min-height: 44px;
+  padding: 0.35rem 0.8rem;
+  font-size: var(--step-0);
+  white-space: nowrap;
+}
+
+.callbtn--compact .callbtn__icon {
+  width: 1em;
+  height: 1em;
+}
+
 /* On the ink band the plate already separates from its ground, so it needs no border.
    It used to be given a yellow outline on ink, which drew a second edge around a shape
    that was already the brightest thing there. */

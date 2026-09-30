@@ -52,8 +52,19 @@ if (missingFromJa.length || missingFromEn.length) {
   process.exit(1);
 }
 
-/** Sections reached as `t(`prefix.${variable}`)`, which no static check can resolve. */
-const DYNAMIC = ["status", "language", "notifications", "spec", "fuel"];
+/**
+ * Sections reached as `t(`prefix.${variable}`)`, which no static check can resolve.
+ *
+ * Matched as a whole dot-separated prefix, not just the first segment. `lead.need`
+ * has to exempt those three keys without exempting the forty others under `lead` --
+ * a blanket `lead` would have let through both orphans this check caught during the
+ * restructure, which is the entire value of the warning.
+ */
+const DYNAMIC = ["status", "language", "spec", "fuel", "lead.need"];
+
+/** True when `key` is exactly a dynamic prefix or sits beneath one. */
+const isDynamic = (key) =>
+  DYNAMIC.some((p) => key === p || key.startsWith(`${p}.`));
 
 function sourceFiles(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -72,7 +83,7 @@ const haystack = sourceFiles(src)
 const PLURAL = /_(zero|one|two|few|many|other)$/;
 
 const unused = [...en]
-  .filter((key) => !DYNAMIC.includes(key.split(".")[0]))
+  .filter((key) => !isDynamic(key))
   .filter((key) => !haystack.includes(key.replace(PLURAL, "")))
   .sort();
 

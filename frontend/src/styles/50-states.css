@@ -15,16 +15,16 @@
 
 .state__body {
   margin: 0 0 1.25rem;
-  color: var(--road);
+  color: var(--text-dim);
 }
 
 .btn {
   appearance: none;
   font: inherit;
   font-weight: 700;
-  background: var(--ink);
-  color: #fff;
-  border: 2px solid var(--ink);
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--line);
   border-radius: var(--radius-control);
   /* Every button on the site clears 44px. */
   min-height: 44px;
@@ -33,18 +33,20 @@
 }
 
 .btn:hover {
-  background: var(--ink-soft);
-  border-color: var(--ink-soft);
+  /* Raised, not darkened. Hover on a dark theme has to go up the surface scale;
+     `--ink-soft` went the other way and read as the button switching off. */
+  background: var(--surface-2);
+  border-color: var(--text-dim);
 }
 
 .btn--quiet {
   background: transparent;
-  color: var(--ink);
+  color: var(--text);
 }
 
 .btn--quiet:hover {
-  background: var(--wash);
-  border-color: var(--ink);
+  background: var(--surface-2);
+  border-color: var(--go);
 }
 
 .loadmore {

@@ -1,7 +1,7 @@
 """The one thing this site asks of Meta's Marketing API: stop an ad set.
 
 Everything else about advertising happens in Ads Manager, by hand, by the owner. This
-exists because the one moment that matters is the one nobody is watching: a booking
+exists because the one moment that matters is the one nobody is watching: a lead
 lands at nine in the evening and the ad set keeps spending until somebody notices. At
 a ¥1,000 lifetime budget the whole campaign can be gone overnight.
 

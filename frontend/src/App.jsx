@@ -4,17 +4,16 @@ import { useTranslation } from "react-i18next";
 
 import CallButton from "./components/CallButton";
 import Header from "./components/Header";
-import Account from "./pages/Account";
-import ResetPassword from "./pages/ResetPassword";
-import VerifyEmail from "./pages/VerifyEmail";
-import BookTestDrive from "./pages/BookTestDrive";
 import CarDetail from "./pages/CarDetail";
 import Home from "./pages/Home";
 import Privacy from "./pages/Privacy";
 import RequestCar from "./pages/RequestCar";
-import { AuthProvider } from "./lib/AuthContext";
-import { NotificationProvider } from "./lib/NotificationContext";
 import { pageView } from "./lib/pixel";
+
+/* The address as a maps query, in Japanese and in Japanese order, because that is
+   what Google Maps resolves in Japan. Hard-coded rather than built from the three
+   footer lines: those are translated, and an English transliteration finds nothing. */
+const MAP_QUERY = encodeURIComponent("東京都羽村市神明台1丁目16-2 神明台店舗");
 
 /**
  * The path the pixel has already counted.
@@ -66,12 +65,20 @@ function Footer() {
         <div className="footer__cols">
           <section className="footer__col">
             <h2 className="footer__head">{t("footer.visit")}</h2>
+            {/* A link, not three lines of text. Somebody reading this is ten
+                minutes away in Fussa or Ome and the most useful thing the address
+                can do is open their maps app -- otherwise they have to select and
+                copy Japanese text on a phone. */}
             <address className="footer__address">
-              {t("footer.addressLine1")}
-              <br />
-              {t("footer.addressLine2")}
-              <br />
-              <span className="u-nums">{t("footer.addressLine3")}</span>
+              <a className="footer__map"
+                 href={`https://www.google.com/maps/search/?api=1&query=${MAP_QUERY}`}
+                 target="_blank" rel="noreferrer">
+                {t("footer.addressLine1")}
+                <br />
+                {t("footer.addressLine2")}
+                <br />
+                <span className="u-nums">{t("footer.addressLine3")}</span>
+              </a>
             </address>
           </section>
 
@@ -84,47 +91,53 @@ function Footer() {
         <p className="footer__legal u-nums">
           © {year} {t("footer.rights")} ·{" "}
           {/* The site runs a Meta pixel, and Meta's terms require a link to a page
-              saying so from where it runs -- which is every page. It sits in the
-              legal line rather than the columns because that is where a reader
-              looking for it will look. */}
+              saying so from where it runs -- which is every page. */}
           <Link className="footer__link" to="/privacy">{t("footer.privacy")}</Link>
+          {" · "}
+          {/*
+            The way into the admin. A plain anchor, not a router Link: /api/staff/ is
+            rendered by Django, so React must hand the browser over rather than route it.
+
+            It lived in the masthead until customer accounts went, appearing only once
+            `/api/auth/me/` came back with `is_staff`. There is no `/api/auth/me/` now
+            and no session for the app to read, so the only options were a link
+            somebody can always see or staff typing the URL from memory. Down here,
+            in the legal line, it is out of a buyer's way and findable by the two
+            people who need it.
+          */}
+          <a className="footer__link" href="/api/staff/">{t("footer.staff")}</a>
         </p>
-        {/*
-          No staff login link here any more. It sat on every page of a public site
-          advertising where the admin lives, and bought nothing: staff know the URL, and
-          they now get an Admin button in the masthead once signed in.
-        */}
       </div>
     </footer>
   );
 }
 
 export default function App() {
+  const { t } = useTranslation();
+
   return (
-    // Inside AuthProvider, because the bell only ever fetches once it knows there is a
-    // signed-in customer to fetch for.
-    <AuthProvider>
-      <NotificationProvider>
-        <div className="l-shell">
-          <PixelPageViews />
-          <Header />
-          <main className="l-main">
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/cars/:slug" element={<CarDetail />} />
-              <Route path="/cars/:slug/test-drive" element={<BookTestDrive />} />
-              <Route path="/request-a-car" element={<RequestCar />} />
-              <Route path="/privacy" element={<Privacy />} />
-              <Route path="/account" element={<Account />} />
-              <Route path="/account/login" element={<Account mode="login" />} />
-              <Route path="/account/register" element={<Account mode="register" />} />
-              <Route path="/account/verify" element={<VerifyEmail />} />
-              <Route path="/account/reset" element={<ResetPassword />} />
-            </Routes>
-          </main>
-          <Footer />
-        </div>
-      </NotificationProvider>
-    </AuthProvider>
+    <div className="l-shell">
+      <PixelPageViews />
+      {/*
+        Hidden until it is tabbed to, then the first thing on the page.
+
+        A car page puts fourteen stops in front of the name field -- the monogram,
+        the number, two language buttons, the back link and up to eight gallery
+        thumbnails -- and does it again on every car. Somebody using a keyboard, or a
+        switch, or a screen reader, should not have to walk the masthead to leave a
+        phone number.
+      */}
+      <a className="skiplink" href="#main">{t("nav.skip")}</a>
+      <Header />
+      <main className="l-main" id="main" tabIndex={-1}>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/cars/:slug" element={<CarDetail />} />
+          <Route path="/request-a-car" element={<RequestCar />} />
+          <Route path="/privacy" element={<Privacy />} />
+        </Routes>
+      </main>
+      <Footer />
+    </div>
   );
 }

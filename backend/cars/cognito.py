@@ -74,10 +74,6 @@ def _pool():
     return settings.COGNITO_POOL_ID
 
 
-def _customer_client():
-    return settings.COGNITO_CUSTOMER_CLIENT_ID
-
-
 # --------------------------------------------------------------------------------------
 # The user object the rest of the app sees
 # --------------------------------------------------------------------------------------
@@ -236,134 +232,31 @@ class AnonymousCognitoUser:
 # Sign-up and confirmation
 # --------------------------------------------------------------------------------------
 
-def sign_up(*, email, password, name="", phone=""):
-    """Create an UNCONFIRMED user. They cannot sign in until confirmed.
-
-    Cognito holds the password from this moment, so nothing here ever stores one -- a
-    real improvement on the table this replaces, which carried a hash for three days.
-    """
-    first, _, last = (name or "").partition(" ")
-    attributes = [{"Name": "email", "Value": email}]
-    if first:
-        attributes.append({"Name": "given_name", "Value": first[:150]})
-    if last:
-        attributes.append({"Name": "family_name", "Value": last[:150]})
-    if phone:
-        attributes.append({"Name": PHONE_ATTR, "Value": phone[:32]})
-
-    try:
-        client().sign_up(ClientId=_customer_client(), Username=email,
-                         Password=password, UserAttributes=attributes)
-    except client().exceptions.UsernameExistsException:
-        raise
-    except client().exceptions.InvalidPasswordException as exc:
-        raise CognitoError(_password_message(exc)) from exc
-
-
 def _password_message(exc):
     detail = exc.response.get("Error", {}).get("Message", "")
     return detail or "That password is not strong enough."
-
-
-def status_of(email):
-    """UNCONFIRMED / CONFIRMED / ..., or None if there is no such user."""
-    try:
-        return client().admin_get_user(
-            UserPoolId=_pool(), Username=email)["UserStatus"]
-    except client().exceptions.UserNotFoundException:
-        return None
-
-
-def confirm(email):
-    client().admin_confirm_sign_up(UserPoolId=_pool(), Username=email)
-    client().admin_update_user_attributes(
-        UserPoolId=_pool(), Username=email,
-        UserAttributes=[{"Name": "email_verified", "Value": "true"}],
-    )
-
-
-def delete_user(email):
-    try:
-        client().admin_delete_user(UserPoolId=_pool(), Username=email)
-    except client().exceptions.UserNotFoundException:
-        pass
 
 
 # --------------------------------------------------------------------------------------
 # Sessions
 # --------------------------------------------------------------------------------------
 
-def authenticate(*, email, password):
-    """Sign in. Returns the token bundle, or None if the credentials are wrong.
+def sign_out(username):
+    """Revoke every token this person holds, everywhere.
 
-    ADMIN_USER_PASSWORD_AUTH rather than USER_PASSWORD_AUTH: it requires signed AWS
-    credentials, so a leaked client id cannot be used to brute-force from a browser and
-    every attempt goes through Django, where the throttle still applies.
+    Signing out has to clear the cookie *and* kill the token, because the cookie is
+    only where the browser kept it: a copy taken from it stays valid for its full hour
+    otherwise. It is the whole of the sessions section now -- signing *in* happens at
+    the hosted UI and this app never sees a password.
+
+    Every failure is swallowed. The cookie is cleared by the view regardless, so the
+    person is signed out as far as this browser is concerned, and a page that refuses
+    to log somebody out is worse than one that logs them out incompletely.
     """
     try:
-        response = client().admin_initiate_auth(
-            UserPoolId=_pool(), ClientId=_customer_client(),
-            AuthFlow="ADMIN_USER_PASSWORD_AUTH",
-            AuthParameters={"USERNAME": email, "PASSWORD": password},
-        )
-    except (client().exceptions.NotAuthorizedException,
-            client().exceptions.UserNotFoundException,
-            client().exceptions.UserNotConfirmedException):
-        return None
-    return response.get("AuthenticationResult")
-
-
-def sign_in_with_link(*, email, raw_token):
-    """Open a session with the verification link instead of a password.
-
-    The pool's custom auth flow (`LinkAuthFunction` in infra/data.yaml) issues one
-    challenge, "present the link token", and checks the answer against the pending
-    item the link resolves through -- so this must run *before* that item is deleted.
-
-    Returns the token bundle, or None for any refusal at all. None is not an error to
-    the caller: verification has already confirmed the address by the time this runs,
-    and a customer who cannot be signed in from the link is sent to the sign-in form,
-    which is where they went before this existed. The refusal worth knowing about is
-    `InvalidParameterException` for a flow not enabled on the client, which is what a
-    backend deployed ahead of the stack update sees; it is logged so it is noticed.
-    """
-    try:
-        started = client().admin_initiate_auth(
-            UserPoolId=_pool(), ClientId=_customer_client(),
-            AuthFlow="CUSTOM_AUTH",
-            AuthParameters={"USERNAME": email},
-        )
-        if started.get("ChallengeName") != "CUSTOM_CHALLENGE":
-            return None
-        answered = client().admin_respond_to_auth_challenge(
-            UserPoolId=_pool(), ClientId=_customer_client(),
-            ChallengeName="CUSTOM_CHALLENGE",
-            Session=started["Session"],
-            ChallengeResponses={"USERNAME": email, "ANSWER": raw_token},
-        )
-    except Exception as exc:  # noqa: BLE001 - every refusal degrades the same way
-        logger.warning("link sign-in refused for %s: %s", email, exc)
-        return None
-    return answered.get("AuthenticationResult")
-
-
-def refresh(refresh_token):
-    try:
-        response = client().admin_initiate_auth(
-            UserPoolId=_pool(), ClientId=_customer_client(),
-            AuthFlow="REFRESH_TOKEN_AUTH",
-            AuthParameters={"REFRESH_TOKEN": refresh_token},
-        )
-    except Exception:  # noqa: BLE001 - any refusal means "sign in again"
-        return None
-    return response.get("AuthenticationResult")
-
-
-def sign_out(email):
-    try:
-        client().admin_user_global_sign_out(UserPoolId=_pool(), Username=email)
+        client().admin_user_global_sign_out(UserPoolId=_pool(), Username=username)
     except Exception:  # noqa: BLE001 - logging out must always appear to work
-        logger.info("global sign-out failed for %s", email, exc_info=True)
+        logger.info("global sign-out failed for %s", username, exc_info=True)
 
 
 # --------------------------------------------------------------------------------------
@@ -386,8 +279,8 @@ def update_attributes(username, **fields):
     accepts a sub there just as happily.
 
     Refusing `email` is a security control, not a UI nicety: the address *is* the
-    username, so moving one without the other would let a customer take an address that
-    already belongs to somebody else.
+    username, so moving one without the other would let somebody take an address that
+    already belongs to another account.
     """
     mapping = {"first_name": "given_name", "last_name": "family_name",
                "phone": PHONE_ATTR}
@@ -509,9 +402,9 @@ def grant_staff(*, email, name=""):
 def set_enabled(email, enabled):
     """Enable or disable an account.
 
-    Deactivate, never delete. A disabled account keeps its sub, so every booking,
-    question and notification pointing at it still resolves to a person -- the same
-    reason the page this replaces refused deletion outright.
+    Deactivate, never delete. A disabled account keeps its sub, so anything recorded
+    against it still resolves to a person -- the same reason the page this replaces
+    refused deletion outright.
     """
     call = client().admin_enable_user if enabled else client().admin_disable_user
     call(UserPoolId=_pool(), Username=email)

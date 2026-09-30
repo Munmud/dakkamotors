@@ -18,9 +18,7 @@ logger = logging.getLogger(__name__)
 #: Where `/api/staff/` sends somebody, in order. The first page they may read wins.
 LANDING = (
     ("car.view", "staff:car-list"),
-    ("booking.view", "staff:booking-list"),
-    ("question.view", "staff:question-list"),
-    ("customer.view", "staff:customer-list"),
+    ("request.view", "staff:request-list"),
     ("staff.view", "staff:staff-list"),
 )
 

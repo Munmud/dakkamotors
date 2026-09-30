@@ -1,10 +1,5 @@
 {
   "brand": "Dakka Motors",
-  "nav": {
-    "home": "Home",
-    "back": "All cars",
-    "admin": "Admin"
-  },
   "language": {
     "label": "Language",
     "en": "EN",
@@ -17,8 +12,11 @@
     "loadMore": "Show more cars"
   },
   "price": {
-    "callFor": "Call for price",
-    "yen": "¥{{amount}}"
+    "callFor": "Call us for the price of this car.",
+    "yen": "¥{{amount}}",
+    "onApplication": "Ask us",
+    "total": "Total price",
+    "totalNote": "Registration, preparation and fees included. This is what you pay."
   },
   "status": {
     "available": "Available",
@@ -39,11 +37,14 @@
   },
   "detail": {
     "about": "About this car",
-    "noDescription": "No description yet. Call us and we will tell you about it.",
     "gallery": "Photo {{index}} of {{total}}",
     "galleryVideo": "Video {{index}} of {{total}}",
     "noPhotos": "No photos yet",
-    "videoUnsupported": "Your browser cannot play this video."
+    "videoUnsupported": "Your browser cannot play this video.",
+    "enlarge": "See this photo full size",
+    "close": "Close",
+    "previous": "Previous photo",
+    "next": "Next photo"
   },
   "empty": {
     "title": "No cars listed right now.",
@@ -60,109 +61,12 @@
   "footer": {
     "visit": "Come and see us",
     "addressLine1": "Shinmeidai 1-16-2",
-    "addressLine2": "Shinmeidai Tempo C-1F",
+    "addressLine2": "Shinmeidai Shop Building, Unit C, 1F",
     "addressLine3": "Hamura, Tokyo 205-0023",
     "callPrompt": "Questions about a car?",
     "rights": "Dakka Motors",
-    "privacy": "Privacy"
-  },
-  "auth": {
-    "signIn": "Sign in",
-    "signOut": "Sign out",
-    "register": "Create an account",
-    "name": "Full name",
-    "email": "Email",
-    "phone": "Phone",
-    "password": "Password",
-    "haveAccount": "Already have an account? Sign in",
-    "needAccount": "No account yet? Create one",
-    "signingIn": "Signing in…",
-    "creating": "Creating your account…",
-    "failed": "Could not sign you in. Please try again.",
-    "checkEmail": "Check your email",
-    "sentTo": "We have emailed a code to <1>{{email}}</1>. Type it below to finish creating your account.",
-    "resend": "Send a new code",
-    "resent": "Sent. It can take a minute to arrive.",
-    "verifying": "Confirming…",
-    "verifyFailed": "We could not confirm that code.",
-    "forgot": "Forgot your password?",
-    "resetTitle": "Reset your password",
-    "resetIntro": "Enter your email and we will send you a link.",
-    "resetSent": "If we have an account for that address, we have sent a link.",
-    "newPassword": "New password",
-    "setPassword": "Set new password",
-    "backToSignIn": "Back to sign in",
-    "code": "Six-digit code",
-    "codeHelp": "It works for three days. Check the spam folder if it does not arrive in a minute.",
-    "verify": "Confirm",
-    "codeWrong": "That code is not right. Check the email and try again.",
-    "enterEmail": "The email you signed up with",
-    "signUp": "Sign up",
-    "confirmedNowSignIn": "Your email is confirmed. Sign in to finish."
-  },
-  "booking": {
-    "book": "Book a test drive",
-    "heading": "Book a test drive",
-    "forCar": "Test drive: {{car}}",
-    "noSlots": "No times are available at the moment. Please call us instead.",
-    "seatsLeft_one": "{{count}} place left",
-    "seatsLeft_other": "{{count}} places left",
-    "confirm": "Confirm booking",
-    "booking": "Booking…",
-    "myBookings": "My test drives",
-    "none": "You have no test drives booked.",
-    "cancel": "Cancel",
-    "reschedule": "Change time",
-    "keepTime": "Keep this time",
-    "confirmCancel": "Cancel this test drive?",
-    "callNote": "We will have the car ready. If anything changes, call us on {{phone}}.",
-    "requested": "Request sent. We will confirm it shortly.",
-    "requestedNote": "You will get an email once we confirm the time. If it is urgent, call us on {{phone}}.",
-    "awaiting": "Awaiting confirmation",
-    "confirmed": "Confirmed",
-    "chooseDate": "Choose a date",
-    "timesAvailable_one": "{{count}} time",
-    "timesAvailable_other": "{{count}} times",
-    "dateGone": "The last place on that date has just gone. Please pick another.",
-    "previousMonth": "Previous month",
-    "nextMonth": "Next month",
-    "alreadyBooked": "You already have this car booked",
-    "alreadyBookedOn": "Your test drive is on {{when}}. To come at a different time, change or cancel it first.",
-    "seeMyBookings": "Go to my test drives",
-    "yourDetails": "Your details",
-    "yourDetailsWhy": "So we can confirm the time and reach you if anything changes. No account needed.",
-    "guestChange": "We have also emailed you a copy. To change or cancel it, call us on {{phone}} — you booked without an account, so there is nothing to sign in to.",
-    "backToCar": "Back to the car"
-  },
-  "account": {
-    "yourDetails": "Your details",
-    "firstName": "First name",
-    "lastName": "Last name",
-    "save": "Save changes",
-    "saving": "Saving…",
-    "saved": "Saved.",
-    "emailFixed": "This is how you sign in. Call us if you need it changed."
-  },
-  "qa": {
-    "heading": "Questions about this car",
-    "ask": "Ask about this car",
-    "placeholder": "Has it had one owner? Any service history?",
-    "submit": "Send question",
-    "sending": "Sending…",
-    "sent": "Sent. We will email you when we answer.",
-    "registerToAsk": "Create an account to ask about this car",
-    "none": "No questions about this car yet.",
-    "awaitingAnswer": "Waiting for an answer — we will email you."
-  },
-  "notifications": {
-    "bell_one": "Notifications, {{count}} unread",
-    "bell_other": "Notifications, {{count}} unread",
-    "title": "Notifications",
-    "empty": "Nothing yet.",
-    "booking_confirmed": "Your test drive on {{when}} is confirmed.",
-    "booking_cancelled": "Your test drive on {{when}} was cancelled.",
-    "question_answered": "We answered your question about the {{car}}.",
-    "generic": "Something has changed on your account."
+    "privacy": "Privacy",
+    "staff": "Staff"
   },
   "fuel": {
     "petrol": "Petrol",
@@ -173,45 +77,65 @@
     "lpg": "LPG"
   },
   "home": {
-    "askTitle": "Not seeing the car you want?",
-    "askBody": "Tell us what you are after — make, model, year, budget — and we will look for it. Anyone can ask.",
+    "askTitle": "We can find one that isn't here",
+    "askBody": "Tell us what you are after — make, model, year, budget — and we will look for it.",
     "askAction": "Ask us to find it",
     "sold": "Recently sold",
-    "soldBody": "Cars that found a home. If one of these is what you wanted, ask us for another."
+    "soldBody": "These have been sold. If one of them is close to what you want, we can look for something similar.",
+    "lead": "Used cars in Hamura, west Tokyo. Open any car for photos and prices, or call the shop.",
+    "title": "Used Cars in Hamura, Tokyo"
   },
   "request": {
     "title": "Ask us to find your car",
-    "intro": "Tell us what you are looking for. We check auctions and dealers every week, and we will get in touch when something turns up.",
-    "details": "The car you want",
-    "placeholder": "e.g. A white Tanto, 2018 or newer, under ¥900,000. Both sliding doors.",
-    "name": "Your name",
-    "email": "Email",
-    "phone": "Phone",
-    "replyTo": "We will reply to {{email}}.",
-    "haveAccount": "Have an account?",
-    "signIn": "Sign in",
-    "submit": "Send request",
-    "sending": "Sending…",
-    "doneTitle": "Got it — we will be in touch",
-    "doneBody": "We will call or email when we find something. Meanwhile, the lot is always open.",
-    "backToLot": "Back to the cars",
-    "failed": "We could not send that. Please try again, or call us."
+    "intro": "Tell us what you are looking for. We check auctions and dealers every week, and we will call you when something turns up."
   },
   "privacy": {
     "title": "Privacy",
     "updated": "Last updated 23 September 2026",
     "intro": "Dakka Motors is a used car dealership in Hamura, Tokyo. This page says what happens to your information when you use this website. It is short because we do little with it.",
     "collectTitle": "What you give us",
-    "collectBody": "To book a test drive we ask for your name, email address and phone number, and we record which car and which time you chose. We use them to confirm the appointment, to reach you if anything changes, and to answer questions you ask about a car. If you create an account the same details are stored with it. We do not sell them, and we do not pass them to anyone other than the services listed below that we use to run the shop.",
+    "collectBody": "The form on a car's page asks for your name and your phone number, and records which car you were looking at. The find-a-car form asks the same and lets you add an email address and a description of what you are after. We use them to telephone you back, and for nothing else. There is no account to create. We do not sell them, and we do not pass them to anyone other than the services listed below that we use to run the shop.",
     "adsTitle": "Advertising on Facebook and Instagram",
-    "adsBody": "We sometimes advertise one car at a time on Facebook and Instagram. This site carries a Meta pixel, which tells Meta which pages of this site a visitor looked at and whether they went on to book a test drive. That is how we tell whether an advertisement for a particular car was worth running.",
+    "adsBody": "We sometimes advertise one car at a time on Facebook and Instagram. This site carries a Meta pixel, which tells Meta which pages of this site a visitor looked at and whether they went on to leave their number. That is how we tell whether an advertisement for a particular car was worth running.",
     "adsBody2": "Your name, email address and phone number are never sent to Meta. What it receives is the page you were on, the car's listing name, and the IP address and browser that every website you visit receives. Meta may connect that to an account you are signed in to and use it to choose which advertisements to show you.",
     "adsOptOut": "To stop this: turn off ad personalisation in your Facebook or Instagram settings, use a browser or extension that blocks trackers, or browse in private mode. Nothing on this site stops working if you do.",
     "cookiesTitle": "Cookies",
-    "cookiesBody": "Signing in sets a cookie that keeps you signed in, and a second that stops a form being submitted from another site. Both are necessary and neither follows you anywhere else. The Meta pixel sets cookies of its own, which is what the section above is about.",
+    "cookiesBody": "This site sets one cookie, and only when you submit a form: it stops that form being submitted from another site. It follows you nowhere. Staff signing in to the management pages set a second one; it is not set for visitors.",
     "storageTitle": "Where it is kept",
-    "storageBody": "The site runs on Amazon Web Services in Tokyo and your details are stored there. Email is sent through Brevo. We keep a booking or a question for as long as it is useful to the shop.",
+    "storageBody": "The site runs on Amazon Web Services in Tokyo and your details are stored there. Email is sent through Brevo. We keep an enquiry for as long as it is useful to the shop.",
     "contactTitle": "Ask us about any of this",
     "contactBody": "Call us on <1>{{phone}}</1>, or reply to any email we have sent you. If you want to know what we hold about you, or want it deleted, that is how to ask."
+  },
+  "nav": {
+    "home": "Home",
+    "back": "All cars",
+    "skip": "Skip to the main content"
+  },
+  "lead": {
+    "titleCar": "Interested in this car?",
+    "titleGeneral": "Leave your number",
+    "why": "Leave your name and number and we will call you back. We use it only to talk to you about this car.",
+    "name": "Your name",
+    "phone": "Phone number",
+    "email": "Email",
+    "optional": "(optional)",
+    "send": "Ask us to call you",
+    "sending": "Sending…",
+    "failed": "That did not send. Please try again, or call us.",
+    "orCall": "Or call us now on",
+    "doneTitle": "Got it — thank you.",
+    "doneBody": "We will call you back as soon as we can. If it is urgent, call us now.",
+    "bottomHeading": "Come and see it",
+    "wish": "The car you are looking for",
+    "wishHint": "Make, year, budget — whatever you know.",
+    "need": {
+      "name": "Please tell us your name.",
+      "phone": "Please leave a phone number so we can call you.",
+      "details": "Tell us what you are looking for first."
+    },
+    "bottomBody": "You are welcome to look the car over at the shop in Hamura. Leave your name and number and we will call you.",
+    "titleReserved": "This car is under offer",
+    "whyReserved": "Deals do fall through. Leave your name and number and we will call you if it frees up — and look for something similar meanwhile.",
+    "privacyNote": "How we handle what you enter here"
   }
 }

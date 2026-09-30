@@ -1,9 +1,9 @@
-"""Stopping a car's advertisement when it gets its test drive.
+"""Stopping a car's advertisement once somebody asks about it.
 
 Meta is never actually called: `meta_ads.pause_ad_set` is patched, which is the whole
 seam. It is a five-line urllib POST, and a fake Graph API would test urllib rather than
 anything this project decides. What these tests are about is the decisions -- once and
-only once, never at a booking's expense, and an honest message when Meta says no.
+only once, never at a lead's expense, and an honest message when Meta says no.
 """
 
 from unittest import mock
@@ -12,11 +12,12 @@ from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from . import advertising
-from . import booking as booking_rules
 from . import meta_ads
+from . import requests as lead_rules
 from .store import cars as car_store
-from .tests import DynamoReset, future_slot, make_booking, make_car
-from .tests_fake_cognito import FakeCognito, make_user
+from .store import requests as lead_store
+from .tests import DynamoReset, make_car
+from .tests_fake_cognito import FakeCognito
 
 AD_SET = "1234567890123"
 
@@ -25,10 +26,15 @@ AD_SET = "1234567890123"
 OWNER = override_settings(STAFF_ALERT_EMAIL="owner@example.com")
 
 
-def booking_for(car, *, user=None, slot=None):
-    """A live booking for a car, written straight to the store."""
-    return make_booking(user or make_user("hana@example.com", name="Hana Sato"),
-                        slot or future_slot(), car=car)
+def lead_for(car, *, name="Hana Sato"):
+    """A lead naming a car, written straight to the store.
+
+    This is what pausing an advertisement hangs off now. It was a booking; the trigger
+    moved when booking did, and it is the same moment by another name -- the ad has
+    produced the one thing it was bought to produce.
+    """
+    return lead_store.create(name=name, email="hana@example.com", phone="080-1111-2222",
+                             details="", car=car, now=timezone.now())
 
 
 @OWNER
@@ -39,11 +45,11 @@ class AdPauseTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.pause = patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_a_booking_pauses_the_cars_ad_set_and_tells_the_owner(self):
+    def test_a_lead_pauses_the_cars_ad_set_and_tells_the_owner(self):
         car = make_car("AD-1", ad_set_id=AD_SET)
 
         with mock.patch("cars.mail.queue_email", return_value=True) as queued:
-            self.assertTrue(advertising.stop_for(booking_for(car)))
+            self.assertTrue(advertising.stop_for(lead_for(car)))
 
         self.pause.assert_called_once_with(AD_SET)
         self.assertEqual(queued.call_count, 1)
@@ -51,12 +57,12 @@ class AdPauseTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.assertIn("Ad stopped", subject)
         self.assertIn("Daihatsu Tanto", subject)
 
-    def test_the_second_booking_neither_pauses_nor_emails_again(self):
-        """Two people booking the same car in the same second is what an advertisement
+    def test_the_second_lead_neither_pauses_nor_emails_again(self):
+        """Two people asking about the same car in the same second is what an advertisement
         is for. Only one of them stopped it, and only one message should say so."""
         car = make_car("AD-2", ad_set_id=AD_SET)
-        first = booking_for(car, user=make_user("a@example.com"))
-        second = booking_for(car, user=make_user("b@example.com"))
+        first = lead_for(car, name="a@example.com")
+        second = lead_for(car, name="b@example.com")
 
         with mock.patch("cars.mail.queue_email", return_value=True) as queued:
             self.assertTrue(advertising.stop_for(first))
@@ -69,23 +75,25 @@ class AdPauseTests(FakeCognito, DynamoReset, SimpleTestCase):
         car = make_car("AD-3")
 
         with mock.patch("cars.mail.queue_email", return_value=True) as queued:
-            self.assertFalse(advertising.stop_for(booking_for(car)))
+            self.assertFalse(advertising.stop_for(lead_for(car)))
 
         self.pause.assert_not_called()
         queued.assert_not_called()
 
-    def test_a_booking_with_no_car_is_left_alone(self):
-        """Every guard here keys on the car; a booking with none has nothing to stop."""
-        booking = make_booking(make_user("c@example.com"), future_slot())
+    def test_a_lead_with_no_car_is_left_alone(self):
+        """Every guard here keys on the car. A find-me-something lead names none, so
+        there is no advertisement of its own to stop."""
+        lead = lead_store.create(name="C", email="c@example.com", phone="1",
+                                 details="A Tanto", now=timezone.now())
 
-        self.assertFalse(advertising.stop_for(booking))
+        self.assertFalse(advertising.stop_for(lead))
         self.pause.assert_not_called()
 
     def test_the_pause_is_stamped_on_the_car(self):
         car = make_car("AD-4", ad_set_id=AD_SET)
 
         with mock.patch("cars.mail.queue_email", return_value=True):
-            advertising.stop_for(booking_for(car))
+            advertising.stop_for(lead_for(car))
 
         self.assertIsNotNone(car_store.get(car.car_id).ad_paused_at)
 
@@ -94,19 +102,18 @@ class AdPauseTests(FakeCognito, DynamoReset, SimpleTestCase):
 class AdFailureTests(FakeCognito, DynamoReset, SimpleTestCase):
     """What happens when Meta will not play. None of it may reach the customer."""
 
-    def test_a_meta_outage_does_not_fail_the_booking(self):
+    def test_a_meta_outage_does_not_cost_the_lead(self):
+        """The whole reason `stop_for` swallows everything: losing somebody's phone
+        number because Meta was slow would throw away what the money bought."""
         car = make_car("AD-5", ad_set_id=AD_SET)
-        slot = future_slot()
-        user = make_user("hana@example.com", name="Hana Sato")
 
         with mock.patch.object(meta_ads, "pause_ad_set",
                                side_effect=meta_ads.MetaError("down")), \
                 mock.patch("cars.mail.queue_email", return_value=True):
-            booking = booking_rules.create_booking(user=user, slot_id=slot.slot_id,
-                                                   car=car)
+            lead = lead_rules.submit(name="Hana Sato", phone="080-1111-2222", car=car)
 
-        self.assertIsNotNone(booking.booking_id)
-        self.assertTrue(booking.is_active)
+        self.assertIsNotNone(lead.request_id)
+        self.assertTrue(lead.is_open)
 
     def test_meta_refusing_says_so_rather_than_claiming_the_ad_stopped(self):
         """The most expensive sentence on the site would be "stopped" when it is not.
@@ -116,7 +123,7 @@ class AdFailureTests(FakeCognito, DynamoReset, SimpleTestCase):
         with mock.patch.object(meta_ads, "pause_ad_set",
                                side_effect=meta_ads.MetaError("down")), \
                 mock.patch("cars.mail.queue_email", return_value=True) as queued:
-            self.assertTrue(advertising.stop_for(booking_for(car)))
+            self.assertTrue(advertising.stop_for(lead_for(car)))
 
         sent = queued.call_args.kwargs
         self.assertIn("Pause this ad by hand", sent["subject"])
@@ -131,7 +138,7 @@ class AdFailureTests(FakeCognito, DynamoReset, SimpleTestCase):
 
         with mock.patch.object(car_store, "claim_ad_pause",
                                side_effect=RuntimeError("boom")):
-            self.assertFalse(advertising.stop_for(booking_for(car)))
+            self.assertFalse(advertising.stop_for(lead_for(car)))
 
 
 @OWNER
@@ -142,7 +149,7 @@ class AdSetLifetimeTests(FakeCognito, DynamoReset, SimpleTestCase):
         car = make_car("AD-8", ad_set_id=AD_SET)
         with mock.patch.object(meta_ads, "pause_ad_set", return_value=True), \
                 mock.patch("cars.mail.queue_email", return_value=True):
-            advertising.stop_for(booking_for(car))
+            advertising.stop_for(lead_for(car))
 
         car_store.update(car_store.get(car.car_id), now=timezone.now(),
                          ad_set_id="9999999999999")
@@ -153,7 +160,7 @@ class AdSetLifetimeTests(FakeCognito, DynamoReset, SimpleTestCase):
         car = make_car("AD-9", ad_set_id=AD_SET)
         with mock.patch.object(meta_ads, "pause_ad_set", return_value=True), \
                 mock.patch("cars.mail.queue_email", return_value=True):
-            advertising.stop_for(booking_for(car))
+            advertising.stop_for(lead_for(car))
 
         car_store.update(car_store.get(car.car_id), now=timezone.now(), ad_set_id=None)
 
@@ -173,7 +180,7 @@ class AdSetLifetimeTests(FakeCognito, DynamoReset, SimpleTestCase):
         """
         car = make_car("AD-11", ad_set_id=AD_SET)
         with mock.patch.object(meta_ads, "pause_ad_set", return_value=True),                 mock.patch("cars.mail.queue_email", return_value=True):
-            advertising.stop_for(booking_for(car))
+            advertising.stop_for(lead_for(car))
 
         car_store.update(car_store.get(car.car_id), now=timezone.now(),
                          ad_set_id=AD_SET)
@@ -190,7 +197,7 @@ class AdSetLifetimeTests(FakeCognito, DynamoReset, SimpleTestCase):
         car = make_car("AD-10", ad_set_id=AD_SET)
         with mock.patch.object(meta_ads, "pause_ad_set", return_value=True), \
                 mock.patch("cars.mail.queue_email", return_value=True):
-            advertising.stop_for(booking_for(car))
+            advertising.stop_for(lead_for(car))
 
         car_store.update(car_store.get(car.car_id), now=timezone.now(),
                          price_jpy=640000)

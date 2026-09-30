@@ -13,7 +13,14 @@ from .errors import NotFound
 from .models import CarRequest
 
 
-def create(*, name, email, phone, details, language="en", customer_sub=None, now=None):
+def create(*, name, email, phone, details, car=None, language="en", now=None):
+    """Write one lead.
+
+    The car is denormalised rather than referenced. A lead outlives the car it is
+    about -- a sold car is deleted and takes its photos with it -- and staff reading
+    the queue a month later still need to know what the person asked about. Same
+    reasoning as `Booking.car_label` before it, and as `Car.primary_image_ref`.
+    """
     now = now or timezone.now()
     request_id = keys.new_id()
     row = CarRequest(
@@ -24,8 +31,10 @@ def create(*, name, email, phone, details, language="en", customer_sub=None, now
         email=email.strip().lower(),
         phone=phone.strip(),
         details=details.strip(),
+        car_id=getattr(car, "car_id", None),
+        car_slug=getattr(car, "slug", None),
+        car_label=car.seo_title_plain if car is not None else None,
         language="ja" if language == "ja" else "en",
-        customer_sub=customer_sub or None,
         status=RequestStatus.OPEN,
         created_at=now,
         updated_at=now,

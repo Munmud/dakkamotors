@@ -78,12 +78,17 @@ class ManagerIsLockedOutTests(StaffAccountTestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    def test_a_manager_may_still_read_the_customer_list(self):
-        """`customer.view` is theirs; `staff.view` is not. The split is the point."""
+    def test_a_manager_may_still_read_the_leads(self):
+        """`request.view` is theirs; `staff.view` is not. The split is the point.
+
+        It was the customer list, which went with customer accounts. Leads are what a
+        manager is now for -- somebody has to ring these people back -- so they are
+        what this asserts a manager keeps.
+        """
         self.sign_in_as_manager()
 
         self.assertEqual(
-            self.client.get(reverse("staff:customer-list")).status_code, 200)
+            self.client.get(reverse("staff:request-list")).status_code, 200)
 
 
 class StaffIndexTests(StaffAccountTestCase):
@@ -285,10 +290,13 @@ class AdoptAnExistingAccountTests(StaffAccountTestCase):
     """
 
     def make_customer_account(self, email="buyer@example.com"):
-        """A pool user in no groups, exactly as self sign-up leaves one."""
-        cognito.sign_up(email=email, password="customer-pw-123456", name="A Buyer")
-        cognito.confirm(email)
-        return email
+        """A pool user in no groups.
+
+        Self sign-up is how these came about and is gone; the ones still in the pool
+        are not, which is the whole reason this page exists. Built by admin-create now,
+        which is also how a new account lands before anybody gives it a role.
+        """
+        return self.make_account(email=email, name="A Buyer")[0]
 
     def add(self, email, **extra):
         payload = {"email": email, "name": "A Buyer", "groups": [], "is_active": "on"}

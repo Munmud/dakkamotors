@@ -11,21 +11,31 @@ function ReceiverIcon() {
 }
 
 /**
- * Primary conversion on the whole site. Renders nothing when no number is
- * configured — a dead call button is worse than none.
+ * One of the two conversions on the site, and the faster one.
+ *
+ * A tap-to-call gets several times the engagement of a printed number on a phone, so
+ * it is a button everywhere it appears rather than text somebody has to select and
+ * copy. Renders nothing when no number is configured — a dead call button is worse
+ * than none.
+ *
+ * `compact` is the masthead variant: the number without the word, because the bar has
+ * no room for a sentence and the receiver icon already says what it is.
  */
-export default function CallButton({ onInk = false }) {
+export default function CallButton({ onInk = false, compact = false }) {
   const { t } = useTranslation();
 
   if (!hasPhone) return null;
 
+  const classes = ["callbtn"];
+  if (onInk) classes.push("callbtn--onink");
+  if (compact) classes.push("callbtn--compact");
+
   return (
-    <a
-      className={onInk ? "callbtn callbtn--onink" : "callbtn"}
-      href={`tel:${phoneHref}`}
-    >
+    <a className={classes.join(" ")} href={`tel:${phoneHref}`}>
       <ReceiverIcon />
-      <span className="u-nums">{t("call.action", { phone: phoneDisplay })}</span>
+      <span className="u-nums">
+        {compact ? phoneDisplay : t("call.action", { phone: phoneDisplay })}
+      </span>
     </a>
   );
 }

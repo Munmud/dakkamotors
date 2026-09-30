@@ -15,7 +15,7 @@ Design decisions carried over from the admin classes these replace:
 * No bulk tick-box edits. `ModelAdmin.get_changelist_form()` never passed
   `ModelAdmin.form`, so a tick-box on the changelist went around the form's validation
   entirely. Explicit buttons that say what they will do are both safer and clearer.
-* Actions route through the domain modules (`qa.record_answer`, `booking.confirm_booking`)
+* Actions route through the domain modules (`requests.resolve`, `cars.update`)
   rather than writing state directly, so the email and the bell entry cannot be skipped
   by reaching the page a different way.
 """

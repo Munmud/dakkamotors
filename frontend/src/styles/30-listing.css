@@ -75,28 +75,18 @@
   }
 }
 
-@media (min-width: 1100px) {
-  .card {
-    grid-template-columns: minmax(0, 17rem) minmax(0, 1fr);
-    gap: var(--space-4);
-  }
+/* Two abreast, and each one stacked again -- photo over name, the way the phone shows
+   it.
 
-  /* The display size belongs to the one-column layout, where a name has the width of
-     the page to run in. In a half-width cell it breaks "Honda N-BOX" across the
-     hyphen, which is a worse outcome than simply being smaller. */
-  .card__title {
-    font-size: var(--step-2);
-  }
+   It was side by side here too, and that is the arrangement that cannot work at this
+   size: two columns of a 1120px page give each card 530px, the photograph takes 272 of
+   them and the name gets 234. A Japanese name at `--step-2` is 39px per character, so
+   234px is six characters and every one of them broke mid-word -- "スズキ ワゴ / ンR",
+   "ホンダ N- / BOX". Shrinking the name was the previous answer to that and it only
+   moved the width at which it happens.
 
-  .card__grade {
-    font-size: var(--step-0);
-  }
-
-  .card__body {
-    max-width: 22ch;
-  }
-}
-
+   Stacking gives the name the whole 530px, and gives the photograph 530px as well,
+   which for a used car is the part that does the selling. */
 .card:hover .card__title,
 .card:focus-visible .card__title {
   text-decoration: underline;
@@ -107,7 +97,7 @@
 .card__frame {
   position: relative;
   aspect-ratio: 3 / 2;
-  background: var(--wash);
+  background: var(--surface-2);
   overflow: hidden;
 }
 
@@ -126,7 +116,7 @@
   place-items: center;
   padding: var(--space-3);
   text-align: center;
-  color: var(--road);
+  color: var(--text-dim);
   font-size: var(--step--1);
 }
 
@@ -138,8 +128,11 @@
   position: absolute;
   top: 0;
   left: 0;
+  /* `--ink`, not `--text`. These two fills are light and the page is dark, so the
+     pairing has to invert with them -- `--text` is near-white now, and near-white on
+     the coral flag measured 2.4:1. */
   background: var(--flag);
-  color: #fff;
+  color: var(--ink);
   padding: 0.3rem 0.7rem;
   font-size: var(--step--1);
   font-weight: 700;
@@ -179,8 +172,8 @@
    The plate stays -- the number is still the answer to "how much was it" -- but it
    goes to paper, so the yellow on the page always means "available". */
 .card--gone .card__plate {
-  background: var(--wash);
-  color: var(--road);
+  background: var(--surface-2);
+  color: var(--text-dim);
 }
 
 .card--gone .card__photo {
@@ -216,7 +209,7 @@
 .lot-section__body {
   margin: 0 0 var(--space-4);
   max-width: 60ch;
-  color: var(--road);
+  color: var(--text-dim);
 }
 
 /* The band between the stock and the sold shelf: one question, one action. Ink
@@ -225,8 +218,8 @@
 .ask {
   margin-top: var(--space-6);
   padding: var(--space-5) var(--space-4);
-  background: var(--ink);
-  color: #fff;
+  background: var(--surface-2);
+  color: var(--text);
   border-radius: var(--radius-plate);
   display: grid;
   gap: var(--space-3);
@@ -243,7 +236,7 @@
 .ask__body {
   margin: 0;
   max-width: 52ch;
-  color: #c3ccd2;
+  color: var(--text-dim);
   line-height: 1.55;
 }
 
@@ -268,8 +261,34 @@
   max-width: 26ch;
 }
 
+/* Two abreast, and each one stacked again -- photo over name, the way the phone shows
+   it. Below `.card__body` on purpose: the cap above is what this undoes, and in this
+   sheet the order is the cascade.
+
+   Side by side is the arrangement that cannot work at this size. Two columns of a
+   1120px page give each card 530px, the photograph takes 272 of them and the name
+   gets 234. A Japanese name at `--step-2` is 39px per character, so 234px is six
+   characters and every one of them broke mid-word -- "スズキ ワゴ / ンR",
+   "ホンダ N- / BOX". Shrinking the name was the previous answer and it only moved the
+   width at which it happens; `26ch` is measured in the body's 16px font, so it caps
+   the 39px name at six characters however wide the cell gets.
+
+   Stacking gives the name the whole 530px, and gives the photograph 530px as well,
+   which for a used car is the part that does the selling. */
+@media (min-width: 1100px) {
+  .card {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+    align-items: start;
+  }
+
+  .card__body {
+    max-width: none;
+  }
+}
+
 .card__year {
-  color: var(--road);
+  color: var(--text-dim);
   font-size: var(--step-0);
   font-weight: 500;
 }
@@ -282,12 +301,27 @@
   letter-spacing: -0.015em;
 }
 
-.card__grade {
-  color: var(--road);
-  font-size: var(--step-1);
-  margin-top: 0.15rem;
-}
 
 .loadmore {
   margin-top: var(--space-5);
+}
+
+/* The one line of prose on the home page: where this is, and that ringing up is a
+   normal thing to do. Sized as body text, not a heading -- it orients, it does not
+   announce. */
+.lot__lead {
+  margin: 0 0 var(--space-4);
+  color: var(--text-dim);
+  font-size: var(--step-0);
+}
+
+/* The shop's name, said once, properly. It is not a hero -- the cars are still the
+   first thing below it -- but a page that asks a stranger for a phone number should
+   at least tell them whose page it is. */
+.lot__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--step-2);
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text);
 }

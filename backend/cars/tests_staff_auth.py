@@ -28,24 +28,13 @@ class StaffAuthTestCase(CognitoBackend, DynamoReset, SimpleTestCase):
     def staff_token(self, email="staffer@example.com", groups=("staff",),
                     client="staff"):
         """A real, signed token for somebody in the given groups."""
-        password = "staff-pw-123456"
-        cognito.sign_up(email=email, password=password, name="Staff Member")
-        cognito.confirm(email)
+        email, password = self.make_account(email=email, password="staff-pw-123456",
+                                            name="Staff Member")
         for group in groups:
             cognito.add_to_group(email, group)
 
-        import boto3
-
-        raw = boto3.client("cognito-idp", region_name="ap-northeast-1",
-                           endpoint_url=self.endpoint,
-                           aws_access_key_id="local", aws_secret_access_key="local")
-        client_id = (self.staff_client if client == "staff" else self.customer_client)
-        result = raw.admin_initiate_auth(
-            UserPoolId=self.pool_id, ClientId=client_id,
-            AuthFlow="ADMIN_USER_PASSWORD_AUTH",
-            AuthParameters={"USERNAME": email, "PASSWORD": password},
-        )["AuthenticationResult"]
-        return result["AccessToken"]
+        client_id = self.staff_client if client == "staff" else self.customer_client
+        return self.tokens_for(email, password, client=client_id)["AccessToken"]
 
 
 class StateSigningTests(StaffAuthTestCase):
@@ -239,14 +228,15 @@ class PermissionTests(SimpleTestCase):
 
     def test_an_owner_may_do_anything(self):
         owner = {cognito.OWNERS_GROUP}
-        for action in ("car.delete", "staff.change", "booking.change", "anything.new"):
+        for action in ("car.delete", "staff.change", "request.change", "anything.new"):
             with self.subTest(action=action):
                 self.assertTrue(may(owner, action))
 
     def test_an_inventory_manager_may_run_the_shop(self):
         manager = {cognito.INVENTORY_GROUP}
-        for action in ("car.add", "car.change", "car.delete", "question.change",
-                       "booking.change", "slot.change", "schedule.change"):
+        for action in ("car.add", "car.change", "car.delete",
+                       "image.add", "image.change", "image.delete",
+                       "request.view", "request.change"):
             with self.subTest(action=action):
                 self.assertTrue(may(manager, action))
 

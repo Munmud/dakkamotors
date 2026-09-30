@@ -10,6 +10,8 @@ The staff pages live under /api/ because CloudFront routes that one prefix to th
 backend with cookies forwarded and caching off.
 """
 
+import pathlib
+
 from django.conf import settings
 from django.conf.urls.static import static
 from django.shortcuts import redirect
@@ -59,21 +61,30 @@ urlpatterns = [
     path("cars/<int:pk>/", legacy_car_redirect),
     path("cars/<slug:slug>", pages.car_detail, name="car-page"),
     path("cars/<slug:slug>/", pages.car_detail),
-    # App-only routes. They need a shell or the URL 404s, but they carry noindex.
-    path("cars/<slug:slug>/test-drive", pages.book_test_drive_page),
     path("request-a-car", pages.request_car_page, name="request-car"),
     path("request-a-car/", pages.request_car_page),
     # Indexable, unlike the account routes below: Meta looks for this page when it
     # reviews an advertisement, and it is linked from the footer of every page.
     path("privacy", pages.privacy_page, name="privacy"),
     path("privacy/", pages.privacy_page),
-    path("account", pages.account_page),
-    path("account/", pages.account_page),
-    path("account/<path:rest>", pages.account_page),
 ]
 
 # In production, uploads live in S3 and are served by CloudFront at /media/*, so Django
 # never sees these URLs. Locally there is no CDN, so Django serves the files itself.
 if settings.DEBUG and not settings.AWS_STORAGE_BUCKET_NAME:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+    # The same arrangement for the app bundle. CloudFront serves /assets/* from the
+    # frontend bucket; `pages.asset_tags` falls back to the local `frontend/dist`
+    # off Lambda, and the tags it finds there point here.
+    #
+    # This is what makes the *real* document openable on a laptop -- the
+    # server-rendered shell with the app mounting over it, which is what every
+    # visitor and every crawler is actually served and which the Vite dev server
+    # never produces. Measuring layout shift against `vite preview` instead reads the
+    # app appearing in an empty `#root`, a reflow production does not have.
+    urlpatterns += static(
+        "/assets/",
+        document_root=pathlib.Path(settings.BASE_DIR).parent / "frontend" / "dist" / "assets",
+    )
 

@@ -1,0 +1,198 @@
+/* ----------------------------------------------------------------------- lead --- */
+/*
+   The contact form, which is the only thing on this site that matters.
+
+   It replaced `70-account-booking.css`, a 482-line sheet for a sign-in card, a
+   profile editor, a month calendar, a slot picker and a bookings list -- none of
+   which exist any more. What is left is one form, so this is one form's worth of CSS.
+
+   Sized for a thumb, not a mouse: 48px controls, 16px text in every input. Sixteen is
+   not a preference. Below it, iOS Safari zooms the whole page the moment a field takes
+   focus, and a person filling a form one-handed in a car park then has to pinch back
+   out for every field.
+*/
+
+.lead {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.lead__title {
+  margin: 0;
+  font-size: var(--step-1);
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.lead__why {
+  margin: calc(var(--space-3) * -1) 0 0;
+  font-size: var(--step--1);
+  color: var(--text-dim);
+}
+
+.lead__error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--flag);
+  background: rgb(255 107 94 / 12%);
+  color: var(--text);
+  font-size: var(--step--1);
+}
+
+.lead__field {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.lead__field > span {
+  font-size: var(--step--1);
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+/* "optional", set quieter than the label it qualifies. Saying so on the field is what
+   lets the other two read as genuinely required without an asterisk to decode. */
+.lead__field em {
+  font-style: normal;
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+.lead input,
+.lead textarea {
+  width: 100%;
+  min-height: 48px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.lead textarea {
+  resize: vertical;
+}
+
+.lead input:focus-visible,
+.lead textarea:focus-visible {
+  outline: 2px solid var(--go);
+  outline-offset: 1px;
+  border-color: var(--go);
+}
+
+.lead input::placeholder,
+.lead textarea::placeholder {
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+/*
+   Green, not the plate yellow.
+
+   On the old white page the yellow was both the price and the one action, and that
+   worked because there was one of each per screen. On a dark ground the yellow reads
+   as *the price* -- it is a number plate -- so a yellow button beside a yellow price
+   is two things shouting the same word. Green is the only other colour in the set and
+   it already means "available".
+*/
+.btn--go {
+  min-height: 52px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--go);
+  border: none;
+  border-radius: var(--radius-control);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--step-0);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn--go:hover:not(:disabled) {
+  background: var(--go-deep);
+}
+
+.btn--go:disabled {
+  background: var(--surface-2);
+  color: var(--text-dim);
+  cursor: not-allowed;
+}
+
+.lead__or {
+  margin: 0;
+  text-align: center;
+  font-size: var(--step--1);
+  color: var(--text-dim);
+}
+
+.lead__tel {
+  color: var(--text);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  /* 44px of tappable height around a phone number that is the fallback for anybody
+     who will not fill a form. */
+  display: inline-block;
+  padding: var(--space-2) var(--space-1);
+}
+
+/* ------------------------------------------------------------------------ done --- */
+/*
+   The form is replaced, not cleared. A cleared form reads as "that did not work" and
+   is how a shop receives the same lead three times.
+*/
+
+.lead--done {
+  border-color: var(--go);
+  gap: var(--space-2);
+}
+
+.lead__doneTitle {
+  margin: 0;
+  font-size: var(--step-1);
+  font-weight: 700;
+  color: var(--go);
+}
+
+.lead__doneBody {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+/* --------------------------------------------------------------------- request --- */
+
+.request {
+  max-width: 34rem;
+  margin: 0 auto;
+}
+
+.request__intro {
+  margin: 0 0 var(--space-4);
+  color: var(--text-dim);
+}
+
+/* The link to the privacy page, under the button. Quiet -- it is a reassurance for
+   the person who looks for it, not a thing to read on the way to pressing send. */
+.lead__privacy {
+  margin: calc(var(--space-2) * -1) 0 0;
+  text-align: center;
+  font-size: var(--step--1);
+}
+
+.lead__privacy a {
+  color: var(--text-dim);
+  text-underline-offset: 0.2em;
+}
+
+.lead__privacy a:hover,
+.lead__privacy a:focus-visible {
+  color: var(--text);
+}

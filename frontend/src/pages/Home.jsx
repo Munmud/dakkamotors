@@ -6,6 +6,7 @@ import { fetchCars } from "../api/client";
 import CarCard from "../components/CarCard";
 import { EmptyState, ErrorState, LoadingState } from "../components/States";
 import { takeInitialData } from "../lib/initialData";
+import { usePageTitle } from "../lib/title";
 
 // Present on a fresh page load, absent after a client-side navigation.
 const seeded = takeInitialData("home");
@@ -21,7 +22,8 @@ const seeded = takeInitialData("home");
  * sell?") and should never be mistaken for stock: faded, marked, no price.
  */
 export default function Home() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  usePageTitle(t("home.title"), i18n.language);
   const [cars, setCars] = useState(seeded?.results ?? []);
   const [nextPage, setNextPage] = useState(seeded?.next ? 2 : null);
   const [status, setStatus] = useState(seeded ? "ready" : "loading");
@@ -78,6 +80,21 @@ export default function Home() {
 
   return (
     <>
+      {/*
+        One line saying where this is and what to do, above the cars.
+
+        A visitor arriving cold from a video advertisement has seen one car and no
+        context: not the town, not that this is a shop rather than a classifieds site,
+        not that a phone call is welcome. It costs a line to say, and it is the only
+        prose on the page.
+      */}
+      {/* The page's `h1`, and the only place on a phone the shop says its own name:
+          the wordmark beside the monogram is hidden below 560px, so the words
+          "ダッカモータース" appeared once, at 13px, in the copyright line. The first
+          heading on this page used to be an `h2` inside a car card. */}
+      <h1 className="lot__title">{t("home.title")}</h1>
+      <p className="lot__lead">{t("home.lead")}</p>
+
       {cars.length === 0 ? (
         <EmptyState />
       ) : (
@@ -99,7 +116,7 @@ export default function Home() {
       <section className="ask" aria-labelledby="ask-title">
         <h2 id="ask-title" className="ask__title">{t("home.askTitle")}</h2>
         <p className="ask__body">{t("home.askBody")}</p>
-        <Link className="callbtn" to="/request-a-car">{t("home.askAction")}</Link>
+        <Link className="btn btn--go" to="/request-a-car">{t("home.askAction")}</Link>
       </section>
 
       {sold.length > 0 && (

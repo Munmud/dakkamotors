@@ -3,25 +3,59 @@
    The design is grounded in the one thing every car on this lot has in common: it is
    kei class, and in Japan that is not a marketing category but a legal one, marked by
    a yellow number plate. So the yellow is not an accent chosen for contrast. It is the
-   subject, and it is spent in exactly one place -- the price, set as a plate.
+   subject, and it is spent in exactly two places -- the price, set as a plate, and
+   nothing else. The one action on a screen is green, because on a dark ground the
+   yellow has to mean price or it means nothing.
 
-   That is also why the page is white now and not near-black. A dark ground with one
-   bright accent is the look this site already had, and it flattered the logo at the
-   expense of the cars. A used-car forecourt is a bright place; the photographs are the
-   content, and they sit on white the way they sit on a windscreen card.
+   **The page is dark.** It was white, on the argument that a forecourt is a bright
+   place and photographs sit on white the way they sit on a windscreen card. That is
+   still true of a windscreen card. It is not true of a phone at night, which is where
+   an advertisement is tapped: a full-brightness white page is the thing people close.
+   A dark ground also lets a photograph be the brightest object on the screen, which is
+   what a car listing wants -- the picture leads, the chrome around it recedes.
+
+   Every surface is a token. There were roughly thirty-five hard-coded whites and greys
+   sitting on the old ink band, because there was exactly one dark area and no name for
+   "text on it". Now that everything is that area, each one needs a name or the theme
+   cannot be reasoned about.
 */
 
 :root {
-  /* Slate, not a tinted near-black. It carries text and the single dark band in the
-     footer, and it is the ink on a number plate -- readable at any size, never pure
-     black, and cool enough to sit under the chrome monogram without arguing with it. */
-  --ink: #1c2b33;
-  --ink-soft: #3a4b55;
-  --road: #5f6b72;          /* secondary text: grades, labels, metadata */
+  color-scheme: dark;
 
-  --paper: #ffffff;         /* the page. The photographs need it. */
-  --wash: #eef1f2;          /* recessed areas: photo frames, disabled fields */
-  --line: #d7dbdd;
+  /* The ground, and two surfaces lifted off it. Not pure black: pure black against a
+     bright photograph is a hard edge, and OLED smearing on scroll is real. This is the
+     old `--ink` taken down far enough to carry white text at 15:1. */
+  --bg: #0f1519;
+  --surface: #172026;       /* cards, the form, anything raised off the page */
+  --surface-2: #1f2a31;     /* raised again: inputs, a pressed state */
+  --line: #2c3a43;          /* borders, rules -- visible, never assertive */
+
+  /* Text. `--text-dim` is the one to watch: it must clear 4.5:1 on `--bg`, which
+     rules out the greys that looked right on white. */
+  --text: #f2f6f8;
+  --text-dim: #a4b3bc;      /* secondary text: grades, labels, metadata */
+
+  /* Kept because the brand and the emails are built on them, and because the footer
+     and masthead are still the darkest band on the page. `--ink` is what sits *on*
+     the plate -- the ink on a number plate -- and must stay dark for that reason. */
+  --ink: #0b1114;
+  --paper: #ffffff;         /* anything painted over a photograph, which has no theme */
+
+  /* Two tokens from the light theme are gone rather than renamed, and both left the
+     same kind of wreckage behind, worth recording because it is what a theme
+     inversion actually costs.
+
+     `--road` was the secondary grey. Its definition went and twelve `var(--road)`
+     calls stayed: an undefined custom property makes the whole declaration invalid,
+     so every one of those elements silently inherited full-brightness `--text`
+     instead of being quiet. They are `--text-dim`.
+
+     `--ink-soft` was the muted ink, used for the back link and for button hover. Its
+     definition survived, which was worse -- a dark slate that had been legible on
+     white became 2.03:1 on the dark ground, with nothing failing anywhere. The back
+     link is `--text-dim`; hover goes *up* the surface scale now, because on a dark
+     theme darkening a control reads as switching it off. */
 
   /* The plate. #fbd200 was the old accent; this is a half-step warmer and slightly
      deeper, which is what a real kei plate looks like in daylight and what keeps
@@ -29,8 +63,11 @@
   --plate: #f5c400;
   --plate-deep: #d9ad00;    /* the plate's own edge, for press states */
 
-  --flag: #b2342a;          /* sold and reserved, and form errors */
-  --go: #1d7a4e;            /* available: a green marker, never a green button */
+  /* Lifted off the print values: #b2342a and #1d7a4e were chosen against white and
+     both go muddy on a dark ground. These clear 4.5:1 on `--bg`. */
+  --flag: #ff6b5e;          /* sold and reserved, and form errors */
+  --go: #34d399;            /* available, and the one action on a screen */
+  --go-deep: #10b981;       /* its press state */
 
   /* Line length has to differ by script. 66ch is ~66 Latin characters but only ~33
      full-width ones, because `ch` is the advance of `0`. Japanese set to the same
@@ -72,8 +109,18 @@
   --radius-plate: 4px;
   --radius-control: 3px;
 
-  --font: "Zen Kaku Gothic New", "Hiragino Kaku Gothic ProN", "Yu Gothic",
-    "Segoe UI", system-ui, sans-serif;
+  /* The device's own font, and nothing downloaded.
+     
+     This was four weights of Zen Kaku Gothic New from Google. It cost **439 KB of CSS
+     plus seven font files**, render-blocking, from a third-party origin -- more than
+     this site's entire JavaScript bundle, for a typeface almost nobody consciously
+     noticed. A Japanese phone already carries Hiragino or Yu Gothic; an English one
+     already carries its own UI face. Both are better hinted than anything we could
+     ship and both are already in memory.
+     
+     The staff pages have always done this, for the same reason, and say so. */
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, system-ui, sans-serif;
 
   /* Breakpoints cannot be custom properties -- a media query is resolved before the
      cascade -- so they are written out below, but they are only ever these three, and

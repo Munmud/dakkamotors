@@ -114,7 +114,6 @@ class CarDetailSerializer(serializers.Serializer):
     images = CarImageSerializer(many=True, read_only=True)
     media = serializers.SerializerMethodField()
     video = serializers.SerializerMethodField()
-    questions = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -152,21 +151,3 @@ class CarDetailSerializer(serializers.Serializer):
         """
         clips = getattr(obj, "videos", None) or []
         return clips[0].url if clips else None
-
-    def get_questions(self, obj):
-        """Published pairs, anonymously.
-
-        `store.cars.detail()` carried the questions back in the same Query as the car,
-        so `published_for` reads them off the object rather than issuing anything. That
-        used to be a `Prefetch` a caller had to remember; it is structural now, because
-        a question lives in its car's own partition.
-
-        The car page is also server-rendered with this payload embedded, but the app
-        fetches it fresh whenever someone arrives by an in-app link rather than landing
-        directly - so it has to be in the API as well, or the section would appear on a
-        hard refresh and vanish on navigation.
-        """
-        from .qa import published_for
-        from .qa_views import PublicQuestionSerializer
-
-        return PublicQuestionSerializer(published_for(obj), many=True).data

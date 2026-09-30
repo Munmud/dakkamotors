@@ -8,6 +8,8 @@ results, and answer engines (ChatGPT, Perplexity, Google's AI overviews) lean on
 heavily because it states facts unambiguously instead of making them infer from layout.
 """
 
+import re
+
 SITE_URL = "https://dakkamotors.com"
 
 BUSINESS = {
@@ -29,10 +31,18 @@ BUSINESS = {
     # from the Google Business Profile listing once it exists.
     "latitude": "",
     "longitude": "",
-    # No opening hours. There were some -- 06:00 to 24:00, every day -- and they were
-    # published in four places before anyone confirmed them. Hours belong here only
-    # once the shop has said what they are; until then a claim in structured data is a
-    # claim Google repeats as fact.
+    # **No opening hours, and this is settled rather than outstanding.** The owner
+    # has said there are none to publish -- it is a small lot and the phone is
+    # answered when it is answered.
+    #
+    # There were some once: 06:00 to 24:00, every day, published in four places
+    # before anybody confirmed them. A claim in structured data is a claim Google
+    # repeats as fact, and "open until midnight" is the kind of fact that turns
+    # somebody driving out at 21:00 into somebody who never rings again.
+    #
+    # The consequence is that nothing on the site may imply a time, including "we
+    # will call you back today". `lead.doneBody` says "as soon as we can" for that
+    # reason, and should keep saying something of that shape.
 }
 
 #: Where customers realistically come from. Hamura sits in western Tokyo, so the
@@ -85,6 +95,43 @@ def dealer_schema():
     return data
 
 
+#: Spec labels that mean "how far has it been driven", in both languages, lowercased.
+#: Free-form rows are the only place mileage lives -- there is no field for it, because
+#: not every car has a figure the shop is willing to state.
+_MILEAGE_LABELS = ("mileage", "odometer", "kilometres", "kilometers", "km",
+                   "走行距離", "走行", "距離")
+
+_MILEAGE_VALUE = re.compile(
+    r"^\s*(?:約|approx\.?\s*)?([\d,]+)\s*(\+|以上)?\s*(?:km|KM|Km|キロ|km走行|kms)?\s*$")
+
+
+def mileage_from(specs):
+    """The odometer reading as a Schema.org QuantitativeValue, or None.
+
+    Read out of the free-form specs because that is where staff type it, and read
+    strictly: `215,000km` and `215000 km` are a reading, `215000+km` is a *floor* and
+    becomes `minValue` rather than `value`, and anything else -- a range, a guess, a
+    sentence -- yields nothing at all. The rule the rest of this module follows is that
+    a wrong `mileageFromOdometer` is worse than an absent one, and a number Google
+    shows in a search result beside the car is exactly the kind of wrong that matters.
+    """
+    for row in specs or []:
+        labels = (row.get("label_en") or "", row.get("label_ja") or "")
+        if not any(want in label.strip().lower()
+                   for label in labels for want in _MILEAGE_LABELS):
+            continue
+        for value in (row.get("value_en") or "", row.get("value_ja") or ""):
+            match = _MILEAGE_VALUE.match(value)
+            if not match:
+                continue
+            km = int(match.group(1).replace(",", ""))
+            if km <= 0:
+                continue
+            key = "minValue" if match.group(2) else "value"
+            return {"@type": "QuantitativeValue", key: km, "unitCode": "KMT"}
+    return None
+
+
 def vehicle_schema(car, image_urls, canonical_url):
     """Car + Offer for one listing.
 
@@ -106,6 +153,18 @@ def vehicle_schema(car, image_urls, canonical_url):
     }
     if car.price_jpy is not None:
         offer["price"] = str(car.price_jpy)
+        # The price is 支払総額 -- what the customer pays, with registration and
+        # preparation in it -- not 車両本体価格 with the fees to follow. Saying so
+        # here is not decoration: Google reads `priceSpecification` for the vehicle
+        # rich result, and a shop whose listed price is the total is making a claim
+        # its competitors mostly cannot. `valueAddedTaxIncluded` is the only field
+        # schema.org has for it.
+        offer["priceSpecification"] = {
+            "@type": "PriceSpecification",
+            "price": str(car.price_jpy),
+            "priceCurrency": "JPY",
+            "valueAddedTaxIncluded": True,
+        }
     else:
         # Schema requires a price or a way to get one; point at the phone instead of
         # inventing a number.
@@ -141,6 +200,9 @@ def vehicle_schema(car, image_urls, canonical_url):
         data["vehicleConfiguration"] = car.grade
     if car.model_code:
         data["vehicleEngine"] = {"@type": "EngineSpecification", "name": car.model_code}
+    mileage = mileage_from(car.specs)
+    if mileage:
+        data["mileageFromOdometer"] = mileage
     if image_urls:
         data["image"] = image_urls
     description = (car.description_en or car.description_ja or "").strip()
@@ -148,7 +210,8 @@ def vehicle_schema(car, image_urls, canonical_url):
         data["description"] = description
     # Two omissions, recorded so they are not re-litigated:
     #
-    # `car.specs` does NOT become `additionalProperty`. It is valid Schema.org and
+    # `car.specs` does NOT become `additionalProperty` -- `mileageFromOdometer` above
+    # is read out of it, but that is one named field Google's vehicle result displays. It is valid Schema.org and
     # Google's vehicle rich result does not read it, so it would push staff-typed text
     # into the JSON-LD for no gain in any result anyone sees.
     #
@@ -184,39 +247,3 @@ def website_schema():
 def graph(*nodes):
     """Wrap nodes in a single @graph, which is how multiple entities share one block."""
     return {"@context": "https://schema.org", "@graph": [n for n in nodes if n]}
-
-
-def faq_schema(questions, language="en"):
-    """Published question-and-answer pairs, as a FAQPage node.
-
-    Returns None when there are none. That matters: an empty `mainEntity` is an invalid
-    node, and Search Console reports it as an error rather than ignoring it.
-
-    A note on expectations - Google restricted FAQ rich results to government and health
-    sites in August 2023, so this will not put dropdowns under the search result. It is
-    here because the pairs are real page content and because the answer engines the rest
-    of this file is written for read structured data directly.
-
-    Whatever goes in here must also be visible in the rendered body, and in the same
-    language: structured data that does not match the page is a policy violation, not a
-    clever trick.
-    """
-    entries = [q for q in questions if (q.answer or "").strip()]
-    if not entries:
-        return None
-
-    return {
-        "@type": "FAQPage",
-        "inLanguage": "ja" if language == "ja" else "en",
-        "mainEntity": [
-            {
-                "@type": "Question",
-                "name": question.question.strip(),
-                "acceptedAnswer": {
-                    "@type": "Answer",
-                    "text": question.answer.strip(),
-                },
-            }
-            for question in entries
-        ],
-    }

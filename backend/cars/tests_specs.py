@@ -7,6 +7,7 @@ rules are asserted here rather than through a view -- and the view tests in
 
 from django.test import SimpleTestCase
 
+from . import seo
 from . import specs
 
 
@@ -90,3 +91,54 @@ class LocalizedTests(SimpleTestCase):
                "value_en": "Pearl White", "value_ja": ""}
 
         self.assertEqual(specs.localized(row, "ja"), ("色", "Pearl White"))
+
+
+class MileageFromSpecsTests(SimpleTestCase):
+    """`mileageFromOdometer` is read out of the free-form rows.
+
+    There is no mileage field on `Car` -- not every car has a figure the shop will
+    state -- so the one number Google's vehicle rich result wants has to be recovered
+    from text staff typed. The whole risk is a wrong number appearing in a search
+    result beside the car, so this reads strictly and gives up readily.
+    """
+
+    def mileage(self, value, label="Mileage"):
+        return seo.mileage_from([{"label_en": label, "value_en": value}])
+
+    def test_the_shapes_staff_actually_type(self):
+        for value in ("215000km", "215,000km", "215000 km", "215000", "215,000 KM"):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    self.mileage(value),
+                    {"@type": "QuantitativeValue", "value": 215000,
+                     "unitCode": "KMT"})
+
+    def test_a_plus_is_a_floor_not_a_reading(self):
+        """"215000+km" says at least, and Schema.org has a word for that.
+
+        Emitting it as `value` would state a precision the shop did not, which is the
+        one failure mode this whole reader exists to avoid.
+        """
+        self.assertEqual(
+            self.mileage("215000+km"),
+            {"@type": "QuantitativeValue", "minValue": 215000, "unitCode": "KMT"})
+
+    def test_japanese_rows_are_read_too(self):
+        self.assertEqual(
+            seo.mileage_from([{"label_ja": "走行距離", "value_ja": "約88,000キロ"}]),
+            {"@type": "QuantitativeValue", "value": 88000, "unitCode": "KMT"})
+        self.assertEqual(
+            self.mileage("215000以上")["minValue"], 215000)
+
+    def test_anything_it_cannot_read_yields_nothing(self):
+        for value in ("low", "12,000 - 15,000km", "0km", "ask us", ""):
+            with self.subTest(value=value):
+                self.assertIsNone(self.mileage(value))
+
+    def test_a_number_under_another_label_is_not_mileage(self):
+        """The label is what identifies the row. A price is also a number with commas."""
+        self.assertIsNone(self.mileage("215000", label="Colour"))
+
+    def test_no_specs_at_all(self):
+        self.assertIsNone(seo.mileage_from(None))
+        self.assertIsNone(seo.mileage_from([]))

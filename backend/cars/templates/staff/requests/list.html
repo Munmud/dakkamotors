@@ -1,8 +1,12 @@
 {% extends "staff/base.html" %}
 
 {% comment %}
-Cars people are looking for. Open ones by default: this list is for acting on, and a
-resolved request is a record, one filter away.
+Everybody who has left their number. Open ones by default: this list is for acting on,
+and a resolved lead is a record, one filter away.
+
+Two kinds in one list, because they are the same job. A lead **about a car** came off
+that car's page -- "call me about this one". A lead with no car came from the
+find-me-something form. The "Wants" column says which.
 
 Stacked on a phone rather than scrolled sideways: the contact details are the point of
 the row, and they were the columns that would fall off the edge.
@@ -10,7 +14,7 @@ the row, and they were the columns that would fall off the edge.
 
 {% block content %}
   <div class="pagehead">
-    <h1>Car requests</h1>
+    <h1>Leads</h1>
     {% if open_count %}<span class="pill waiting">{{ open_count }} open</span>{% endif %}
   </div>
 
@@ -31,7 +35,7 @@ the row, and they were the columns that would fall off the edge.
           <tr>
             <th>Received</th>
             <th>Who</th>
-            <th>Looking for</th>
+            <th>Wants</th>
             <th>State</th>
           </tr>
         </thead>
@@ -41,12 +45,18 @@ the row, and they were the columns that would fall off the edge.
               <td data-label="Received">{{ req.created_at|date:"j M Y, H:i" }}</td>
               <td data-label="Who">
                 <strong>{{ req.name }}</strong><br>
-                <a href="tel:{{ req.phone }}">{{ req.phone }}</a><br>
-                <a href="mailto:{{ req.email }}">{{ req.email }}</a>
+                {# The phone first and on its own line: it is the only thing anybody
+                   has to do with this row. #}
+                <a href="tel:{{ req.phone }}">{{ req.phone }}</a>
+                {% if req.email %}<br><a href="mailto:{{ req.email }}">{{ req.email }}</a>{% endif %}
               </td>
-              <td data-label="Looking for">
+              <td data-label="Wants">
                 <a href="{% url 'staff:request-detail' req.request_id %}">
-                  {{ req.details|truncatechars:90 }}
+                  {% if req.car_label %}
+                    {{ req.car_label }}
+                  {% else %}
+                    {{ req.details|truncatechars:90 }}
+                  {% endif %}
                 </a>
                 {% if req.language == "ja" %}<span class="pill">日本語</span>{% endif %}
               </td>
@@ -63,9 +73,9 @@ the row, and they were the columns that would fall off the edge.
       </table>
     {% else %}
       {% if state == "open" %}
-        <p class="empty"><strong>Nothing open</strong> When somebody asks for a car the site does not have, it lands here.</p>
+        <p class="empty"><strong>Nothing open</strong> When somebody leaves their number on a car, or asks for one the site does not have, it lands here.</p>
       {% else %}
-        <p class="empty"><strong>No requests</strong> Nothing matches that filter.</p>
+        <p class="empty"><strong>No leads</strong> Nothing matches that filter.</p>
       {% endif %}
     {% endif %}
   </div>

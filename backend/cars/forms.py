@@ -144,7 +144,7 @@ class CarForm(DirectUploadMixin, forms.Form):
     def __init__(self, *args, car=None, **kwargs):
         """`car` is passed when editing, so the page can report state the store holds.
 
-        Only one field needs it so far. `ad_paused_at` decides whether a future booking
+        Only one field needs it so far. `ad_paused_at` decides whether a future lead
         will stop this car's advertisement -- `store.cars.claim_ad_pause` refuses for any
         car that already carries one -- and until now it was invisible here. There was no
         way to look at a car and tell whether its advertisement was armed or already

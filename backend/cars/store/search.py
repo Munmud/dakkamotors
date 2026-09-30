@@ -23,7 +23,6 @@ it in Lambda memory. That is another order of magnitude before search is a real 
 """
 
 from . import cars as cars_store
-from . import questions as questions_store
 
 
 def matches(item, term):
@@ -54,40 +53,3 @@ def find_cars(*, term=None, status=None, fuel_type=None, brand=None):
 
     found.sort(key=lambda c: c.created_at, reverse=True)
     return found
-
-
-def find_questions(*, term=None, is_published=None, language=None, brand=None):
-    """The staff question queue."""
-    found = questions_store.queue()
-
-    if is_published is not None:
-        found = [q for q in found if bool(q.is_published) is bool(is_published)]
-    if language:
-        found = [q for q in found if q.language == language]
-    if brand:
-        lowered = brand.casefold()
-        found = [q for q in found if (q.car_brand or "").casefold() == lowered]
-    return [q for q in found if matches(q, term)]
-
-
-def find_bookings(*, term=None, statuses=None):
-    """The staff booking queue.
-
-    Bookings carry a customer snapshot rather than a `search_blob`, so the haystack is
-    built here. Phone search is deliberately dropped -- it was
-    `customer__customer_profile__phone` through two joins, and staff look people up by
-    name or email.
-    """
-    from . import bookings as bookings_store
-    from ..choices import ACTIVE_STATUSES
-
-    found = bookings_store.staff_queue(statuses or ACTIVE_STATUSES)
-    if not term:
-        return found
-    needle = term.casefold()
-    return [
-        b for b in found
-        if needle in " ".join(filter(None, [
-            b.customer_name, b.customer_email, b.car_label,
-        ])).casefold()
-    ]

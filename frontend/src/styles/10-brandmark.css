@@ -9,7 +9,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
-  color: #fff;
+  color: var(--text);
   font-weight: 900;
   letter-spacing: 0.04em;
   line-height: 1;

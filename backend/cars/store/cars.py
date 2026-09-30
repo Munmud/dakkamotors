@@ -23,7 +23,7 @@ from ..choices import CarStatus
 from . import keys
 from .errors import ConditionFailed, NotFound, is_conditional_failure
 from .models import (
-    Car, CarImage, CarQuestion, CarVideo, ChassisGuard, LegacyCarPointer, SlugGuard,
+    Car, CarImage, CarVideo, ChassisGuard, LegacyCarPointer, SlugGuard,
 )
 from .txn import Txn, failed
 
@@ -140,7 +140,7 @@ def slug_for_legacy_id(numeric_id):
 
 
 def detail(car_id):
-    """The car, its images and its published questions -- in ONE Query.
+    """The car, its photos and its videos -- in ONE Query.
 
     This is the whole reason the design is single-table. The page is server rendered for
     crawlers and link previews on a possibly-cold Lambda, so collapsing three sequential
@@ -151,20 +151,20 @@ def detail(car_id):
     extra. Asking `videos.for_car` from the serializer instead would turn the page's one
     Query into two, which is the thing `tests_store.count_dynamo_calls` exists to catch.
 
-    The sort keys guarantee IMG# < META < Q# < VID#, so the partition arrives grouped;
-    the sorting below is within a group, on `order`, which no key can express.
+    The sort keys guarantee IMG# < META < VID#, so the partition arrives grouped; the
+    sorting below is within a group, on `order`, which no key can express. `Q#` used to
+    sit between META and VID# -- questions went with customer accounts, and the ordering
+    holds without it.
     """
     from .base import BaseItem
     from . import media
 
-    car, images, questions, videos = None, [], [], []
+    car, images, videos = None, [], []
     for item in BaseItem.query(keys.car_pk(car_id)):
         if isinstance(item, Car):
             car = item
         elif isinstance(item, CarImage):
             images.append(item)
-        elif isinstance(item, CarQuestion):
-            questions.append(item)
         elif isinstance(item, CarVideo):
             videos.append(item)
 
@@ -174,7 +174,6 @@ def detail(car_id):
     images.sort(key=lambda i: (int(i.order or 0), i.sk or ""))
     videos.sort(key=lambda v: (int(v.order or 0), v.sk or ""))
     car.images = images
-    car.questions = questions
     car.videos = videos
     car.media = media.merge(images, videos)
     return car
@@ -320,7 +319,7 @@ def bump_updated_at(car_id, now):
     """Move the sitemap's lastmod without touching anything else.
 
     Conditional on the car existing, for the reason spelled out in
-    `store/questions.publish`: an unconditional UpdateItem is an upsert, and the stub
+    `bump_updated_at`: an unconditional UpdateItem is an upsert, and the stub
     it would create is invisible to this package's polymorphic reads.
     """
     car = get(car_id)
@@ -332,7 +331,7 @@ def claim_ad_pause(car_id, now):
     """Win the right to pause this car's advertisement, once.
 
     Returns the car when this caller got the claim and None when somebody else already
-    had it. Two people booking the same car within the same second is not far-fetched
+    had it. Two people asking about the same car within the same second is not far-fetched
     -- that is what an advertisement is for -- and without this both would call Meta
     and both would email the owner to say the ad had been stopped.
 
@@ -364,8 +363,8 @@ def delete(car):
 
     Deliberately in two steps. The guarded core goes atomically, because a car whose
     slug guard outlived it would permanently reserve that URL. The children then go as
-    a best-effort batch: `TransactWriteItems` caps at 100 items and a car with many
-    photos and a long question thread could exceed it.
+    a best-effort batch: `TransactWriteItems` caps at 100 items and a car with a lot of
+    photos and videos could exceed it.
 
     The legacy pointer is in the atomic half for the same reason as the slug guard, and
     it is the one that bites hardest if forgotten: `config/urls.py` reads it to turn an

@@ -22,10 +22,23 @@ exists so the person's name and number are never in what gets copied.
   <div class="sheet">
     <div class="panel">
       <h2>What they want</h2>
-      <p class="wish">{{ req.details|linebreaksbr }}</p>
+      {% if req.car_label %}
+        <p class="wish">
+          <a href="/cars/{{ req.car_slug }}" target="_blank" rel="noopener">{{ req.car_label }}</a>
+        </p>
+        {% comment %}
+          A lead off a car page often carries no message at all -- clicking "call me
+          back" on one specific car has already said everything a message would, which
+          is why the field is optional. Only print the block when there is something in
+          it, rather than an empty quote.
+        {% endcomment %}
+        {% if req.details %}<p class="wish">{{ req.details|linebreaksbr }}</p>{% endif %}
+      {% else %}
+        <p class="wish">{{ req.details|linebreaksbr }}</p>
+      {% endif %}
       <p class="help">
         Received {{ req.created_at|date:"j M Y, H:i" }},
-        written in {% if req.language == "ja" %}Japanese{% else %}English{% endif %}{% if req.customer_sub %}, by a customer with an account{% endif %}.
+        written in {% if req.language == "ja" %}Japanese{% else %}English{% endif %}.
       </p>
     </div>
 
@@ -34,14 +47,15 @@ exists so the person's name and number are never in what gets copied.
       <table class="stack">
         <tr><th>Name</th><td data-label="Name">{{ req.name }}</td></tr>
         <tr><th>Phone</th><td data-label="Phone"><a href="tel:{{ req.phone }}">{{ req.phone }}</a></td></tr>
-        <tr><th>Email</th><td data-label="Email"><a href="mailto:{{ req.email }}">{{ req.email }}</a></td></tr>
+        <tr><th>Email</th><td data-label="Email">{% if req.email %}<a href="mailto:{{ req.email }}">{{ req.email }}</a>{% else %}<span class="help">not given &mdash; they asked for a call</span>{% endif %}</td></tr>
       </table>
     </div>
 
     <div class="panel">
       <h2>Copy for a post</h2>
       <p class="help">The wish only. Nothing here identifies the person.</p>
-      <textarea readonly rows="4">Looking for: {{ req.details }}</textarea>
+      <textarea readonly rows="4">{% if req.car_label %}Asked about: {{ req.car_label }}{% if req.details %}
+{% endif %}{% endif %}{% if req.details %}Looking for: {{ req.details }}{% endif %}</textarea>
     </div>
 
     <div class="panel">

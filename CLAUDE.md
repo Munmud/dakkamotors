@@ -1,8 +1,19 @@
 # Dakka Motors
 
 A used-car dealership site for a shop in Hamura, Japan. Django + DRF on AWS Lambda,
-React SPA, bilingual (English/Japanese). Buyers browse inventory, ask questions about a
-car, and book test drives; staff answer, confirm and manage stock.
+React SPA, bilingual (Japanese by default, English a click away).
+
+**The site has one job: turn a stranger into a phone number.** A visitor browses the
+lot, opens a car and leaves a name and a number; the shop rings them back. That is the
+whole funnel and everything else was removed to make it the only thing on the screen.
+
+It was not always this. The site had customer accounts, emailed sign-up codes, a
+question-and-answer thread per car, notifications, and test-drive booking against a
+calendar of materialised slots. A ¥1,000 Meta promotion produced ten bookings, every
+one of them cancelled and every one either the owner's own address or a throwaway.
+The premise was that a cold click would create an account, confirm it by email and
+then commit to standing in a car park at 15:00 on Saturday. It will not. All of it is
+gone -- see "What was removed, and why it is not coming back".
 
 Everything runs in `ap-northeast-1` except the three things AWS forces into `us-east-1`
 (CloudFront, its ACM certificate, and Budgets).
@@ -11,7 +22,7 @@ Everything runs in `ap-northeast-1` except the three things AWS forces into `us-
 
 ```
 backend/         Django 5.2 + DRF, deployed to Lambda by Zappa
-  cars/          the single app -- inventory, bookings, Q&A, notifications
+  cars/          the single app -- inventory, photos, videos, leads
   config/        settings, root urls, wsgi
 frontend/        React 19 + Vite, deployed to S3 behind CloudFront
 infra/           hand-written CloudFormation (no CDK, no Terraform)
@@ -44,17 +55,11 @@ npm run check-i18n                     # en/ja parity, plus a warning for unused
 Deploys are automatic: push to `main`, path-filtered GitHub Actions workflows deploy the
 backend (Zappa) and the frontend (S3 + CloudFront invalidation) via OIDC. No static keys.
 
-Migration commands (see `docs/INFRA.md`):
-
-```bash
-git checkout pre-dynamo    # the only commit that can still run the exporter
-python manage.py export_aurora --out ./migration/<date>/
-python manage.py import_dynamo --from ./migration/<date>/  # on the new code
-python manage.py reconcile_counters [--fix]                # after a restore, or on doubt
-```
-
-Run the import from a laptop with SSO credentials rather than through `zappa manage` --
-it is an ops script, and nothing about it needs a Lambda.
+The Aurora migration commands are gone with the data they moved: `export_aurora`,
+`import_dynamo` and `reconcile_counters` all existed for one cutover in September 2026,
+which has run. `docs/INFRA.md` records what they did. The exporter was only ever
+runnable from the `pre-dynamo` commit and the counters they reconciled were booking
+counters.
 
 ## The data layer: DynamoDB and Cognito
 
@@ -69,46 +74,35 @@ snapshot. `main` is deployed, the Lambda is out of the VPC, and the site serves 
 DynamoDB and Cognito. RDS was $13.26 of a $15.75 monthly bill; the bill is now about
 $1.60, nearly all the Route 53 hosted zone.
 
-`backend/cars/store/` is the data layer: PynamoDB 6.1, one table, single-table design with
-a discriminator. Cognito holds identity; DynamoDB holds only what Cognito has nowhere to
-put (a pending sign-up's name and phone, reset tokens, carried-over password hashes).
-**The pool sends no email at all** -- verification and reset messages go through Brevo,
-bilingual and branded. Do not wire it to SES; that is where the previous attempt stalled.
+`backend/cars/store/` is the data layer: PynamoDB 6.1, one table, single-table design
+with a discriminator. Five item types are left -- `Car`, `CarImage`, `CarVideo`, the
+two guards, the legacy id pointer, and `CarRequest`.
 
-Passwords cannot be migrated -- Cognito will not accept a hash on `AdminCreateUser` -- so
-a `UserMigration` Lambda trigger (inline in `infra/data.yaml`) verifies the carried-over
-Django hash on a customer's first sign-in. `tests_user_migration.py` extracts that inline
-source from the template and tests it against hashes Django actually produces, so the
-thing that will run is the thing that was checked.
+**Cognito holds staff and nobody else.** There is no customer account, no sign-up, no
+password reset and no verification code, so DynamoDB holds no identity at all: the
+pending registrations, reset tokens and carried-over Django password hashes went with
+the flow that needed them. The pool is deliberately unchanged -- it is `Retain`, its
+`Schema` is effectively immutable, and the people in it are the shop's staff.
 
-**Sign-up is confirmed by a six-digit code typed into the page, and the code signs
-the customer in.** A link was tried first and lost the page: opened in the phone's mail
-app, it left the laptop tab behind. The code is checked against the *address*
-(`store/auth.check_code`, `PENDING#<email>`), never looked up by itself -- six digits
-are not unique across customers -- and a wrong one counts, five and the sign-up is
-dead (`MAX_ATTEMPTS`). Cognito never hands a password back, so a second inline
-trigger, `LinkAuthFunction`, runs the pool's custom auth flow with one challenge:
-present the code. `cognito.sign_in_with_link` answers it right after `confirm` and
-**before** `finish_registration`, because the trigger recognises the code by reading
-the same pending item -- it builds that key by hand, as a Lambda cannot import
-`store/keys.py`, and `tests_link_auth.py` holds the two spellings together. A refused
-sign-in still verifies; the response says `signed_in: false` and the app falls back
-to the sign-in form. `ALLOW_CUSTOM_AUTH` on the customer client is deliberate and the
-template comment says why it is safe; do not add a password challenge to that trigger.
-`PendingToken`/`PENDTOK#` are no longer written and exist only to delete link-era items.
+**The pool sends no email at all.** It has no `EmailConfiguration`, which is why
+`--message-action SUPPRESS` below is required rather than tidy. Do not wire it to SES;
+that is where an earlier attempt stalled. The one message this site sends -- the staff
+alert when somebody leaves their number -- goes through Brevo.
 
-**A guest is asked to sign up before the calendar**, not after picking a time, and
-the register form shows the code screen in place with `next` intact, so they come
-back to the page they were on, signed in.
+**The pool has no Lambda triggers.** `infra/data.yaml` used to carry two, inline:
+`UserMigrationFunction`, which verified a password carried over from Django on a
+customer's first sign-in, and `LinkAuthFunction`, which ran a one-challenge custom auth
+flow so a sign-up code could open a session as well as confirm an address. Both were
+customer machinery and both are deleted, along with `ALLOW_CUSTOM_AUTH`, the customer
+app client and its output. Staff sign in at the hosted UI against a password Cognito
+itself holds.
 
-**The staff masthead counts what is waiting** -- unanswered questions, open requests,
-bookings awaiting confirmation -- through the `cars.staff.context.attention` context
-processor: three Queries per staff page, uncached because a count that lags lies, and
-each the same definition the section's own page uses.
+**The staff masthead counts what is waiting** -- open leads -- through the
+`cars.staff.context.attention` context processor. It was three counts; questions and
+test drives went with their features. It is one Query per staff page, uncached because
+a count that lags lies, and it is the same definition the leads page itself uses.
 
-Ids are strings, so URL patterns take `<str:pk>`. A slot's id is derived from (schedule,
-start time) -- that is what makes materialising slots idempotent, and why two fixtures
-wanting distinct slots at the same instant need distinct rules.
+Ids are strings, so URL patterns take `<str:pk>`.
 
 ### Rules
 
@@ -116,8 +110,8 @@ wanting distinct slots at the same instant need distinct rules.
 * **Never index `cancellation_reasons` by hand.** PynamoDB regroups transaction items by
   operation type (ConditionCheck, Delete, Put, Update) regardless of call order, so the
   list is parallel to *that*, not to the order you added them. Use the labels
-  `store/txn.py` provides. Getting this wrong misattributes a failure and tells the
-  customer the wrong thing.
+  `store/txn.py` provides. Getting this wrong misattributes a failure and reports the
+  wrong one.
 * **Never write an unconditional `UpdateItem` against an item that may not exist.** It is
   an upsert, and the stub it creates carries no discriminator -- invisible to every
   polymorphic read in this package, and enough to block the real item from ever being
@@ -128,9 +122,6 @@ wanting distinct slots at the same instant need distinct rules.
   together and `images.py` deliberately cannot see a video. Moving a video to the front
   never touches a photo and still changes the card, because the photos beneath it
   re-rank.
-* **`store/questions.py` is the only permitted writer of `is_published`.** That
-  exclusivity replaces the `CheckConstraint` DynamoDB cannot express, and a test enforces
-  it mechanically.
 * **Deleting a car must clear its `CARID#` pointer too.** It lives in its own partition,
   so neither the car's partition sweep nor the guards touch it -- `store.cars.delete`
   does it explicitly. A pointer outliving its car makes `config/urls.py` **301** an old
@@ -183,21 +174,50 @@ Japanese reader and only when staff typed one, field by field. Do not run these
 through `pickLocalized`, which expects `_en`/`_ja` pairs and would show a Japanese
 name to an English reader as its "fallback"; that shipped for about a minute.
 
-### Car requests
+### The lead, which is the whole site
 
 `cars/requests.py` is the domain module, `store/requests.py` the store, `POST
-/api/requests/` the one public write on the site that needs no account -- a person
-looking for a car the shop does not have is exactly who has none. `AllowAny` with the
-registration throttle. A guest gives name, email and phone; a signed-in customer's are
-copied from Cognito onto the request at the time and the posted ones are ignored.
-Staff see them at `/api/staff/requests/` and mark them resolved; the detail page has a
-"Copy for a post" block with the wish and nothing personal, because the owner reuses
-them for advertising.
+/api/requests/` the only write the public can make. `AllowAny`, throttled at 20/hour by
+`LeadThrottle` -- the `"auth"` scope it inherited is what stops a form with no sign-in
+becoming a free mailbox.
+
+**Name and phone are required; email is optional and a message is optional.** Three
+fields, two of them mandatory. That is not minimalism for its own sake: forms of three
+fields or fewer convert at roughly 25% against 10% for longer ones, and the shop rings
+people back, so an address it will not use has no business being a barrier. The email
+is format-checked only when one was given.
+
+**One system, with the car optional.** A lead naming a car and a lead asking the shop
+to find one are the same record; `car_id`, `car_slug` and `car_label` are set when
+there is a car and absent when there is not. They are *denormalised* rather than
+referenced, because a lead outlives the car it is about -- a sold car is deleted and
+takes its photos with it, and staff reading the queue a month later still need to know
+what the person asked about.
+
+**Nothing a buyer sees carries dealer shorthand.** The trim grade -- `FX`, `X`, `S`,
+`G` -- used to render as a bare letter under each car's name on the lot and on the car
+page. It means something to a dealer and nothing to the person this site is for. It is
+still on the `Car`, still editable, and still in the spec table where it has a label
+beside it; it is simply never shown on its own. The same test applies to anything else
+added to a card or a heading: if it needs explaining, it needs a label, and if it
+cannot have one it does not go there.
+
+When in doubt on the public pages, take the smaller option. The owner has cut fields
+from this form twice.
+
+**The person gets no automated reply.** Saying "we will call you" and then emailing
+them is a promise about a channel the shop is not using. One message is sent, to staff,
+and it leads with the phone number because the difference between ringing back in five
+minutes and ringing back tomorrow is most of the difference between a sale and no sale.
+
+Staff see leads at `/api/staff/requests/` and mark them resolved; the detail page keeps
+its "Copy for a post" block with the wish and nothing personal, because the owner
+reuses those for advertising.
 
 ### Advertising
 
 The shop makes a video for one car, spends about **¥1,000** showing it around Hamura,
-and stops the moment that car gets a test drive booked. `docs/ADS.md` is the runbook.
+and stops the moment somebody asks about that car. `docs/ADS.md` is the runbook.
 
 `META_PIXEL_ID` is not a secret and lives in `zappa_settings.json`; `pages._pixel`
 injects Meta's snippet **only when it is set**, so tests, local development and the
@@ -205,9 +225,16 @@ screenshot passes carry no tracking and `window.fbq` never exists -- the same ba
 `CLOUDFRONT_DISTRIBUTION_ID` makes for `cdn.invalidate`. The id is checked to be digits
 first: it lands in a `<script>` block on a public page cached at the edge. The app never
 learns it; `frontend/src/lib/pixel.js` calls `window.fbq` when it is there and does
-nothing when it is not. Four events -- `PageView` per client-side navigation (the
-snippet fires only the first), `ViewContent` on a car page, `InitiateCheckout` on its
-booking page, `Schedule` once the **server accepted** the booking.
+nothing when it is not. Three events -- `PageView` per client-side navigation (the
+snippet fires only the first), `ViewContent` on a car page, and **`Lead`** once the
+**server accepted** the contact form. `Lead` is Meta's own standard event for exactly
+this, which matters: a custom event would be a column in a report, a standard one is
+something the platform understands.
+
+**The snippet loads after first paint**, on `load` or `requestIdleCallback`, rather
+than in `<head>`. `fbevents.js` and its config are **773 KB** -- measured, on the live
+site, where they and Google Fonts were 74% of the page. Nothing on this site depends
+on the pixel having loaded, so nothing should wait for it.
 
 **The ad set is deliberately not optimised for those conversions.** Meta wants roughly
 fifty a week to leave the learning phase and ¥1,000 buys single digits, so the campaign
@@ -215,17 +242,18 @@ buys landing page views and the events measure rather than bid. Written down in 
 places because it is exactly the decision somebody reverses a year later.
 
 `Car.ad_set_id` is typed into the staff form; `advertising.stop_for` pauses it from
-`create_booking`, **fire-and-forget beside `mail.notify_staff_of_booking`** -- a booking
+`requests.submit`, **fire-and-forget beside `mail.notify_staff_of_request`** -- a lead
 must never fail over an advertisement, which would lose the thing the advertisement was
-bought to produce. `store.cars.claim_ad_pause` is a **conditional** update on
-`ad_paused_at`, so two bookings in the same second cannot both pause and both email; and
+bought to produce. The trigger used to be a booking and moved when booking went; it is
+the same moment by another name, the point at which the advertisement has produced what
+it was bought to produce. `store.cars.claim_ad_pause` is a **conditional** update on
+`ad_paused_at`, so two leads in the same second cannot both pause and both email; and
 `ad_paused_at` rides with `ad_set_id` in `store.cars.update`, because a stamp left over
 from the last campaign would make the next one unable to ever stop itself. It rides on
 the id **changing**, so re-running the *same* ad set takes two saves -- clear, save,
 retype, save -- and the staff form says so, and names the date it stopped, because that
-state is otherwise invisible and unguessable. When Meta
-refuses, the owner gets the **opposite** message -- the ad set is still spending and only
-a person can stop it now.
+state is otherwise invisible and unguessable. When Meta refuses, the owner gets the
+**opposite** message -- the ad set is still spending and only a person can stop it now.
 
 ### Free-form specs
 
@@ -257,7 +285,8 @@ object instead of uploading a second one.
 ### Staff pages
 
 `cars/staff/` is server-rendered and replaces `django.contrib.admin` entirely: cars,
-images, bookings, slots, schedules, questions, customers and staff accounts.
+their photos and videos, leads, and staff accounts. It was eight sections; bookings,
+slots, schedules, questions and customers went with their features.
 `django.contrib.admin` is built on `QuerySet` and `ModelForm`, so an entity that leaves
 the ORM takes its admin page with it -- which is why each page was built in the same step
 as its store module.
@@ -302,21 +331,25 @@ escalation is refused before a page is reached rather than by four guards agreei
 
 ### Getting a staff account
 
-**Nobody registers as staff.** Self sign-up exists, but it is the customer path and
-produces an account in no groups. Two independent things stop that becoming staff access:
-the staff pages accept only tokens minted by the *staff* app client, which has no
-password auth flow at all, and group membership is admin-only.
+**Nobody registers as staff, and nobody registers at all.** Self sign-up is gone with
+customer accounts, so the only way into this pool is an owner using the page below or
+the CLI. Two independent things still guard it: the staff pages accept only tokens
+minted by the *staff* app client, which has no password auth flow at all, and group
+membership is admin-only. Being *in* the pool is not a permission -- `admin-create-user`
+leaves somebody in no group, and a test asserts that such an account can sign nothing.
 
 An owner adds people at `/api/staff/accounts/add/`. **The pool sends no email**, so the
 page shows the temporary password once, in the response to the request that created it --
 pass it on there and then. Cognito forces a change at first sign-in.
 
-**An address that already has a customer account cannot be created, and is promoted
-instead.** One pool holds both, and email is the username, so a colleague who ever
-signed up on the public site is not addable -- `create_staff` gets
-`UsernameExistsException`. The page now recognises that and offers `grant_staff`, on a
+**An address already in the pool cannot be created, and is promoted instead.** Email
+is the username, so a colleague who has an account for any reason is not addable --
+`create_staff` gets `UsernameExistsException`. This was written when the public site
+had sign-up and the pool was full of customers; it stays because the situation it
+handles is now *any* duplicate, including the common one of an owner who reissued an
+account and forgot. The page now recognises that and offers `grant_staff`, on a
 second submit, with no password issued: they sign in with the one they already have, and
-they keep the same `sub`, so their bookings and questions stay attached. It is no
+they keep the same `sub`, so anything recorded against them stays attached. It is no
 escalation -- `staff.add` is `OWNER_ONLY` and the form still offers only
 `ASSIGNABLE_GROUPS` -- but it *is* handing somebody the staff pages, which is why it is
 confirmed rather than silent. A duplicate who is already staff is still refused, with a
@@ -350,10 +383,14 @@ aws cognito-idp admin-set-user-password --region ap-northeast-1 --user-pool-id $
 
 ### Signing a test in
 
-`tests_fake_cognito.py`. Both cookie flows resolve `cars.authentication.verify` at call
-time, so patching that one name covers DRF and the staff pages, and **nothing in
-production branches on being tested**. Use `sign_in(self.client, user)`, or
-`staff=True` for the staff pages.
+`tests_fake_cognito.py`. The staff cookie flow resolves `cars.authentication.verify` at
+call time, so patching that one name covers DRF and the staff pages, and **nothing in
+production branches on being tested**. Use `sign_in(self.client, user)`.
+
+`sign_in` keeps a `staff=` keyword that now defaults to true, because there is one
+cookie left and every caller means the same thing by signing in. `staff=False` survives
+for the one place the distinction is real: minting a token from a *different* app
+client and proving `StaffCookieAuthentication` refuses it.
 
 moto is used only where the token itself is the subject -- `tests_cognito.py` and
 `tests_staff_auth.py` mint and verify real RS256 signatures. It is deliberately not used
@@ -363,13 +400,138 @@ and would vanish on any machine without `requirements-dev.txt`.
 Every class is a `SimpleTestCase`. That is load-bearing rather than tidiness: with no
 database configured, an ORM call that survived the teardown fails instead of quietly
 opening SQLite. `tests_store.count_dynamo_calls` replaces `assertNumQueries` and is worth
-more than it was -- the car detail page is deliberately one Query, and a per-question read
+more than it was -- the car detail page is deliberately one Query, and a per-row read
 in a loop is exactly what would undo that.
+
+## What was removed, and why it is not coming back
+
+Deleted in one change in September 2026, along with every test, template, route,
+stylesheet, store module, model and translation key that served them.
+
+| Gone | Why |
+|---|---|
+| Test-drive booking, slots, schedules, availability | Asking a cold click to commit to a time and place in a car park. Ten bookings ever, all cancelled, all tests. |
+| Customer accounts, sign-up, email confirmation codes, password reset, the `UserMigration` and `LinkAuth` triggers | A stranger will not create an account to enquire about a used car. The account existed only to hang a booking off. |
+| Per-car questions and answers, and the staff queue for them | Nobody asked one. A person with a question telephones. |
+| Notifications and the bell | They notified you about bookings and answers. |
+| The customers list | Nothing writes a customer any more. |
+| Google Fonts | 439 KB of CJK webfont, larger than the entire application, for type nobody remarked on. System stack instead. |
+
+**Before concluding the design was the problem, note what was never established.**
+CloudFront access logging is **off**, so the site has no record of whether anybody ever
+arrived; the only evidence is in Meta's Events Manager. And on 2026-09-23 the new ad
+account had **no payment method**, so the promotion may never have delivered at all. Two
+things are true regardless, which is why this was worth doing either way: the promotion
+ran while the booking page demanded an account, a password and an emailed code before it
+would show a calendar, and "turn up in Hamura at 15:00 next Saturday" is a far larger
+ask of a cold click than "here is my number".
+
+Enabling that logging is still open, so the next campaign has ground truth that does not
+depend on Meta. See `docs/TODO.md`.
+
+**What the removal was worth, measured.** Car page, phone viewport, before and after:
+
+| | before | after |
+|---|---|---|
+| Page weight | 2.03 MB, 28 requests | ~390 KB compressed, 13 requests |
+| Third-party share | 74% of bytes | none on the critical path |
+| CLS | 0.226 | **0.0243** |
+| LCP | — | ~900 ms |
+
+The after figures come from `tools/` against the real server-rendered document. Measure
+that, not `vite preview`: preview serves the SPA's own `index.html` with an empty
+`#root`, so the app appearing in it registers as a 0.42 layout shift that production
+does not have. This is the sort of thing that gets "fixed" for a week before somebody
+notices the measurement was wrong.
+
+## The phone is the design, and it was measured
+
+The car page is the landing page an advertisement buys, and on a phone it had
+**nothing sellable above the fold**. Measured at 390x664 with the gallery first: the
+car's name sat at 768px, the price at 812, the first input at 1013 and the submit
+button at **1170**. Somebody who tapped a video thirty seconds ago got a masthead, a
+back link and a photograph, and scrolled most of two screens to learn what the car
+was called.
+
+What fixed it, in order of how much each was worth:
+
+* **`.detail` puts `.summary` before `.gallery` below 900px**, with `order`. Source
+  order stays gallery-first, because that is the order the document should read in
+  and what the desktop grid wants. A price makes somebody scroll to a picture; a
+  picture does not make anybody scroll to a price.
+* **The masthead is one row on a phone**, 63px instead of 170. "ホーム" is hidden
+  below 767px -- the monogram goes home and a car page has a back link -- and
+  `.callbtn--compact`, which `CallButton` had been asking for since it was written,
+  finally has a rule.
+* **The thumbnails scroll sideways** instead of wrapping to three rows: 69px instead
+  of 207. Sideways scroll is normally the thing to avoid and `table.stack` exists in
+  the staff sheet to prevent it. It is right here because nothing is hidden by it --
+  every thumbnail duplicates a photograph the main frame already reaches.
+* **`.detail > * { min-width: 0 }`**, without which none of the above works. A grid
+  item's default `min-width` is `auto`, `overflow-x` on a descendant does not change
+  that, and the un-wrapped thumbnail row measured the gallery column at 766px inside
+  a 390px phone -- a horizontal scrollbar on every page. **Check for page overflow at
+  320, 360 and 390 after any layout change here**; it has arrived by two different
+  routes now.
+
+Result: name at 222px, price 266, button 583. **Do not put anything above
+`.summary` on that page** without measuring what it costs.
+
+**The submit button is never disabled.** It was grey until both fields were filled,
+and on a dark theme a disabled button is the same family as the panel behind it -- so
+the one obviously-pressable thing on the page appeared only *after* the visitor had
+done all the work, and a disabled control never says why it is disabled. It validates
+on submit instead, sets the error and focuses the field that is missing. `busy` is the
+only thing that disables it, because that is a real reason.
+
+**The photographs open.** `Gallery` renders the main frame as a button onto a
+lightbox: Escape closes, arrows move, focus starts on the close button and returns to
+the opener, and the page behind is scroll-locked. The frame is 358px on a phone and
+crops with `object-fit: cover`, so before this there was no way to see a photograph
+whole or large -- on a page where the photographs are the product and the 1600px
+derivative already existed.
+
+## Two classes of bug that do not fail anywhere
+
+Both were found by looking at the site, not by the suite, and both will recur.
+
+**A class the JSX uses and no stylesheet defines.** `.pricebox__flag` rendered 商談中
+as default body text under a full-brightness yellow price, while the listing card
+greyed its plate -- so the lot said "spoken for" and the car's own page said "this is
+the live price". `.callbtn--compact` had never had a rule at all. Nothing errors; the
+element simply arrives unstyled and looks deliberate.
+
+**A page that renders in the wrong language and looks perfect.** `?lang=en` was
+honoured by `pages.py`, published in `hreflang`, and then overridden by React on
+mount, so the English site existed for about 200ms. It survived a screenshot pass:
+fourteen "English" screenshots were byte-identical to their Japanese twins and every
+one of them looked like a good screenshot. `initialLanguage()` now reads `?lang`
+first, and the screenshot step compares hashes and says so.
+
+## Looking at the site
+
+`tools/` holds three scripts and its own README: `seed_lot.py` writes four cars covering
+every branch the templates have, `screenshot.py` photographs every page at 390px and
+1440px in both languages, and `contrast.py` checks WCAG AA over every rendered text
+node. `docs/screenshots/` is the committed output.
+
+None of it runs in CI. It needs a browser, a seeded table and two servers, and what it
+produces is something a person reads. It is here because the two things it found could
+not have been found by the suite: a contrast ratio and a line break are not assertions
+anybody thinks to write, and both were invisible. The price was white on the yellow
+plate, and every Japanese car name on the desktop lot broke mid-word.
+
+**`pages.asset_tags` falls back to `frontend/dist/index.html` off Lambda**, and
+`config/urls.py` serves `/assets/*` from the same place under `DEBUG`. Without those
+two, a Django running on a laptop serves every page unstyled with no application on it
+-- `_fetch_shell` reaches S3 and only S3, the failure is swallowed, and nothing looks
+broken from the outside. The consequence was that the one document production actually
+serves could not be opened locally at all.
 
 ## Conventions
 
-**Rules live in domain modules, not views.** `booking.py`, `qa.py`, `notifications.py`
-hold every check, so the same rule applies from the API, a management command, curl or a
+**Rules live in domain modules, not views.** `requests.py` and `advertising.py` hold
+every check, so the same rule applies from the API, a management command, curl or a
 test. Views are thin and translate errors into responses. The store raises typed errors
 and knows no wording; the domain module owns every sentence a customer reads.
 
@@ -381,10 +543,10 @@ valuable thing in the file.
 **Tests assert behaviour and wording.** Customer-facing strings are asserted verbatim in
 `cars/tests.py`. If a change makes you edit one of those strings, suspect the change.
 
-**Nothing runs on a timer.** Slots are materialised when availability is read, not by a
-cron job. This began as a way to let Aurora scale to zero, and Aurora is gone; it
-survives because it is one fewer moving part, and because the expiry sweeps it replaced
-are now TTL attributes the table handles itself.
+**Nothing runs on a timer**, and now there is nothing that could want to. Slot
+materialisation was the last scheduled-looking thing and it went with booking. No cron,
+no EventBridge rule, no periodic Lambda: every write happens because somebody asked for
+it, and the two expiries that remain are TTL attributes the table handles itself.
 
 **Uploads go straight to S3.** Lambda has a ~4.5 MB request ceiling, so the staff pages
 sign a presigned POST and the browser uploads directly. `direct-upload.js` is
@@ -406,22 +568,29 @@ in git, where they can be reviewed.
 **Email is queued, never sent inline.** `mail.queue_email` writes JSON to an S3 outbox
 and a second Lambda sends it via Brevo (not SES). Brevo is reachable directly now, so
 the outbox is a choice rather than a constraint: it is fire-and-forget by design, and a
-customer's booking must never fail -- or wait 600ms -- because of an email.
+lead must never fail -- or wait 600ms -- because of an email. That is the whole bargain:
+the one thing the site exists to capture is a phone number, and it is captured before
+anything is told about it.
 
-**Every customer-facing email is bilingual, off a stored language.** `CarQuestion`,
-`PendingRegistration`, `CarRequest` and now `Booking` each carry one, snapshotted when
-the record is made -- not looked up from the account, because the three messages a
-booking sends are days apart and a guest has no account to consult. `mail._when` uses
-Django's `date_format`, never `strftime`: its Japanese line was `%Y年%-m月%-d日` for a
-year and had never once run, and `%-m` is glibc-only while Windows raises on 年 outright.
+**The site sends one email, and it goes to staff.** `mail.notify_staff_of_request`,
+plus `notify_staff_of_paused_ad` when an advertisement stops. Nothing is sent to the
+person who filled the form: they asked for a telephone call and they get one.
 
-**A guest has nowhere to sign in, and `mail._can_sign_in` is the only place that
-decides.** `identity.is_guest` reads the `guest:` prefix (`identity.GUEST_PREFIX`, not
-`booking`'s -- `booking` imports `mail`, so the constant cannot live there). Three
-messages pointed at `/account` for a day after guest booking shipped, which is a sign-in
-form with nothing behind it for them: cancel and reschedule are `IsAuthenticated`. They
-are told to phone. `identity.user_for_sub` short-circuits on the same prefix rather than
-spending an `AdminGetUser` discovering what it already said.
+`CarRequest` still carries a `language`, snapshotted when the record is made, because
+the staff alert says which language the person wrote in -- whoever rings them back
+needs to know that before they dial.
+
+Four customer-facing emails went with booking. `mail._when` went with them, and is
+worth remembering: it used Django's `date_format` rather than `strftime` because its
+Japanese line was `%Y年%-m月%-d日` for a year and had never once run -- `%-m` is
+glibc-only and Windows raises on 年 outright. Any date formatting added here should
+use `date_format` for the same reason.
+
+**Everybody on the public site is a guest**, so nothing has to decide whether they
+are. `identity.py`, its `guest:` prefix and `mail._can_sign_in` are all gone -- they
+existed to stop three booking emails pointing a guest at `/account`, a sign-in form
+with nothing behind it for them. There is no `/account` and no customer sign-in, which
+is the same fix arrived at by deleting rather than by branching.
 
 **The stylesheet is partials, and the order is the cascade.** `frontend/src/styles.css`
 is an import barrel and nothing else; the numbered files under `frontend/src/styles/`
@@ -436,6 +605,28 @@ It also warns about keys no component references -- comparing the two files only
 each other cannot catch a key both of them have and nothing reads, which is how seven
 accumulated. That half warns rather than fails, because `t(`status.${x}`)` cannot be
 resolved statically and a check that cries wolf gets disabled.
+
+**Japanese is the default, and two places have to agree on it.**
+`i18n/index.js` `initialLanguage()` and `pages._language_from` both return `"ja"` when
+nobody has asked for anything else. They must move together: if the server shell picks
+one language and the app picks the other, a reader gets a Japanese page that turns
+English the moment React mounts, which is worse than either. English is `?lang=en` and
+the switcher, and the saved preference still wins over both.
+
+It was English for about an hour during the restructure. Everybody who walks into this
+shop is in Hamura.
+
+**The site is dark, and the tokens are the whole theme.** `00-tokens.css` carries a
+surface scale -- `--bg`, `--surface`, `--surface-2`, `--line`, `--text`, `--text-dim` --
+and no partial should contain a colour literal.
+
+Inverting a theme is not a palette swap, and the two ways it goes wrong are both silent.
+A token whose *definition* is deleted leaves `var(--gone)` calls behind, and an
+undefined custom property invalidates the whole declaration, so the element quietly
+inherits instead: twelve elements meant to be dim rendered at full brightness. A token
+whose definition *survives* is worse, because it keeps working and stops being right --
+`--ink-soft` was legible on white and became a 2.03:1 back link. Neither fails anywhere.
+`tools/contrast.py` is the only thing that catches either.
 
 **The brand is two assets, used at two scales.** `docs/Logo.png` is the master artwork
 -- a kei car, a swoosh and a chrome DM, about 1167x600 once trimmed. It is an
@@ -467,9 +658,22 @@ picture -- its ground is baked into `docs/Logo.png`.
 
 **The yellow is `--plate`, and it is the kei number plate**, which is the legal marker
 of the class this shop sells rather than an accent picked for contrast. It says exactly
-two things: this is the price, and this is the one action on the screen. Selection is
-ink reversed out, not yellow -- the booking flow once had a yellow selected day, a
-yellow selected slot and a yellow button on one short screen, and none of them led.
+two things: this is the price, and this is the one thing you came here to know.
+
+**On the dark theme it says only the first of those.** It used to carry the primary
+button as well, and on a dark ground it cannot: the yellow reads as *a number plate*,
+so a yellow button beside a yellow price is two things shouting the same word. The one
+action is `--go` green, which already means "in stock" in the other place it appears.
+Selection is ink reversed out and never yellow, a rule inherited from the booking flow,
+which once had a yellow selected day, a yellow selected slot and a yellow button on one
+short screen, and none of them led.
+
+**`--plate` carries `--ink`, never `--text`.** This is not a preference. `--text`
+inverted with the theme -- it was near-black and is now near-white -- and four rules
+that paired it with a light fill inverted with it and said nothing. The price rendered
+white on yellow at **1.51:1**, on the one element the whole page exists for. Anything
+painted on `--plate`, `--go` or `--flag` takes `--ink`, and `tools/contrast.py` is what
+notices when it does not.
 
 Email inverts the mark -- ink letters on a chrome tile, rather than chrome on ink --
 because the masthead band it sits in is already `--ink`. The tile is a table cell with a

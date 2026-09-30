@@ -2,7 +2,8 @@
 
 .footer {
   background: var(--ink);
-  color: #ccd2da;
+  border-top: 1px solid var(--line);
+  color: var(--text-dim);
   margin-top: auto;
 }
 
@@ -45,7 +46,7 @@
   margin: 0;
   font-size: var(--step-0);
   font-weight: 700;
-  color: #fff;
+  color: var(--text);
 }
 
 /* Browsers italicise <address>, which is the right element and the wrong default. */
@@ -62,27 +63,27 @@
 .footer__prompt {
   margin: 0;
   font-size: var(--step-1);
-  color: #fff;
+  color: var(--text);
 }
 
 .footer__legal {
   margin: 0;
   font-size: var(--step--1);
-  color: #8f9ca5;
+  color: var(--text-dim);
 }
 
 /* Brighter than the copyright beside it: this one is a link, and grey-on-ink at
-   #8f9ca5 does not carry enough to read as one. Underlined for the same reason --
+   var(--text-dim) does not carry enough to read as one. Underlined for the same reason --
    colour alone is not a link on a line that is already coloured. */
 .footer__link {
-  color: #c9d3d9;
+  color: var(--text);
   text-decoration: underline;
   text-underline-offset: 0.2em;
 }
 
 .footer__link:hover,
 .footer__link:focus-visible {
-  color: #fff;
+  color: var(--text);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -92,4 +93,21 @@
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* The address is a link to a map. Underlined only on hover: three lines of
+   permanently underlined text in the footer reads as a wall of links, and the
+   whole block is one target. */
+.footer__map {
+  display: inline-block;
+  padding: var(--space-1) 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.footer__map:hover,
+.footer__map:focus-visible {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
 }

@@ -12,8 +12,8 @@ html {
 
 body {
   margin: 0;
-  background: var(--paper);
-  color: var(--ink);
+  background: var(--bg);
+  color: var(--text);
   font-family: var(--font);
   font-size: var(--step-0);
   line-height: 1.65;
@@ -24,14 +24,21 @@ body {
 }
 
 /* Japanese is set at a wider measure than English for the same token. `ch` is the
-   advance of `0`, so a full-width glyph eats two of them: 68ch is ~68 Latin characters
-   but only ~34 kana, which reads as a column half the intended width. Japanese also
-   breaks at almost any character, so it needs no help finding a line end.
+   advance of `0`, so a full-width glyph eats two of them: 68ch is ~68 Latin
+   characters but only ~34 kana, which reads as a column half the intended width.
+   Japanese also breaks at almost any character, so it needs no help finding a line
+   end.
+
+   That reasoning was right and the number contradicted it. It said 46ch, which is
+   *narrower* than the 68ch it was correcting -- about 23 full-width characters, and
+   measured at 25 on the car page. Japanese body text conventionally runs 35 to 45
+   characters a line; at 25 the privacy page was a 416px ribbon against a thousand
+   pixels of empty black. 80ch is ~40 full-width characters.
 
    This is the first `:lang()` rule in the codebase. It works because i18n/index.js
    already keeps `document.documentElement.lang` in step with the switch. */
 :lang(ja) {
-  --measure: 46ch;
+  --measure: 80ch;
   line-height: 1.85;
 }
 
@@ -47,7 +54,7 @@ a {
 /* On the yellow plate a slate outline disappears; on white a yellow one does. Two
    rules rather than one compromise colour that is weak against both. */
 :focus-visible {
-  outline: 3px solid var(--ink);
+  outline: 3px solid var(--go);
   outline-offset: 3px;
 }
 
@@ -101,4 +108,30 @@ a {
   max-width: var(--shell);
   margin: 0 auto;
   padding: var(--space-5) var(--gutter) var(--space-7);
+}
+
+/* Off-screen until focused, then the first thing on the page. Positioned `fixed`
+   rather than `absolute` so it lands in view wherever the reader had scrolled to. */
+.skiplink {
+  position: fixed;
+  top: -100px;
+  left: var(--space-3);
+  z-index: 60;
+  padding: 0.7rem 1.1rem;
+  border-radius: var(--radius-control);
+  background: var(--go);
+  color: var(--ink);
+  font-weight: 700;
+  text-decoration: none;
+  transition: top 0.12s ease-out;
+}
+
+.skiplink:focus {
+  top: var(--space-3);
+}
+
+/* `#main` takes focus from the skip link, and a focus ring on the whole page is
+   noise -- the point is that the next Tab starts here, not that the box is outlined. */
+.l-main:focus {
+  outline: none;
 }

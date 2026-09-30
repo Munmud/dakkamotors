@@ -66,7 +66,6 @@ env = environ.Env(
     # Cognito. Pool and client ids are not secrets; only the staff client secret is,
     # and that comes from SSM.
     COGNITO_POOL_ID=(str, ""),
-    COGNITO_CUSTOMER_CLIENT_ID=(str, ""),
     COGNITO_STAFF_CLIENT_ID=(str, ""),
     COGNITO_DOMAIN=(str, ""),
     # A copy of the pool's JWKS, baked into the deploy. A pool publishes exactly two
@@ -197,7 +196,6 @@ DYNAMODB_ENDPOINT_URL = env("DYNAMODB_ENDPOINT_URL")
 # --------------------------------------------------------------------------------------
 
 COGNITO_POOL_ID = env("COGNITO_POOL_ID")
-COGNITO_CUSTOMER_CLIENT_ID = env("COGNITO_CUSTOMER_CLIENT_ID")
 COGNITO_STAFF_CLIENT_ID = env("COGNITO_STAFF_CLIENT_ID")
 COGNITO_DOMAIN = env("COGNITO_DOMAIN")
 COGNITO_JWKS_PATH = env("COGNITO_JWKS_PATH")
@@ -314,22 +312,22 @@ REST_FRAMEWORK = {
     # Cookie credentials only. DRF's default also enables BasicAuthentication, which
     # accepts a password on every request and has no business on a public API - the app
     # is same-origin and sends a cookie.
-    "DEFAULT_AUTHENTICATION_CLASSES": [
-        "cars.authentication.CognitoCookieAuthentication",
-    ],
+    # Nothing. The public API is read-only plus one open, throttled write, and the one
+    # DRF endpoint that needs a credential -- `SignUploadView` -- names
+    # `StaffCookieAuthentication` itself. A project-wide default here would put a
+    # cookie reader in front of every public request for no benefit.
+    "DEFAULT_AUTHENTICATION_CLASSES": [],
     # DRF's default is django.contrib.auth.models.AnonymousUser, which imports the auth
     # models and through them contenttypes. Neither app is installed, so the import
     # raises and every anonymous request 500s.
     "UNAUTHENTICATED_USER": "cars.cognito.AnonymousCognitoUser",
     "DEFAULT_THROTTLE_CLASSES": [],
     "DEFAULT_THROTTLE_RATES": {
-        # Applied to registration and login only. Without email verification an
-        # account costs nothing to create, so the sign-up endpoint needs a ceiling.
+        # The lead form, and nothing else. It is the site's only write and it takes no
+        # sign-in, so this is what stops it being a free mailbox for the staff address:
+        # twenty an hour from one address is plenty for a person and useless to a
+        # script. The scope keeps its name from the accounts it was built for.
         "auth": "20/hour",
-            # Asking is authenticated, so this has to be a UserRateThrottle scope -
-            # AnonRateThrottle keys on IP and returns no key at all for a signed-in
-            # request, which would make it decoration.
-            "ask": "10/day",
     },
 }
 

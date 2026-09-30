@@ -113,16 +113,20 @@ def token_for(user, *, staff=False):
     return token
 
 
-def sign_in(client, user, *, staff=False):
-    """Put the right cookie on the test client. The replacement for `force_login`."""
-    cookie = authentication.STAFF_COOKIE if staff else authentication.ACCESS_COOKIE
-    client.cookies[cookie] = token_for(user, staff=staff)
+def sign_in(client, user, *, staff=True):
+    """Put the staff cookie on the test client. The replacement for `force_login`.
+
+    `staff` keeps its keyword and now defaults to true: there is one cookie left, and
+    every caller means the same thing by signing in. It survives as a parameter only so
+    `staff=False` can still mint a token from the *other* app client and prove that
+    `StaffCookieAuthentication` refuses it -- the one place the distinction is real.
+    """
+    client.cookies[authentication.STAFF_COOKIE] = token_for(user, staff=staff)
     return user
 
 
-def sign_out(client, *, staff=False):
-    cookie = authentication.STAFF_COOKIE if staff else authentication.ACCESS_COOKIE
-    client.cookies.pop(cookie, None)
+def sign_out(client, **_kwargs):
+    client.cookies.pop(authentication.STAFF_COOKIE, None)
 
 
 class FakeCognito:

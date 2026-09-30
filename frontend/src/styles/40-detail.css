@@ -6,12 +6,52 @@
   min-height: 44px;
   margin-bottom: var(--space-2);
   font-weight: 700;
-  color: var(--ink-soft);
+  /* `--ink-soft` was the light theme's muted ink. On this page it is a dark slate on
+     a darker ground -- it measured 2.03:1, which is a link you cannot see. */
+  color: var(--text-dim);
 }
 
+/*
+   On a phone the name, the price and the form come FIRST, above the photographs.
+
+   Measured, at 390x664, with the gallery first: the car's name sat at 768px, the
+   price at 812, the form at 874 and its button at 1170. Somebody who tapped a video
+   advertisement thirty seconds ago arrived at a masthead, a back link and a
+   photograph, and had to scroll most of two screens to learn what the car was called
+   or what it cost. The one thing the page is for was nowhere near the screen.
+
+   The photograph is not demoted -- it is still immediately below, and the point of
+   putting the price above it is that a price makes somebody scroll to the picture,
+   where a picture does not make anybody scroll to the price.
+
+   Source order stays gallery-then-summary, because that is the order a document
+   should read in and the desktop layout wants it: `order` moves the boxes, on the
+   one breakpoint where they are stacked. Nothing here is focusable out of order --
+   the gallery's controls stay together and follow the form.
+*/
 .detail {
   display: grid;
   gap: var(--space-4);
+}
+
+@media (max-width: 899px) {
+  .detail > .summary { order: 1; }
+  .detail > .gallery { order: 2; }
+}
+
+/*
+   `min-width: 0` is not tidying. A grid item's default `min-width` is `auto`, which
+   means "at least as wide as my content", and `overflow-x: auto` on a descendant
+   does not change that -- it only says what to do once the box is too small, and
+   without this the box is never too small.
+
+   The sideways-scrolling thumbnail row is 8 x 88px, so the gallery column measured
+   766px inside a 390px phone and every page on the site got a horizontal scrollbar.
+   The masthead comment records the same bug arriving by a different route, which is
+   how often this one comes back.
+*/
+.detail > * {
+  min-width: 0;
 }
 
 @media (min-width: 900px) {
@@ -28,7 +68,7 @@
 .gallery__frame {
   position: relative;
   aspect-ratio: 3 / 2;
-  background: var(--wash);
+  background: var(--surface-2);
   overflow: hidden;
 }
 
@@ -45,7 +85,7 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: var(--ink);
+  background: var(--surface-2);
   display: block;
 }
 
@@ -54,7 +94,7 @@
   display: block;
   width: 100%;
   height: 100%;
-  background: var(--ink);
+  background: var(--surface-2);
 }
 
 .gallery__thumb-video img {
@@ -69,7 +109,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  color: #fff;
+  color: var(--text);
   font-size: 1.1rem;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
@@ -79,16 +119,38 @@
   inset: 0;
   display: grid;
   place-items: center;
-  color: var(--road);
+  color: var(--text-dim);
 }
 
+/*
+   One row that scrolls sideways, not a wrapping grid.
+
+   Eight photographs at 88px wrap to three rows on a 358px column -- 216px of
+   thumbnails pushing the price and the form further down the page for a reader who
+   has not yet been told what the car is. A single row costs 74px and says the same
+   thing: there are more pictures, drag to see them.
+
+   Sideways scroll is normally the thing to avoid, and `table.stack` exists in the
+   staff sheet precisely to prevent it. It is right here for the same reason it is
+   wrong there: nothing is hidden by it. Every thumbnail is a duplicate of a
+   photograph the arrows and the main frame already reach, so a reader who never
+   drags loses nothing at all.
+*/
 .gallery__thumbs {
   list-style: none;
   margin: 0.65rem 0 0;
-  padding: 0;
+  padding: 0 0 0.35rem;
   display: flex;
   gap: 0.55rem;
-  flex-wrap: wrap;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.gallery__thumbs > li {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
 }
 
 /* 74px wide gave a 55px-tall target, which is fine for a mouse and mean for a thumb.
@@ -101,12 +163,12 @@
   border: 0;
   border-bottom: 4px solid transparent;
   overflow: hidden;
-  background: var(--wash);
+  background: var(--surface-2);
   cursor: pointer;
 }
 
 .gallery__thumb[aria-current="true"] {
-  border-bottom-color: var(--ink);
+  border-bottom-color: var(--go);
 }
 
 .gallery__thumb img {
@@ -122,7 +184,7 @@
 }
 
 .summary__year {
-  color: var(--road);
+  color: var(--text-dim);
   font-weight: 500;
 }
 
@@ -134,10 +196,6 @@
   letter-spacing: -0.02em;
 }
 
-.summary__grade {
-  margin: 0;
-  color: var(--road);
-}
 
 /* Not a boxed panel any more. The price is the plate, the same device and the same
    yellow as the windscreen card on the listing, so the number a buyer saw on the lot
@@ -151,6 +209,10 @@
 }
 
 .pricebox__amount {
+  /* The one number the whole page is for, and it was white on yellow: 1.51:1, the
+     worst contrast on the site, on the element that matters most. `--text` inverted
+     with the theme and this pairing did not follow it. The plate carries `--ink`,
+     which is 8.4:1 and is what the plate was specified to carry. */
   background: var(--plate);
   color: var(--ink);
   border-radius: var(--radius-plate);
@@ -161,11 +223,40 @@
   letter-spacing: -0.02em;
 }
 
-.pricebox__amount--call {
-  font-size: var(--step-1);
+/*
+   A car that is not available says so *on the plate*, not underneath it.
+
+   `.pricebox__flag` was rendered by `CarDetail.jsx` and styled by nothing at all, so
+   商談中 arrived as default body text -- smaller and quieter than the spec labels
+   below it -- beneath a full-brightness yellow price. The listing card has greyed
+   its plate since the beginning (`.card--gone .card__plate`), so the lot said "this
+   one is spoken for" and the car's own page said "this is the live price". Somebody
+   leaves their number, and the call they get back is an apology.
+
+   Same two colours as the card, for the same reason: this has to read as the same
+   state it read as one click earlier.
+*/
+.pricebox--gone .pricebox__amount {
+  background: var(--surface-2);
+  color: var(--text-dim);
+}
+
+.pricebox__flag {
+  justify-self: start;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius-plate);
+  background: var(--flag);
+  color: var(--ink);
+  font-size: var(--step--1);
   font-weight: 700;
-  letter-spacing: 0;
-  padding-block: 0.5rem;
+}
+
+/* The sentence that used to be inside the plate. Beneath it now, at body size, so
+   the plate keeps the weight it is supposed to carry. */
+.pricebox__note {
+  margin-top: calc(var(--space-2) * -1);
+  color: var(--text-dim);
+  font-size: var(--step--1);
 }
 
 .section {
@@ -189,7 +280,12 @@
 .specs {
   margin: 0;
   display: grid;
-  grid-template-columns: minmax(5rem, 13rem) 1fr;
+  /* `fit-content`, not `minmax`. `minmax(5rem, 13rem)` let the label column take
+     its full 13rem for a three-character label like シート, which on a 390px phone
+     left the value 126px: レザーシートカバー wrapped with a single ー orphaned on
+     the second line, beside a label column two-thirds empty. `fit-content` sizes to
+     the content and caps at the same 13rem instead of always claiming it. */
+  grid-template-columns: fit-content(13rem) minmax(0, 1fr);
   gap: 0 var(--space-4);
   border-top: 1px solid var(--line);
   max-width: 46rem;
@@ -197,7 +293,10 @@
 
 .specs__key {
   padding: 0.65rem 0 0.15rem;
-  color: var(--road);
+  /* The rule spans the row. It was on the value only, so every line started in the
+     middle of the page and the labels floated attached to nothing. */
+  border-bottom: 1px solid var(--line);
+  color: var(--text-dim);
   font-size: 0.92rem;
   overflow-wrap: anywhere;
 }
@@ -226,5 +325,131 @@
 }
 
 .prose--muted {
-  color: var(--road);
+  color: var(--text-dim);
+}
+
+/* ------------------------------------------------------------------ lightbox --- */
+/*
+   The photograph, at the size somebody can actually judge a car from.
+
+   The frame on the page is 358px wide on a phone and crops with `object-fit: cover`,
+   so until now a visitor could see neither a large version nor the whole of one --
+   on a page where the photographs are the product and eight of them were uploaded
+   deliberately. The 1600px derivative already existed and nothing reached it.
+
+   `object-fit: contain` here, not cover: this is the one place the picture staff
+   took is shown entire.
+*/
+.gallery__open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+  position: relative;
+}
+
+.gallery__zoom {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  /* Over a photograph, so it carries its own ground rather than trusting the pixels
+     underneath -- which are a different colour on every car. */
+  background: rgb(11 17 20 / 72%);
+  color: var(--paper);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: var(--space-3);
+}
+
+.lightbox__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(4 7 9 / 92%);
+}
+
+.lightbox__photo {
+  position: relative;
+  max-width: 100%;
+  max-height: 92vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.lightbox__close,
+.lightbox__step {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  /* 48px, because every one of these is pressed with a thumb while holding a phone
+     in one hand, and a miss on the close button is a trapped visitor. */
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(11 17 20 / 80%);
+  color: var(--paper);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lightbox__close {
+  top: var(--space-3);
+  right: var(--space-3);
+}
+
+.lightbox__step--prev { left: var(--space-3); }
+.lightbox__step--next { right: var(--space-3); }
+
+.lightbox__step {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.lightbox__close:hover,
+.lightbox__step:hover {
+  background: var(--ink);
+}
+
+.lightbox__close:focus-visible,
+.lightbox__step:focus-visible {
+  outline: 2px solid var(--go);
+  outline-offset: 2px;
+}
+
+.lightbox__count {
+  position: absolute;
+  bottom: var(--space-3);
+  margin: 0;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  background: rgb(11 17 20 / 80%);
+  color: var(--paper);
+  font-size: var(--step--1);
+  font-weight: 700;
+}
+
+/* "支払総額", above the number and small. It is a qualifier on the price, not a
+   heading, so it sits tight to the plate rather than floating above it. */
+.pricebox__label {
+  margin-bottom: calc(var(--space-2) * -1);
+  color: var(--text-dim);
+  font-size: var(--step--1);
+  font-weight: 700;
 }

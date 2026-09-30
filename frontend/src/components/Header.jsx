@@ -1,10 +1,8 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
-import NotificationBell from "./NotificationBell";
-
+import CallButton from "./CallButton";
 import { LANGUAGES } from "../i18n";
-import { useAuth } from "../lib/AuthContext";
 
 function LanguageSwitch() {
   const { t, i18n } = useTranslation();
@@ -23,63 +21,6 @@ function LanguageSwitch() {
         </button>
       ))}
     </div>
-  );
-}
-
-function AccountLink() {
-  const { t } = useTranslation();
-  const { customer, state } = useAuth();
-  const { pathname } = useLocation();
-  // Nothing until the session check finishes, so a signed-in visitor never sees
-  // "Sign in" flash first.
-  if (state === "unknown") return null;
-  if (customer) {
-    return (
-      <Link className="masthead__account" to="/account">
-        {t("booking.myBookings")}
-      </Link>
-    );
-  }
-  // Both ways in, on every page. Most people arriving here have no account yet, and a
-  // lone "Sign in" reads as a door for members. `next` is the page they are on, so a
-  // customer who signs in from a car comes back to that car -- except from the
-  // account pages themselves, which would only loop.
-  const next = pathname.startsWith("/account") ? "" : `?next=${encodeURIComponent(pathname)}`;
-  return (
-    <>
-      <Link className="masthead__account" to={`/account/login${next}`}>
-        {t("auth.signIn")}
-      </Link>
-      <Link className="masthead__account masthead__account--primary" to={`/account/register${next}`}>
-        {t("auth.signUp")}
-      </Link>
-    </>
-  );
-}
-
-
-/**
- * The way into the admin, for the people who have one.
- *
- * A plain anchor, not a router Link: /api/staff/ is rendered by Django, so React must
- * hand the browser over rather than try to route it.
- *
- * This replaced the "Staff login" link that used to sit in the footer of every page.
- * Advertising the admin URL to every visitor bought nothing - staff know where it is,
- * and anyone else reading it was not the audience. Signing in there sets the same
- * session cookie the app reads, so `is_staff` comes back from /api/auth/me/ and the
- * button appears on its own.
- */
-function AdminLink() {
-  const { t } = useTranslation();
-  const { customer, state } = useAuth();
-
-  if (state !== "signed-in" || !customer?.is_staff) return null;
-
-  return (
-    <a className="masthead__admin" href="/api/staff/">
-      {t("nav.admin")}
-    </a>
   );
 }
 
@@ -136,9 +77,11 @@ export default function Header() {
           <Link className="masthead__account masthead__home" to="/">
             {t("nav.home")}
           </Link>
-          <NotificationBell />
-          <AdminLink />
-          <AccountLink />
+          {/* The number, in the masthead, on every page. Somebody who is ready to
+              speak to a person should never have to go looking: this is the shortest
+              path there is from an advertisement to a conversation, and on a phone it
+              dials. */}
+          <CallButton compact />
           <LanguageSwitch />
         </div>
       </div>

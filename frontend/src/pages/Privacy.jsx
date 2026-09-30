@@ -1,6 +1,7 @@
 import { Trans, useTranslation } from "react-i18next";
 
 import { phoneDisplay, phoneHref } from "../lib/format";
+import { usePageTitle } from "../lib/title";
 
 /**
  * What the site does with a visitor's information.
@@ -22,7 +23,8 @@ import { phoneDisplay, phoneHref } from "../lib/format";
  * into its dynamic exemption and stop any of this being checked.
  */
 export default function Privacy() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  usePageTitle(t("privacy.title"), i18n.language);
 
   return (
     <article className="legal">

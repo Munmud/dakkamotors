@@ -28,7 +28,7 @@ def _host():
 
 
 class GSI1(GlobalSecondaryIndex):
-    """Listing and queue reads: cars by status, bookings by status, the question queue."""
+    """Listing and queue reads: cars by status, the lead queue, the photo backlog."""
 
     class Meta:
         index_name = "gsi1"

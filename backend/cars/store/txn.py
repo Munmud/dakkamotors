@@ -7,15 +7,16 @@ a fixed order:
 
     ConditionCheck, Delete, Put, Update
 
-preserving call order only *within* each bucket. So a booking that calls
-`update(slot)`, `update(customer)`, `save(seat)`, `save(booking)` goes on the wire as
-`[seat, booking, slot, customer]`, and reading `reasons[0]` as "the slot" attributes the
-wrong message to the customer -- "that time has just been taken" when what actually
-happened is "you have already booked that time".
+preserving call order only *within* each bucket. So `store.cars.create`, which calls
+`save(car)`, `save(slug_guard)`, `save(chassis_guard)`, has its reasons come back in
+bucket order rather than call order -- and reading `reasons[0]` as "the car" would
+report a duplicate chassis number as a duplicate slug, retry with a bumped suffix, and
+loop fifty times before giving up on the wrong thing.
 
-That is not hypothetical: it is exactly what the migration spike caught, and nothing
-about it is visible at the call site. So this module never lets callers index the list.
-Every operation is added with a label, and failures come back as `{label: reason}`.
+That is not hypothetical: it is exactly what the migration spike caught, on a
+transaction with four items rather than three, and nothing about it is visible at the
+call site. So this module never lets callers index the list. Every operation is added
+with a label, and failures come back as `{label: reason}`.
 """
 
 import logging

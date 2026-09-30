@@ -90,29 +90,71 @@ Future features are out of scope for v1 — not listed here on purpose.
 
 ---
 
-## Deferred from test drive booking
+## Test drive booking
 
-Both were consciously skipped to get booking working, and both matter.
+**Removed, 2026-09-29.** Booking, slots, schedules, availability, customer accounts,
+sign-up, email confirmation, password reset, per-car questions and notifications are
+all deleted. Everything in this section was completed and then thrown away; it is kept
+because the reasoning is the point.
 
-- [x] **Booking notification email to staff.** Done, via Brevo.
-- [x] **Customer email verification.** Done, and stricter than planned: no `User` row
-      is created at all until the emailed link is clicked, so there is no such thing as
-      an unverified account. Password reset by email is in too.
-- [x] Confirmation email to the customer when staff confirm, and when staff cancel.
-- [x] An acknowledgement to the customer at the moment they request a slot, before staff
-      have confirmed it. Done, and bilingual. It stayed deferred while everybody who
-      could book also had an account and could see it at `/account`; guest booking made
-      it the **first** thing a stranger from an advertisement receives, and the silence
-      until staff got round to confirming could be hours. A booking now carries the
-      language it was made in, so all three of its messages are written in it.
+A ¥1,000 Meta promotion produced ten bookings, every one cancelled and every one either
+the owner's own address or a throwaway. Zero genuine leads, ever. The premise was that
+somebody who tapped a video advertisement thirty seconds ago would create an account,
+confirm it by email, and then commit to standing in a car park at 15:00 on Saturday.
+
+The site now asks for a name and a phone number and the shop telephones. See
+"What was removed, and why it is not coming back" in `CLAUDE.md`.
+
+Two things were never established, and they are the reason not to be too pleased with
+this: CloudFront access logging is **off**, so there is no record of whether anybody
+ever arrived, and on 2026-09-23 the new ad account had **no payment method**. The
+promotion may simply never have delivered.
+
+- [ ] **Turn on CloudFront access logging**, so the next campaign has ground truth that
+      does not depend on Meta. This is the open item from the above and it should be
+      done before any further spend.
+
+### Two trust signals that were considered and declined
+
+Raised because a first-time visitor has almost nothing to go on before handing over a
+phone number, and answered by the owner on 2026-09-30:
+
+- **Opening hours: there are none to publish.** Small lot, phone answered when it is
+  answered. So nothing on the site may state or imply a time, including "we will call
+  you back today" — `lead.doneBody` says "as soon as we can" and should keep saying
+  something of that shape, and `seo.BUSINESS` carries no `openingHours`. Do not add
+  them back without the owner saying so; they were invented once already.
+- **No photograph of the shop, the lot or the owner.** Not happening, so the trust the
+  site can offer rests on the address (now a map link), the phone number, and the cars
+  themselves. Which makes the card photo matter more, not less — the staff gallery page
+  now says to choose an outside shot of the whole car, because that picture is the home
+  page, the top of the car page and the first thing an advertisement lands on.
+
+Still unanswered, and both cheap:
+
+- [ ] **古物商許可番号** — the secondhand dealer permit number. Every legitimate
+      Japanese shop displays it and its absence is what a cautious buyer notices.
+- [ ] **Is the price 車両本体価格 or 支払総額?** A bare number with nothing said about
+      諸費用 is the most common used-car complaint in Japan. One line under the plate
+      settles it either way.
 
 Email runs through **Brevo**, not SES. `dakkamotors.com` is authenticated (DKIM, SPF,
-DMARC in Route53) and the free tier covers 300 messages a day.
+DMARC in Route53) and the free tier covers 300 messages a day. One message is sent now:
+the staff alert when somebody leaves their number.
 
 ---
 
 ## Later
-Future features (filters, WhatsApp/contact form, multiple locations, financing calculator, etc.) will be scoped in a future version — not part of this checklist.
+
+Future features (filters, multiple locations, financing calculator) will be scoped in a
+future version. The contact form is no longer on this list because it is now the site.
+
+Still open from the DynamoDB cutover:
+
+- [ ] **Make derivative generation a real async invoke.** `tasks.py` still resizes
+      photographs inline against a time budget, which is left over from the Lambda
+      being in a VPC and unable to reach `lambda:InvokeFunction`. It can now.
+- [ ] **Turn on CloudFront access logging** (see above).
 
 ---
 

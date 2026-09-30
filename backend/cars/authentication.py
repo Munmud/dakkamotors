@@ -30,11 +30,8 @@ logger = logging.getLogger(__name__)
 
 #: Cookie names. `dm_rt` is scoped to /api/auth so the refresh token is not attached to
 #: ordinary API calls.
-ACCESS_COOKIE = "dm_at"
-REFRESH_COOKIE = "dm_rt"
 STAFF_COOKIE = "dm_st"
 
-REFRESH_PATH = "/api/auth"
 
 #: A forged token carrying an unknown `kid` must not be able to trigger a network fetch
 #: per request -- that is a cheap amplification vector on a public endpoint.
@@ -121,21 +118,45 @@ def verify(token):
     return claims
 
 
-class CognitoCookieAuthentication(authentication.BaseAuthentication):
-    """Session-style auth over a Cognito token in an httpOnly cookie.
+def _user_from(claims):
+    """Build the user from the token alone.
 
-    Enforces CSRF the same way `SessionAuthentication` did, because the credential is
+    `CognitoUser` fetches the profile attributes lazily, so a request that only needs
+    the subject identifier makes no Cognito call at all.
+    """
+    return cognito.CognitoUser.from_claims(claims)
+
+
+class StaffCookieAuthentication(authentication.BaseAuthentication):
+    """Wiring for the one DRF endpoint the staff pages call.
+
+    This is **not** a general invitation. The staff pages are server-rendered Django
+    views guarded by `staff.auth.staff_required`, and they should stay that way. This
+    class exists for exactly one caller: `direct-upload.js` POSTs to
+    `/api/staff/uploads/sign/`, which *is* DRF, and a staff member who signed in through
+    the hosted UI holds only `dm_st`.
+
+    It was deleted once as unused. It was unused because nothing had been wired to it,
+    which is a different thing -- and the cost of removing it is invisible: signing 403s,
+    `direct-upload.js` reports the refusal, and every upload silently falls back to
+    posting through Lambda, where the ~4.5 MB request ceiling makes a 200 MB video
+    impossible and `_store_upload` validates neither type nor size.
+
+    The cookie is set with `path="/api/staff"` (`staff/auth.py`), and the sign endpoint
+    sits inside that path. Move the endpoint out from under `/api/staff` and the browser
+    stops attaching the cookie, silently.
+
+    It used to subclass a `CognitoCookieAuthentication` shared with customer sessions.
+    Customers have no sessions now, so the base had one subclass and is folded in --
+    but the `client_id` check it carried stays, and stays load-bearing: a token minted
+    by any other app client is not a credential for these pages.
+
+    CSRF is enforced the same way `SessionAuthentication` did, because the credential is
     still a cookie the browser attaches automatically.
-
-    The `client_id` check is the whole staff/customer isolation: a staff member can sign
-    in through `/api/auth/login/` and be handed a customer token whose `cognito:groups`
-    contains `staff`, so the staff pages must accept only tokens minted by the staff app
-    client. One string comparison, and it is load-bearing.
     """
 
-    #: Which app client's tokens this accepts.
-    expected_client = "COGNITO_CUSTOMER_CLIENT_ID"
-    cookie = ACCESS_COOKIE
+    expected_client = "COGNITO_STAFF_CLIENT_ID"
+    cookie = STAFF_COOKIE
 
     def authenticate(self, request):
         token = request.COOKIES.get(self.cookie)
@@ -163,66 +184,3 @@ class CognitoCookieAuthentication(authentication.BaseAuthentication):
         reason = check.process_view(request, None, (), {})
         if reason:
             fail(reason)
-
-
-def _user_from(claims):
-    """Build the user from the token alone.
-
-    `CognitoUser` fetches the profile attributes lazily, so a request that only needs
-    the subject identifier -- booking, asking, the bell -- makes no Cognito call at all.
-    """
-    return cognito.CognitoUser.from_claims(claims)
-
-
-class StaffCookieAuthentication(CognitoCookieAuthentication):
-    """Wiring for the one DRF endpoint the staff pages call.
-
-    This is **not** a general invitation. The staff pages are server-rendered Django
-    views guarded by `staff.auth.staff_required`, and they should stay that way. This
-    class exists for exactly one caller: `direct-upload.js` POSTs to
-    `/api/staff/uploads/sign/`, which *is* DRF, and a staff member who signed in through
-    the hosted UI holds only `dm_st`.
-
-    It was deleted once as unused. It was unused because nothing had been wired to it,
-    which is a different thing -- and the cost of removing it is invisible: signing 403s,
-    `direct-upload.js` reports the refusal, and every upload silently falls back to
-    posting through Lambda, where the ~4.5 MB request ceiling makes a 200 MB video
-    impossible and `_store_upload` validates neither type nor size.
-
-    The cookie is set with `path="/api/staff"` (`staff/auth.py`), and the sign endpoint
-    sits inside that path. Move the endpoint out from under `/api/staff` and the browser
-    stops attaching the cookie, silently.
-    """
-
-    expected_client = "COGNITO_STAFF_CLIENT_ID"
-    cookie = STAFF_COOKIE
-
-
-def set_session_cookies(response, tokens, *, secure=True):
-    """Put the token bundle in httpOnly cookies.
-
-    Both live under /api/*, which is the CachingDisabled CloudFront behaviour; the page
-    behaviours forward no cookies at all, so nothing here can leak into a cached HTML
-    response.
-    """
-    access = tokens.get("AccessToken")
-    refresh_token = tokens.get("RefreshToken")
-    expires = int(tokens.get("ExpiresIn") or 3600)
-
-    if access:
-        response.set_cookie(
-            ACCESS_COOKIE, access, max_age=expires, httponly=True,
-            secure=secure, samesite="Lax", path="/api",
-        )
-    if refresh_token:
-        response.set_cookie(
-            REFRESH_COOKIE, refresh_token, max_age=30 * 24 * 3600, httponly=True,
-            secure=secure, samesite="Lax", path=REFRESH_PATH,
-        )
-    return response
-
-
-def clear_session_cookies(response):
-    response.delete_cookie(ACCESS_COOKIE, path="/api")
-    response.delete_cookie(REFRESH_COOKIE, path=REFRESH_PATH)
-    return response

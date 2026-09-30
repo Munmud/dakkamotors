@@ -25,9 +25,6 @@ def robots_txt(request):
         # worth stating where somebody reading robots.txt will see it.
         "Disallow: /api/staff/",
         "Disallow: /api/",
-        # Sign-in and booking screens: nothing to index, and every URL under them is
-        # personal to one customer.
-        "Disallow: /account",
         "",
         # Answer engines look for this explicitly.
         f"Sitemap: {seo.SITE_URL}/sitemap.xml",
@@ -100,8 +97,8 @@ def llms_txt(request):
         "",
         "## How buying works",
         "- Every listing is one specific vehicle on the lot, not a model or a trim level.",
-        "- There is no online checkout and no enquiry form. Buyers phone the number "
-        "above to ask about a car or arrange to see it.",
+        "- There is no online checkout. Buyers either phone the number above or leave a "
+        "name and a number on a car's page and the shop calls them back.",
         '- A listing with no price shows "Call for price"; ring to ask.',
         "",
         "## Areas served",

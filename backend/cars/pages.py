@@ -15,6 +15,8 @@ the summary the moment it mounts.
 import html
 import json
 import logging
+import os
+import pathlib
 import re
 import time
 
@@ -22,7 +24,6 @@ import boto3
 from django.conf import settings
 from django.http import Http404, HttpResponse
 
-from . import qa
 from . import seo
 from . import specs
 from .choices import CarStatus
@@ -57,11 +58,38 @@ def _fetch_shell():
     return _shell_cache["html"]
 
 
+#: The same file on disk, for a laptop. `backend/cars/pages.py` -> repo root.
+_LOCAL_SHELL = (pathlib.Path(__file__).resolve().parents[2]
+                / "frontend" / "dist" / "index.html")
+
+
+def _local_shell():
+    """The locally built index.html, when there is no bucket to read.
+
+    Only off Lambda, so production behaviour is unchanged -- the same gate
+    `config/ssm.py` uses, and for the same reason.
+
+    Without this a Django running on a laptop serves every page unstyled and with no
+    app on it: `_fetch_shell` reaches S3 and only S3, so `asset_tags()` swallows the
+    failure and returns "". The pages still carried their metadata, so nothing looked
+    broken from the outside, and the result was that the one document production
+    actually serves -- the server-rendered shell, with the app mounting over it --
+    could not be opened or measured locally at all. Its CLS was found by measuring
+    something else.
+    """
+    if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or not _LOCAL_SHELL.exists():
+        return None
+    return _LOCAL_SHELL.read_text(encoding="utf-8")
+
+
 def asset_tags():
     """Just the <script>/<link> tags, pulled out of the built shell."""
     try:
         return "\n    ".join(_ASSET_TAG.findall(_fetch_shell()))
     except Exception:
+        local = _local_shell()
+        if local is not None:
+            return "\n    ".join(_ASSET_TAG.findall(local))
         # A missing bundle must not take the site down; the page still carries its
         # metadata, which is what the crawler came for.
         logger.exception("Could not read the built frontend shell from S3")
@@ -83,7 +111,7 @@ SHARE_CARD = f"{seo.SITE_URL}/assets/share-card.jpg"
 
 
 def _head(*, title, description, canonical, language, image=None, robots=None,
-          structured_data=None):
+          structured_data=None, preload_image=None):
     # Every page unfurls with a picture. Before this, one without its own fell back to
     # `summary`, a card with no image at all -- the least clickable thing a link can
     # turn into in a chat window, which is where most of these are pasted.
@@ -109,6 +137,16 @@ def _head(*, title, description, canonical, language, image=None, robots=None,
     tags += f"""
     <meta property="og:image" content="{_esc(image)}" />
     <meta name="twitter:image" content="{_esc(image)}" />"""
+    if preload_image:
+        # The car's first photo is the largest thing above the fold and therefore the
+        # LCP element. Without this the browser cannot start fetching it until React
+        # has downloaded, parsed and rendered -- three round trips after it could
+        # have. `imagesrcset`/`imagesizes` so the preload picks the same file the
+        # <picture> will, rather than fetching a second one.
+        srcset, sizes = preload_image
+        tags += f"""
+    <link rel="preload" as="image" imagesrcset="{_esc(srcset)}"
+          imagesizes="{_esc(sizes)}" fetchpriority="high" />"""
     if robots:
         tags += f"""
     <meta name="robots" content="{_esc(robots)}" />"""
@@ -141,6 +179,18 @@ def _pixel():
 
     `fbq('track', 'PageView')` here covers the first page load only. The app fires the
     rest, including a PageView per client-side navigation -- see lib/pixel.js.
+
+    **It loads after the page does.** Meta's two files weigh about 773 KB between them
+    -- `fbevents.js` plus the pixel config -- which is more than twice this site's
+    JavaScript, for something no visitor benefits from. Their snippet is already
+    `async`, but async only means "do not block parsing"; it still competes for
+    bandwidth with the photograph somebody came to look at, on the 4G connection an
+    advertisement click arrives over. Deferring to `load` (and `requestIdleCallback`
+    where there is one) takes it off the critical path entirely.
+
+    Nothing is lost by waiting. `fbq` queues calls made before the library arrives --
+    that is what `n.queue` in the snippet is for -- so the app's own `ViewContent` and
+    `Lead` events fire into the queue and flush when it lands.
     """
     pixel_id = getattr(settings, "META_PIXEL_ID", "")
     if not pixel_id:
@@ -149,16 +199,33 @@ def _pixel():
         logger.error("META_PIXEL_ID is not numeric; no pixel rendered")
         return ""
     return f"""<script>
+      // Meta's stub, verbatim: it defines `fbq` and queues anything called before the
+      // real library arrives. Cheap, synchronous, and it has to exist before the app
+      // mounts or early events are dropped on the floor.
       !function(f,b,e,v,n,t,s)
       {{if(f.fbq)return;n=f.fbq=function(){{n.callMethod?
       n.callMethod.apply(n,arguments):n.queue.push(arguments)}};
       if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-      n.queue=[];t=b.createElement(e);t.async=!0;
-      t.src=v;s=b.getElementsByTagName(e)[0];
-      s.parentNode.insertBefore(t,s)}}(window,document,'script',
-      'https://connect.facebook.net/en_US/fbevents.js');
+      n.queue=[];}}(window,document,'script');
       fbq('init', '{pixel_id}');
       fbq('track', 'PageView');
+      // The 773 KB half, once the page has finished loading and the browser is idle.
+      (function(){{
+        var fired = false;
+        function load() {{
+          if (fired) return; fired = true;
+          var t = document.createElement('script');
+          t.async = true;
+          t.src = 'https://connect.facebook.net/en_US/fbevents.js';
+          document.head.appendChild(t);
+        }}
+        function schedule() {{
+          if (window.requestIdleCallback) requestIdleCallback(load, {{timeout: 4000}});
+          else setTimeout(load, 1200);
+        }}
+        if (document.readyState === 'complete') schedule();
+        else window.addEventListener('load', schedule, {{once: true}});
+      }})();
     </script>
     <noscript><img height="1" width="1" style="display:none" alt=""
       src="https://www.facebook.com/tr?id={pixel_id}&amp;ev=PageView&amp;noscript=1" /></noscript>"""
@@ -188,11 +255,8 @@ def _render(*, language, head, body, initial_data=None):
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#1c2b33" />
+    <meta name="theme-color" content="#0f1519" />
     <link rel="icon" type="image/svg+xml" href="/plate.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap" rel="stylesheet" />
     {head}
     {_pixel()}
     {asset_tags()}
@@ -206,17 +270,37 @@ def _render(*, language, head, body, initial_data=None):
 
 
 def _language_from(request):
+    """Japanese unless the URL asks for something else.
+
+    `Accept-Language` is deliberately ignored. It used to decide here while the app
+    decided from `navigator.language`, and the two disagreed often enough that a
+    visitor could be served one language and watch it flip to the other the moment
+    React mounted. One default, in two places, and they have to agree -- see
+    `frontend/src/i18n/index.js`.
+
+    The switcher still works and still remembers; this is only what a visitor gets
+    before they have said anything. `?lang=en` is what the English hreflang alternate
+    points at, so a crawler still reaches both.
+    """
     requested = (request.GET.get("lang") or "").lower()
-    if requested in seo.LANGUAGES:
-        return requested
-    accept = request.headers.get("Accept-Language", "").lower()
-    return "ja" if accept.startswith("ja") else "en"
+    return requested if requested in seo.LANGUAGES else "ja"
 
 
 def _price_text(car, language):
+    """The price as a reader meets it, labelled as the total.
+
+    "支払総額" is carried here rather than only in the app because this string goes
+    into the `<meta name="description">`, which is the line Google prints under the
+    result. A Japanese buyer scanning a page of used-car listings is looking for
+    exactly that word: almost every other shop quotes 車両本体価格 and adds the
+    諸費用 at the desk, and this one does not. It is the shop's best sentence and
+    it belongs where it is read before the click, not after it.
+    """
     if car.price_jpy is None:
         return "価格はお問い合わせください" if language == "ja" else "Call for price"
-    return f"¥{car.price_jpy:,}"
+    if language == "ja":
+        return f"支払総額¥{car.price_jpy:,}"
+    return f"¥{car.price_jpy:,} all in"
 
 
 # --------------------------------------------------------------------------------------
@@ -299,7 +383,7 @@ def home(request):
 def car_detail(request, slug):
     language = _language_from(request)
     try:
-        # One Query returns the car, its photos and its published questions together --
+        # One Query returns the car, its photos and its videos together --
         # the reason this design is single-table, and the page most worth it: it is
         # server-rendered for crawlers and link previews on a possibly-cold Lambda.
         car = car_store.detail_by_slug(slug)
@@ -338,6 +422,14 @@ def car_detail(request, slug):
         urls = image.derivative_urls
         image_urls.append(urls[max(urls)] if urls else image.url)
 
+    # The srcset the gallery will render, handed to the browser in <head> so the fetch
+    # starts with the document rather than after the bundle. Same `sizes` string as
+    # `Gallery.jsx`, and it has to stay the same or the browser preloads one file and
+    # the page then asks for another.
+    first = images[0].derivative_urls if images else {}
+    preload = ((", ".join(f"{url} {width}w" for width, url in sorted(first.items())),
+                "(max-width: 900px) 100vw, 700px") if first else None)
+
     # A sold car should stay reachable for anyone holding the link, but it should not
     # keep competing in search results against cars that can still be bought.
     robots = "noindex, follow" if car.status == CarStatus.SOLD else None
@@ -350,7 +442,11 @@ def car_detail(request, slug):
         ("Make", car.brand), ("Model", car.model_name), ("Grade", car.grade),
         ("Year", car.manufacture_year), ("Fuel", car.get_fuel_type_display()),
         ("Seats", car.seat_capacity), ("Colour", car.color),
-        ("Model code", car.model_code), ("Chassis number", car.chassis_number),
+        ("Model code", car.model_code),
+        # No chassis number, matching the app's spec table. It stays in the JSON-LD
+        # as `vehicleIdentificationNumber`, which is where a search engine wants it
+        # and where no reader meets it -- but in the body of a public page it serves
+        # no buyer, and it was the note a car with no free-form specs ended on.
     ]
     extra = [specs.localized(row, language) for row in (car.specs or [])]
     spec_rows = "".join(
@@ -360,24 +456,10 @@ def car_detail(request, slug):
     )
     description_text = (car.description_ja if language == "ja" else car.description_en) or ""
 
-    # Rendered here rather than fetched, so a crawler and a reader with no JavaScript
-    # both get the words. A <dl> is the right structure for question and answer and
-    # reads correctly with no stylesheet at all, which is what those readers see.
-    # The asker is never named: these are published anonymously.
-    questions = qa.visible_in(qa.published_for(car), language)
-    qa_block = ""
-    if questions:
-        heading = "この車についてのご質問" if language == "ja" else "Questions about this car"
-        pairs = "".join(
-            f"<dt>{_esc(q.question)}</dt><dd>{_esc(q.answer)}</dd>" for q in questions
-        )
-        qa_block = f"<h2>{_esc(heading)}</h2><dl>{pairs}</dl>"
-
     body = (
         f"<h1>{_esc(name)}</h1><p>{_esc(price)}</p>"
         f"<ul>{spec_rows}</ul>"
         f"<p>{_esc(description_text)}</p>"
-        f"{qa_block}"
         f'<p><a href="tel:{_esc(seo.BUSINESS["telephone"])}">'
         f'{_esc(seo.BUSINESS["telephone_display"])}</a></p>'
         f'<p><a href="/">{_esc("在庫一覧" if language == "ja" else "All cars")}</a></p>'
@@ -392,6 +474,7 @@ def car_detail(request, slug):
                 canonical=canonical,
                 language=language,
                 image=image_urls[0] if image_urls else None,
+                preload_image=preload,
                 robots=robots,
                 structured_data=seo.graph(
                     seo.dealer_schema(),
@@ -399,9 +482,6 @@ def car_detail(request, slug):
                     seo.breadcrumb_schema(
                         [("Home", f"{seo.SITE_URL}/"), (name, canonical)]
                     ),
-                    # Same pairs, same language as the block rendered above. Structured
-                    # data that does not match the visible page is a policy violation.
-                    seo.faq_schema(questions, language),
                 ),
             ),
             body=body,
@@ -411,38 +491,6 @@ def car_detail(request, slug):
                 "data": CarDetailSerializer(car).data,
             },
         )
-    )
-
-
-def app_shell(request, title, description):
-    """A rendered shell for routes that are pure app: accounts, booking.
-
-    They still need real HTML or the URL 404s, but they carry noindex - an account page
-    has no business in search results - and nothing user-specific, because these
-    responses are cached at the CDN for everyone alike.
-    """
-    language = _language_from(request)
-    return HttpResponse(
-        _render(
-            language=language,
-            head=_head(
-                title=title,
-                description=description,
-                canonical=f"{seo.SITE_URL}{request.path}",
-                language=language,
-                robots="noindex, nofollow",
-            ),
-            body=f"<h1>{_esc(title)}</h1>",
-        )
-    )
-
-
-def account_page(request, rest=None):
-    """Every /account/... route renders the same shell; the app routes within it."""
-    return app_shell(
-        request,
-        "Your account | Dakka Motors",
-        "Sign in to book or manage a test drive at Dakka Motors.",
     )
 
 
@@ -474,10 +522,9 @@ def request_car_page(request):
 def privacy_page(request):
     """The privacy notice, rendered rather than shelled.
 
-    Indexable, unlike the account and booking routes: Meta's review of an advertisement
-    looks for this page, and a reviewer -- or anybody checking what a shop does with
-    their details before handing them over -- should find it in a search rather than
-    only from the footer.
+    Indexable: Meta's review of an advertisement looks for this page, and a reviewer
+    -- or anybody checking what a shop does with their details before handing them
+    over -- should find it in a search rather than only from the footer.
 
     The body carries the real text, not just a heading, for the same reason the car
     pages do: a reader with no JavaScript, and every crawler that does not run any,
@@ -492,10 +539,11 @@ def privacy_page(request):
                        "FacebookおよびInstagramの広告に使用するMetaピクセルについての説明を含みます。")
         heading = "プライバシー"
         body_text = (
-            "試乗のご予約には、お名前・メールアドレス・お電話番号をお伺いし、ご予約の確定と"
-            "ご連絡にのみ使用します。当サイトにはMetaピクセルを設置しており、閲覧されたページと"
-            "試乗のご予約に進まれたかどうかがMetaに送信されますが、お名前・メールアドレス・"
-            "お電話番号が送信されることはありません。"
+            "お問い合わせフォームでは、お名前とお電話番号（メールアドレスは任意）をお伺いし、"
+            "折り返しのご連絡にのみ使用します。アカウントの作成は不要です。"
+            "当サイトにはMetaピクセルを設置しており、閲覧されたページとお問い合わせに"
+            "進まれたかどうかがMetaに送信されますが、お名前・お電話番号・メールアドレスが"
+            "送信されることはありません。"
             f"ご不明な点は{seo.BUSINESS['telephone_display']}までお問い合わせください。"
         )
     else:
@@ -505,12 +553,13 @@ def privacy_page(request):
                        "Instagram.")
         heading = "Privacy"
         body_text = (
-            "Booking a test drive asks for your name, email address and phone number, "
-            "and they are used to confirm the appointment and to reach you about it. "
-            "This site carries a Meta pixel, which tells Meta which pages were visited "
-            "and whether a test drive was booked; your name, email address and phone "
-            "number are never sent to Meta. Ad personalisation can be turned off in "
-            "your Facebook or Instagram settings. "
+            "The contact form asks for your name and phone number, and an email "
+            "address if you want to give one. They are used to call you back about a "
+            "car and nothing else. There are no accounts and no password. This site "
+            "carries a Meta pixel, which tells Meta which pages were visited and "
+            "whether somebody used the contact form; your name, phone number and "
+            "email address are never sent to Meta. Ad personalisation can be turned "
+            "off in your Facebook or Instagram settings. "
             f"Call {seo.BUSINESS['telephone_display']} with any question about this."
         )
 
@@ -524,12 +573,3 @@ def privacy_page(request):
     )
 
 
-def book_test_drive_page(request, slug):
-    car = car_store.by_slug(slug)
-    name = car.seo_title_plain if car else "a car"
-    return app_shell(
-        request,
-        f"Book a test drive - {name} | Dakka Motors",
-        f"Choose a time to test drive the {name} at Dakka Motors in "
-        f"{seo.BUSINESS['locality']}.",
-    )

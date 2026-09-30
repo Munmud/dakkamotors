@@ -7,9 +7,9 @@
  * does nothing when it does not. So local development, the test suite and any deploy
  * without an id carry no tracking at all, with no flag to remember to turn off.
  *
- * Why these four events and not more: the campaign is one video for one car on about
- * ¥1,000, and the point of measuring is to answer "did this car's ad produce a
- * booking". Anything finer would be noise at that volume.
+ * Why these three events and not more: the campaign is one video for one car on about
+ * ¥1,000, and the point of measuring is to answer "did this car's ad produce a lead".
+ * Anything finer would be noise at that volume.
  *
  * Note that the ad set is NOT optimised for these conversions. Meta needs roughly 50
  * a week to leave the learning phase and this will produce single digits, so the
@@ -53,12 +53,17 @@ export function viewedCar(slug) {
   track("ViewContent", { content_ids: [slug], content_type: PRODUCT });
 }
 
-/** They opened the booking page: the step that used to meet the account wall. */
-export function startedBooking(slug) {
-  track("InitiateCheckout", slug ? { content_ids: [slug], content_type: PRODUCT } : undefined);
-}
-
-/** Booked. Meta's standard event for an appointment is `Schedule`. */
-export function bookedTestDrive(slug) {
-  track("Schedule", slug ? { content_ids: [slug], content_type: PRODUCT } : undefined);
+/**
+ * Somebody left their number. The only conversion this site has.
+ *
+ * `Lead` is Meta's standard event for exactly this, which matters: a standard event is
+ * one Ads Manager can report on and optimise for without being taught what it means,
+ * where a custom event is a string only we understand.
+ *
+ * Fired once the **server accepted** it, never on submit. A refused form is not a
+ * lead, and counting it would overstate the one number the decision to keep paying
+ * for an advertisement rests on.
+ */
+export function sentLead(slug) {
+  track("Lead", slug ? { content_ids: [slug], content_type: PRODUCT } : undefined);
 }

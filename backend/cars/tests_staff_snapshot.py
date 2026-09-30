@@ -26,8 +26,7 @@ from django.utils import timezone
 from .store import cars as car_store
 from .store import requests as request_store
 from .tests import (
-    DynamoReset, MAIL_SETTINGS, attach_photo, attach_video, future_slot, make_booking,
-    make_car, make_customer, make_question, make_schedule,
+    DynamoReset, MAIL_SETTINGS, attach_photo, attach_video, make_car,
 )
 from .tests_fake_cognito import FakeCognito, sign_in
 from .tests_staff import make_owner
@@ -75,14 +74,13 @@ class StaffSnapshot(FakeCognito, DynamoReset, SimpleTestCase):
         make_car("SNAP-3", brand="Daihatsu", model_name="Move Canbus",
                  manufacture_year=2019, status="sold")
 
-        customer, _ = make_customer("buyer@example.com")
-        question = make_question(car, customer=customer,
-                                 question="Has it had one owner?")
-        make_question(car, customer=customer, question="Any service history?",
-                      answer="Full book, stamped every year.", published=True)
-
-        schedule = make_schedule()
-        booking = make_booking(customer, future_slot(), car=car)
+        # Two leads, because the queue shows two shapes and they render differently:
+        # one off a car page (a car, usually no message) and one from the
+        # find-me-something form (a message, no car). A snapshot pass that only ever
+        # showed one of them would not be reviewing the page.
+        about_car = request_store.create(
+            name="Kenji Mori", email="", phone="080-2222-3333",
+            details="", car=car)
         wish = request_store.create(
             name="Hana Sato", email="hana@example.com", phone="080-1234-5678",
             details="A white Tanto, 2018 or newer, under 900,000. Both sliding doors.")
@@ -95,22 +93,13 @@ class StaffSnapshot(FakeCognito, DynamoReset, SimpleTestCase):
             ("cars-list", reverse("staff:car-list")),
             ("cars-add", reverse("staff:car-add")),
             ("cars-edit", reverse("staff:car-edit", args=[car.car_id])),
-            ("bookings-list", reverse("staff:booking-list")),
-            ("slots-list", reverse("staff:slot-list")),
-            ("schedules-list", reverse("staff:schedule-list")),
-            ("schedules-edit", reverse("staff:schedule-edit",
-                                       args=[schedule.schedule_id])),
-            ("questions-list", reverse("staff:question-list")),
-            ("questions-detail", reverse("staff:question-detail",
-                                         args=[question.question_id])),
             ("requests-list", reverse("staff:request-list")),
             ("requests-detail", reverse("staff:request-detail", args=[wish.request_id])),
-            ("customers-list", reverse("staff:customer-list")),
+            ("requests-detail-car", reverse("staff:request-detail",
+                                            args=[about_car.request_id])),
             ("accounts-list", reverse("staff:staff-list")),
             ("accounts-add", reverse("staff:staff-add")),
         ]
-        pages.append(("bookings-detail",
-                      reverse("staff:booking-detail", args=[booking.booking_id])))
 
         written = []
         for name, url in pages:

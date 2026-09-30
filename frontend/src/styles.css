@@ -5,11 +5,10 @@
    around it stays quiet.
 
    The monogram brought no accent colour with it -- it is chrome on navy and nothing
-   else -- so the yellow stayed on as `--accent`, doing a job the brand no longer does.
-   It is not decoration: it is the fill behind dark text on the Call Us button and on
-   the selected day and slot, and silver at those sizes has almost no separation from
-   `--paper`. Swapping it for chrome would have made the site's one call to action and
-   the two states the booking flow turns on stop reading as either.
+   else -- so the yellow stayed on as `--plate`, doing a job the brand no longer does.
+   It is not decoration: it is the price, and on a dark page that is the only thing it
+   is allowed to be. The one action on a screen is `--go` green instead, because a
+   yellow button beside a yellow price would be two things shouting the same word.
 
    Split into partials because one 1155-line sheet had drifted: masthead rules sit in
    three different sections of it, and nothing announced where a section began or
@@ -39,8 +38,5 @@
 @import "./styles/40-detail.css";
 @import "./styles/50-states.css";
 @import "./styles/60-footer.css";
-@import "./styles/70-account-booking.css";
-@import "./styles/80-questions.css";
-@import "./styles/85-request.css";
+@import "./styles/70-lead.css";
 @import "./styles/86-legal.css";
-@import "./styles/90-bell.css";

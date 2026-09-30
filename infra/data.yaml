@@ -138,24 +138,22 @@ Resources:
               # get an AccessDenied that names the table you can plainly read.
               - !Sub "${Table.Arn}/index/*"
 
-          # Every sign-in, sign-up and profile edit goes through the backend rather than
-          # from the browser, which is what keeps the throttle meaningful - so the role
-          # needs the admin verbs, not only the public ones.
+          # Staff administration, and nothing else.
+          #
+          # Nobody signs in through this backend any more: the hosted UI does that, so
+          # SignUp, InitiateAuth, AdminInitiateAuth, AdminRespondToAuthChallenge and
+          # AdminConfirmSignUp went with the public account flow, and AdminDeleteUser
+          # with a customer closing an account. What is left is what an owner does to
+          # a colleague from `/api/staff/accounts/`.
+          #
+          # `tests_iam_policy.py` fails if a Cognito call in `cognito.py` is not
+          # granted here. It was written after AdminRespondToAuthChallenge turned out
+          # to be missing in production and to fail silently; the guard outlived the
+          # call it was written for, which is the point of it.
           - Effect: Allow
             Action:
-              - cognito-idp:SignUp
-              - cognito-idp:InitiateAuth
-              - cognito-idp:AdminInitiateAuth
-              # The second half of the custom auth flow, and easy to miss because the
-              # first half is a different action: without it a sign-up's code confirms
-              # the account and then fails to open the session, which looks to the
-              # customer like a form that did nothing. `tests_iam_policy.py` now fails
-              # if a Cognito call in cognito.py is not granted here.
-              - cognito-idp:AdminRespondToAuthChallenge
               - cognito-idp:AdminCreateUser
-              - cognito-idp:AdminDeleteUser
               - cognito-idp:AdminGetUser
-              - cognito-idp:AdminConfirmSignUp
               - cognito-idp:AdminSetUserPassword
               - cognito-idp:AdminUpdateUserAttributes
               - cognito-idp:AdminDisableUser
@@ -192,284 +190,6 @@ Resources:
             Action: cloudfront:CreateInvalidation
             Resource: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${DistributionId}
 
-  # --------------------------------------------------- password carry-over ---
-  #
-  # Django stores `pbkdf2_sha256$<iters>$<salt>$<hash>`. Cognito will not accept a hash
-  # on AdminCreateUser, so without this every existing customer would get an unprompted
-  # "your password no longer works" email on the day of the cutover - which for a small
-  # dealership is a measurable loss of accounts.
-  #
-  # Instead: on a first sign-in for a user Cognito does not know, it calls this with the
-  # plaintext. The function verifies it against the hash carried over from Postgres and
-  # returns the attributes; Cognito then creates the user with that password and the
-  # customer notices nothing. The LEGACYPW# items carry a 90-day TTL and are deleted on
-  # first use.
-  #
-  # Deliberately no Django and no dependencies: Django's hash format is verifiable with
-  # stdlib hashlib in about fifteen lines, and a trigger that has to import an ORM to
-  # check a password is a trigger that will break.
-  UserMigrationRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal: { Service: lambda.amazonaws.com }
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: read-carried-over-passwords
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: [dynamodb:GetItem, dynamodb:DeleteItem]
-                Resource: !GetAtt Table.Arn
-
-  UserMigrationFunction:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: dakkamotors-user-migration
-      Runtime: python3.13
-      Handler: index.handler
-      Timeout: 10
-      Role: !GetAtt UserMigrationRole.Arn
-      Environment:
-        Variables:
-          TABLE_NAME: !Ref Table
-      Code:
-        ZipFile: |
-          """Cognito UserMigration trigger: verify a Django password, once."""
-          import base64
-          import hashlib
-          import hmac
-          import os
-
-          import boto3
-
-          TABLE = os.environ["TABLE_NAME"]
-          ddb = boto3.client("dynamodb")
-
-
-          def verify(password, encoded):
-              """Check a password against Django's pbkdf2_sha256 format.
-
-              `pbkdf2_sha256$<iterations>$<salt>$<base64 hash>`. Anything else - a
-              different algorithm, an unusable hash - is refused rather than guessed at.
-              """
-              try:
-                  algorithm, iterations, salt, expected = encoded.split("$", 3)
-              except ValueError:
-                  return False
-              if algorithm != "pbkdf2_sha256":
-                  return False
-              derived = hashlib.pbkdf2_hmac(
-                  "sha256", password.encode("utf-8"), salt.encode("utf-8"),
-                  int(iterations))
-              return hmac.compare_digest(
-                  base64.b64encode(derived).decode("ascii"), expected)
-
-
-          def handler(event, context):
-              if event.get("triggerSource") != "UserMigration_Authentication":
-                  # Forgot-password migration is not used: account recovery is
-                  # admin_only on this pool, so our own reset flow is the only one.
-                  raise Exception("Unsupported trigger")
-
-              email = (event.get("userName") or "").strip().lower()
-              password = event["request"].get("password") or ""
-
-              item = ddb.get_item(
-                  TableName=TABLE,
-                  Key={"pk": {"S": "LEGACYPW#" + email}, "sk": {"S": "META"}},
-                  ConsistentRead=True,
-              ).get("Item")
-              if not item or not verify(password, item["password_hash"]["S"]):
-                  # One message for "no such carried-over account" and "wrong password",
-                  # so the sign-in form cannot be used to discover who was migrated.
-                  raise Exception("Bad credentials")
-
-              name = item.get("name", {}).get("S", "")
-              first, _, last = name.partition(" ")
-              attributes = {"email": email, "email_verified": "true"}
-              if first:
-                  attributes["given_name"] = first[:150]
-              if last:
-                  attributes["family_name"] = last[:150]
-              phone = item.get("phone", {}).get("S", "")
-              if phone:
-                  attributes["custom:phone"] = phone[:32]
-
-              event["response"]["userAttributes"] = attributes
-              event["response"]["finalUserStatus"] = "CONFIRMED"
-              # They just proved the password, so making them confirm it again would be
-              # the one thing this trigger exists to avoid.
-              event["response"]["messageAction"] = "SUPPRESS"
-
-              # Migrated. The TTL would get there eventually; this makes it exact.
-              ddb.delete_item(
-                  TableName=TABLE,
-                  Key={"pk": {"S": "LEGACYPW#" + email}, "sk": {"S": "META"}},
-              )
-              return event
-
-  UserMigrationPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !GetAtt UserMigrationFunction.Arn
-      Action: lambda:InvokeFunction
-      Principal: cognito-idp.amazonaws.com
-      SourceArn: !GetAtt UserPool.Arn
-
-  # The emailed sign-up code doubles as a sign-in. Cognito has the password from the
-  # moment of sign-up and never hands it back, so once the code has confirmed the
-  # address Django has nothing to authenticate with -- and the alternative, a sign-in
-  # form one screen after the code, lost the page the customer had come from. The
-  # custom auth flow is the one way Cognito issues tokens without a password: this
-  # trigger defines a single challenge, "present the code", and checks the answer
-  # against the same PENDING# item the code itself is verified through. Knowing the
-  # code already confirms the account; letting it also open the session adds no secret.
-  LinkAuthRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal: { Service: lambda.amazonaws.com }
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: read-pending-sign-ups
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              # Read only. Django consumes the token once the session is issued; the
-              # trigger only has to recognise it.
-              - Effect: Allow
-                Action: [dynamodb:GetItem]
-                Resource: !GetAtt Table.Arn
-
-  LinkAuthFunction:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: dakkamotors-link-auth
-      Runtime: python3.13
-      Handler: index.handler
-      Timeout: 10
-      Role: !GetAtt LinkAuthRole.Arn
-      Environment:
-        Variables:
-          TABLE_NAME: !Ref Table
-      Code:
-        ZipFile: |
-          """Cognito custom-auth triggers: the sign-up code is the credential."""
-          import hashlib
-          import hmac
-          import os
-
-          import boto3
-
-          TABLE = os.environ["TABLE_NAME"]
-          ddb = boto3.client("dynamodb")
-
-          CHALLENGE = "CUSTOM_CHALLENGE"
-
-
-          def define(event):
-              """One CUSTOM_CHALLENGE, one attempt.
-
-              Never PASSWORD_VERIFIER or SRP_A. The customer app client has no
-              password flow the browser can drive, and this trigger must not become
-              one by the back door: the only thing this flow will ever ask for is the
-              sign-up code, and Django has already checked it before asking.
-              """
-              session = event["request"].get("session") or []
-              response = event["response"]
-              if session and session[-1].get("challengeName") == CHALLENGE \
-                      and session[-1].get("challengeResult") is True:
-                  response["issueTokens"] = True
-                  response["failAuthentication"] = False
-              elif session:
-                  response["issueTokens"] = False
-                  response["failAuthentication"] = True
-              else:
-                  response["issueTokens"] = False
-                  response["failAuthentication"] = False
-                  response["challengeName"] = CHALLENGE
-              return event
-
-
-          def create(event):
-              # Nothing to generate: the secret already exists, in the customer's
-              # inbox. The public parameter only names the challenge for a caller.
-              event["response"]["publicChallengeParameters"] = {"kind": "email-code"}
-              event["response"]["privateChallengeParameters"] = {}
-              event["response"]["challengeMetadata"] = "EMAIL_LINK"
-              return event
-
-
-          def verify(event):
-              """The answer is the code from the email; the pending item holds its hash.
-
-              Read by address -- PENDING#<email>, the key store/keys.py builds -- and
-              never by the code: six digits are not unique across customers. The
-              address comes from the user's attributes rather than from `userName`,
-              which is the sub, because the pool uses email as the username attribute.
-              Binding the lookup to the address is what makes one customer's code
-              useless for another's session.
-              """
-              answer = (event["request"].get("challengeAnswer") or "").strip()
-              email = (event["request"].get("userAttributes") or {}).get("email", "")
-              email = email.strip().lower()
-              correct = False
-              if answer and email:
-                  item = ddb.get_item(
-                      TableName=TABLE,
-                      Key={"pk": {"S": "PENDING#" + email}, "sk": {"S": "META"}},
-                      ConsistentRead=True,
-                  ).get("Item")
-                  if item:
-                      digest = hashlib.sha256(answer.encode("utf-8")).hexdigest()
-                      stored = item.get("token_hash", {}).get("S", "")
-                      correct = bool(stored) and hmac.compare_digest(stored, digest)
-              event["response"]["answerCorrect"] = correct
-              return event
-
-
-          HANDLERS = {
-              "DefineAuthChallenge_Authentication": define,
-              "CreateAuthChallenge_Authentication": create,
-              "VerifyAuthChallengeResponse_Authentication": verify,
-          }
-
-
-          def handler(event, context):
-              try:
-                  step = HANDLERS[event.get("triggerSource")]
-              except KeyError:
-                  raise Exception("Unsupported trigger")
-              return step(event)
-
-  LinkAuthPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !GetAtt LinkAuthFunction.Arn
-      Action: lambda:InvokeFunction
-      Principal: cognito-idp.amazonaws.com
-      SourceArn: !GetAtt UserPool.Arn
-
-  # ------------------------------------------------------------------- Cognito ---
-  #
-  # The pool is configured to send **nothing**. No AutoVerifiedAttributes, admin-only
-  # recovery, no EmailConfiguration block - so there is no trigger for Cognito to fire.
-  # Verification and password-reset messages keep going out bilingual and branded
-  # through the S3 outbox and Brevo. The alternative is Cognito's plain English default
-  # against a 50/day cap, or SES; docs/TODO.md records an undeleted CognitoEmailRole
-  # left behind by the attempt that stalled on exactly that.
   UserPool:
     Type: AWS::Cognito::UserPool
     DeletionPolicy: Retain
@@ -490,12 +210,18 @@ Resources:
             Priority: 1
       AutoVerifiedAttributes: []
       DeletionProtection: ACTIVE
-      LambdaConfig:
-        UserMigration: !GetAtt UserMigrationFunction.Arn
-        # All three custom-auth steps are one function; see LinkAuthFunction.
-        DefineAuthChallenge: !GetAtt LinkAuthFunction.Arn
-        CreateAuthChallenge: !GetAtt LinkAuthFunction.Arn
-        VerifyAuthChallengeResponse: !GetAtt LinkAuthFunction.Arn
+      # No LambdaConfig, and no inline trigger source anywhere in this file.
+      #
+      # It held two functions, both of them customer-account machinery.
+      # `UserMigrationFunction` verified a password carried over from Django on a
+      # customer's first sign-in, because Cognito will not accept a hash on
+      # AdminCreateUser; `LinkAuthFunction` ran a one-challenge custom auth flow so
+      # that a sign-up code could open a session as well as confirm an address.
+      #
+      # The public site has no accounts, so nobody signs in to this pool but staff,
+      # through the hosted UI, against a password Cognito itself holds. Removing the
+      # triggers is an update to a Retained pool: the users, groups and schema are
+      # untouched.
       MfaConfiguration: "OPTIONAL"
       # TOTP only, and this list is not optional despite the name. Without it Cognito
       # assumes SMS_MFA the moment MfaConfiguration is anything but OFF, and then refuses
@@ -580,59 +306,6 @@ Resources:
       Description: The only group a non-owner may hand out.
       Precedence: 20
 
-  CustomerClient:
-    Type: AWS::Cognito::UserPoolClient
-    Properties:
-      UserPoolId: !Ref UserPool
-      ClientName: customer
-      GenerateSecret: false
-      # ALLOW_USER_PASSWORD_AUTH is deliberately absent. The password flow is admin
-      # only, and that requires signed AWS credentials - so a leaked client id cannot be
-      # used to brute-force from a browser, and every attempt goes through Django where
-      # the 20/hour throttle still does real work.
-      #
-      # ALLOW_CUSTOM_AUTH is reachable from a browser with this public client id, and
-      # that is acceptable because of what the flow is: LinkAuthFunction issues exactly
-      # one challenge, "present the sign-up code", and never a password
-      # challenge. The only person who can answer it is whoever has the emailed code,
-      # who could already confirm the account with it. Django uses the flow through
-      # AdminInitiateAuth right after confirming the address, so the code signs the
-      # customer in as well as verifying them.
-      ExplicitAuthFlows:
-        - ALLOW_ADMIN_USER_PASSWORD_AUTH
-        - ALLOW_CUSTOM_AUTH
-        - ALLOW_REFRESH_TOKEN_AUTH
-      PreventUserExistenceErrors: ENABLED
-      EnableTokenRevocation: true
-      AccessTokenValidity: 60
-      IdTokenValidity: 60
-      RefreshTokenValidity: 30
-      TokenValidityUnits:
-        AccessToken: minutes
-        IdToken: minutes
-        RefreshToken: days
-      ReadAttributes:
-        - email
-        - email_verified
-        - given_name
-        - family_name
-        - custom:phone
-      # `email` has to be here, and that is a Cognito rule rather than a choice: a
-      # required attribute cannot be left out of WriteAttributes, and the pool needs
-      # email required because it is the sign-in name. Leaving it out is refused with
-      # "Invalid write attributes specified while creating a client".
-      #
-      # So LOCKED_PROFILE_FIELDS cannot be expressed at this level. It is enforced where
-      # it actually matters instead: `cognito.update_attributes` accepts given_name,
-      # family_name and phone and silently refuses anything else, and the client has no
-      # password auth flow at all -- every write goes through Django, which is the only
-      # thing holding AWS credentials. A customer never talks to this client directly.
-      WriteAttributes:
-        - email
-        - given_name
-        - family_name
-        - custom:phone
-
   StaffClient:
     Type: AWS::Cognito::UserPoolClient
     Properties:
@@ -685,8 +358,6 @@ Outputs:
     Value: !GetAtt Table.StreamArn
   UserPoolId:
     Value: !Ref UserPool
-  CustomerClientId:
-    Value: !Ref CustomerClient
   StaffClientId:
     Value: !Ref StaffClient
   CognitoDomain:

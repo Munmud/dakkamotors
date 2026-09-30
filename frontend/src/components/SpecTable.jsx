@@ -31,7 +31,11 @@ export default function SpecTable({ car }) {
     ["seats", car.seat_capacity],
     ["color", carField(car, "color", language)],
     ["modelCode", car.model_code],
-    ["chassisNumber", car.chassis_number],
+    // No chassis number. It is on the car, staff can see it, and the JSON-LD still
+    // carries it for a search engine -- but publishing `ZVW30-5512345` in the body
+    // of a public page serves no buyer and mainly helps somebody clone the listing.
+    // It was also the last row of the table, so on cars with no free-form specs it
+    // was the note the page ended on.
   ].filter(([, value]) => value !== null && value !== undefined && value !== "");
 
   const numeric = new Set(["year", "seats", "chassisNumber", "modelCode"]);

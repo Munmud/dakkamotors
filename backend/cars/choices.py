@@ -29,48 +29,18 @@ class CarStatus(models.TextChoices):
     SOLD = "sold", "Sold"
 
 
-class Weekday(models.IntegerChoices):
-    MONDAY = 0, "Monday"
-    TUESDAY = 1, "Tuesday"
-    WEDNESDAY = 2, "Wednesday"
-    THURSDAY = 3, "Thursday"
-    FRIDAY = 4, "Friday"
-    SATURDAY = 5, "Saturday"
-    SUNDAY = 6, "Sunday"
-
-
-class BookingStatus(models.TextChoices):
-    # A request until staff accept it. The seat is held meanwhile - otherwise two
-    # customers could both be pending for one place and one would have to be turned
-    # away afterwards, which is worse than briefly showing the slot as full.
-    PENDING = "pending", "Awaiting confirmation"
-    CONFIRMED = "confirmed", "Confirmed"
-    CANCELLED = "cancelled", "Cancelled"
-    COMPLETED = "completed", "Completed"
-    NO_SHOW = "no_show", "Did not attend"
-
-
-#: Statuses that occupy a seat and count towards a customer's limit.
-ACTIVE_STATUSES = (BookingStatus.PENDING, BookingStatus.CONFIRMED)
-
-
 class RequestStatus(models.TextChoices):
-    """A car request is a lead. Open until somebody has dealt with it."""
+    """A lead. Open until somebody has rung the person back and dealt with it."""
+
     OPEN = "open", "Open"
     RESOLVED = "resolved", "Resolved"
 
 
-class QuestionLanguage(models.TextChoices):
-    EN = "en", "English"
-    JA = "ja", "日本語"
-
-
-class NotificationKind(models.TextChoices):
-    BOOKING_CONFIRMED = "booking_confirmed", "Test drive confirmed"
-    BOOKING_CANCELLED = "booking_cancelled", "Test drive cancelled"
-    QUESTION_ANSWERED = "question_answered", "Question answered"
-
-
-#: Widths generated for every uploaded photo. 320 covers gallery thumbnails, 800 the
-#: listing cards, 1600 the gallery's main image on a high-density screen.
-DERIVATIVE_WIDTHS = (320, 800, 1600)
+#: The widths every uploaded photo is resized to, in WebP.
+#:
+#: Four rather than three. 320/800/1600 left an eight-hundred-pixel gap in the middle,
+#: so a 390pt phone at 3x -- which is most of the traffic an advertisement brings --
+#: was handed the 1600 and threw most of it away. 640 and 1000 cover the two common
+#: phone widths; 1600 is the widest thing this site ever serves, and the original is
+#: never handed to a browser at all.
+DERIVATIVE_WIDTHS = (320, 640, 1000, 1600)
