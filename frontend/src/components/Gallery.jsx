@@ -29,6 +29,62 @@ export default function Gallery({ media, images, poster, title }) {
   const items = media?.length ? media : (images ?? []).map(asPhoto);
   const count = items.length;
 
+  /*
+    Which thumbnails have been near the strip's viewport, and so are worth fetching.
+
+    `loading="lazy"` does not cover this and it is worth knowing why. The attribute
+    defers an image that is below the *vertical* fold; the browser treats anything
+    scrolled off **horizontally** inside a scroller as in view and fetches it
+    immediately. Measured on the live car page at 390px: all sixteen thumbnails sit
+    at the same y, four on screen and twelve off to the right, every one marked
+    lazy, and every one downloaded -- 290 KB, 71% of the page's image bytes, for
+    pictures most visitors never drag to.
+
+    That is a cost this strip created. Wrapped over three rows the lower two fell
+    below the fold and the attribute did its job; putting them on one row to win
+    138px above the fold took the deferral away with it. So the deferral is done
+    here instead, and the 138px is kept.
+
+    The first five are revealed up front -- four fit on a 390px screen -- so the
+    strip is never visibly empty, and the observer fills in the rest as it is
+    dragged. No observer, no JavaScript: `revealed` starts non-empty and the
+    fallback below shows everything, because a gallery that needs a script to
+    display its pictures is worse than one that downloads too many.
+  */
+  const EAGER_THUMBS = 5;
+  const strip = useRef(null);
+  const [revealed, setRevealed] = useState(
+    () => new Set(Array.from({ length: EAGER_THUMBS }, (_, i) => i)),
+  );
+
+  useEffect(() => {
+    const el = strip.current;
+    if (!el || typeof IntersectionObserver === "undefined") {
+      // No observer: show them all rather than hiding pictures behind a feature.
+      setRevealed(new Set(Array.from({ length: count }, (_, i) => i)));
+      return undefined;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        const seen = entries
+          .filter((e) => e.isIntersecting)
+          .map((e) => Number(e.target.dataset.index));
+        if (seen.length) {
+          setRevealed((prev) => {
+            const next = new Set(prev);
+            for (const i of seen) next.add(i);
+            return next;
+          });
+        }
+      },
+      // The strip itself is the root, and a screen's worth of margin so a thumbnail
+      // is fetched just before it is dragged into view rather than as it arrives.
+      { root: el, rootMargin: "0px 400px" },
+    );
+    for (const li of el.querySelectorAll("li[data-index]")) io.observe(li);
+    return () => io.disconnect();
+  }, [count]);
+
   const step = useCallback((by) => {
     setActive((i) => (i + by + count) % count);
   }, [count]);
@@ -133,9 +189,9 @@ export default function Gallery({ media, images, poster, title }) {
       </div>
 
       {items.length > 1 && (
-        <ul className="gallery__thumbs">
+        <ul className="gallery__thumbs" ref={strip}>
           {items.map((item, index) => (
-            <li key={`${item.kind}-${item.id}`}>
+            <li key={`${item.kind}-${item.id}`} data-index={index}>
               <button
                 type="button"
                 className="gallery__thumb"
@@ -154,9 +210,13 @@ export default function Gallery({ media, images, poster, title }) {
                     </span>
                   </span>
                 ) : (
-                  /* Rendered 74px wide, so the 320px copy is as large as it ever
-                     needs to be - never the multi-megabyte original. */
-                  <ResponsiveImage image={item} pinnedWidth={320} />
+                  /* Rendered 88px wide, so the 320px copy is as large as it ever
+                     needs to be - never the multi-megabyte original. Held back
+                     until the strip is dragged near it; the button keeps its size
+                     either way, so nothing moves when the picture arrives. */
+                  revealed.has(index)
+                    ? <ResponsiveImage image={item} pinnedWidth={320} />
+                    : null
                 )}
               </button>
             </li>
