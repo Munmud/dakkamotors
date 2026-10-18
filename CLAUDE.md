@@ -716,6 +716,29 @@ it**: messages delivered before the rebrand still fetch it when they are opened.
   matters too: the new code reads the manifest from the bucket on its first cold start
   and renders the hashed names it lists, so those objects must already exist. Hashed
   copies are never deleted, which is what keeps a warm old container working.
+* **Changing `DERIVATIVE_WIDTHS` is not a code change on its own.** Every photo in S3
+  keeps the widths it was built with, so the site goes on serving the old set while
+  the code advertises the new one, and nothing anywhere fails. It sat like that in
+  production from the restructure until October, when adding a car surfaced it:
+  72 photos on 320/800/1600 against a constant that said 320/640/1000/1600.
+  `manage.py rebuild_derivatives --all` is what makes them agree, and it needs a CDN
+  invalidation after it, because neither the importer nor the rebuild calls
+  `cdn.invalidate` -- only the staff form does.
+
+  **And pick the widths by working out which file a browser chooses**, not by
+  spacing numbers evenly. The rule is the smallest candidate at least as wide as
+  (CSS px x DPR). 320/640/1000/1600 was chosen to close "the gap in the middle" and
+  did the opposite: a 390pt phone at 2x went from 800 to 1000, and the 3x case it
+  was aimed at still took the 1600, because 1000 is below the 1170 it asks for. The
+  set is now 320/800/1200/1600 -- the 3x phone takes the 1200, measured at 34% fewer
+  bytes per photo, and 800 stays so the copies already in S3 are not orphaned.
+
+* **Japanese breaks between almost any two characters**, so a katakana model name
+  longer than its box splits inside the word -- `トヨタ ヴェルファ` / `イア`. Titles
+  carry `word-break: keep-all` with `overflow-wrap: break-word` behind it, which
+  moves the break to the space between maker and model and still cannot overflow.
+  Check any new text that holds a Japanese proper noun in a narrow box.
+
 * **DynamoDB reserved keywords** include `capacity`, `status`, `order`, `year` and
   `name`, all of which appear in this schema. PynamoDB aliases them automatically; raw
   boto3 does not.
