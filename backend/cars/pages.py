@@ -355,6 +355,21 @@ def home(request):
         f'{_esc(seo.BUSINESS["telephone_display"])}</a></p>'
     )
 
+    # The first card's photograph, preloaded, for the same reason the car page does it:
+    # it is the largest thing above the fold and therefore the LCP element, and
+    # `CarCard` already marks it `priority`. Without this the fetch cannot start until
+    # the bundle has downloaded and parsed, which is the whole wait it is trying to
+    # avoid. `primary_image_ref` carries the widths, so this costs no extra read.
+    #
+    # `sizes` must stay identical to `CARD_SIZES` in `CarCard.jsx`, or the browser
+    # preloads one file and the page then asks for a different one -- two downloads
+    # and a slower paint than doing nothing at all.
+    first_card = cars[0].primary_image if cars else None
+    card_urls = first_card.derivative_urls if first_card else {}
+    preload = ((", ".join(f"{url} {width}w" for width, url in sorted(card_urls.items())),
+                "(max-width: 559px) 100vw, (max-width: 899px) 320px, "
+                "(max-width: 1099px) 384px, 530px") if card_urls else None)
+
     return HttpResponse(
         _render(
             language=language,
@@ -366,6 +381,7 @@ def home(request):
                 structured_data=seo.graph(
                     seo.dealer_schema(), seo.website_schema(), listing
                 ),
+                preload_image=preload,
             ),
             body=body,
             initial_data={

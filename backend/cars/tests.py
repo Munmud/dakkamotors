@@ -321,7 +321,7 @@ class DerivativeTests(DynamoReset, SimpleTestCase):
         image.refresh()
 
         self.assertTrue(image.derivatives_ready)
-        self.assertEqual(image.available_widths, [320, 640])
+        self.assertEqual(image.available_widths, [320, 800])
         self.assertNotIn(1600, image.available_widths)
 
     def test_all_widths_generated_for_a_large_original(self):
@@ -350,11 +350,11 @@ class DerivativeTests(DynamoReset, SimpleTestCase):
         first.refresh()
         second.refresh()
 
-        self.assertNotEqual(first.derivative_name(640), second.derivative_name(640))
+        self.assertNotEqual(first.derivative_name(800), second.derivative_name(800))
         # And both files really exist rather than one having clobbered the other.
         storage = default_storage
-        self.assertTrue(storage.exists(first.derivative_name(640)))
-        self.assertTrue(storage.exists(second.derivative_name(640)))
+        self.assertTrue(storage.exists(first.derivative_name(800)))
+        self.assertTrue(storage.exists(second.derivative_name(800)))
 
     def test_exif_rotation_is_applied(self):
         """Phones record orientation in EXIF; without this, portraits serve sideways."""
@@ -375,7 +375,7 @@ class DerivativeTests(DynamoReset, SimpleTestCase):
         image = attach_photo(make_car("FORMAT"), 1000, 750)
         image.refresh()
 
-        with default_storage.open(image.derivative_name(640)) as fh:
+        with default_storage.open(image.derivative_name(800)) as fh:
             self.assertEqual(Image.open(fh).format, "WEBP")
 
     def test_replacing_the_photo_invalidates_the_old_copies(self):
@@ -398,7 +398,7 @@ class FileCleanupTests(DynamoReset, SimpleTestCase):
         image = attach_photo(make_car("CLEANUP"), 1000, 750)
         image.refresh()
         storage = default_storage
-        original, derivative = image.image_name, image.derivative_name(640)
+        original, derivative = image.image_name, image.derivative_name(800)
         self.assertTrue(storage.exists(original))
         self.assertTrue(storage.exists(derivative))
 
@@ -452,7 +452,7 @@ class DerivativeApiTests(DynamoReset, SimpleTestCase):
             "sources"
         ]
 
-        self.assertEqual(sorted(sources), ["1000", "1600", "320", "640"])
+        self.assertEqual(sorted(sources), ["1200", "1600", "320", "800"])
         self.assertTrue(all(url.endswith(".webp") for url in sources.values()))
 
     def test_list_primary_image_carries_sources(self):
@@ -461,7 +461,7 @@ class DerivativeApiTests(DynamoReset, SimpleTestCase):
 
         result = self.client.get(reverse("car-list")).json()["results"][0]
 
-        self.assertIn("640", result["primary_image"]["sources"])
+        self.assertIn("800", result["primary_image"]["sources"])
 
 
 class RebuildDerivativesCommandTests(DynamoReset, SimpleTestCase):
@@ -483,7 +483,7 @@ class RebuildDerivativesCommandTests(DynamoReset, SimpleTestCase):
 
         image.refresh()
         self.assertTrue(image.derivatives_ready)
-        self.assertEqual(image.available_widths, [320, 640, 1000])
+        self.assertEqual(image.available_widths, [320, 800])
 
 
 class UploadValidationTests(SimpleTestCase):
@@ -707,6 +707,36 @@ class RenderedPageTests(DynamoReset, SimpleTestCase):
             re.search(r"<title>(.*?)</title>", a).group(1),
             re.search(r"<title>(.*?)</title>", b).group(1),
         )
+
+    def test_the_home_page_preloads_the_first_card_photo(self, _tags):
+        """The lot's first photograph is the LCP element and `CarCard` marks it
+        `priority`, but a browser cannot act on that until the bundle has parsed.
+        The car page has always preloaded its hero; the home page never did."""
+        car = make_car("PRELOAD-1")
+        attach_photo(car, 2400, 1800, is_primary=True)
+
+        body = self.client.get("/").content.decode()
+
+        self.assertIn('rel="preload" as="image"', body)
+        self.assertIn('fetchpriority="high"', body)
+        self.assertIn("imagesrcset=", body)
+
+    def test_the_preloaded_sizes_match_the_card_component(self, _tags):
+        """If `imagesizes` and `CARD_SIZES` disagree, the browser preloads one file
+        and the page then asks for another -- two downloads, and slower than not
+        preloading at all. The two live in different languages in different files,
+        so this is the only thing holding them together."""
+        card = (pathlib.Path(__file__).resolve().parents[2]
+                / "frontend" / "src" / "components" / "CarCard.jsx").read_text(encoding="utf-8")
+        widths = re.search(r"const CARD_SIZES = \[(.*?)\]", card, re.S).group(1)
+        in_component = " ".join(re.findall(r'"([^"]+)"', widths))
+
+        car = make_car("PRELOAD-2")
+        attach_photo(car, 2400, 1800, is_primary=True)
+        body = self.client.get("/").content.decode()
+        rendered = re.search(r'imagesizes="([^"]+)"', body).group(1)
+
+        self.assertEqual(" ".join(rendered.split(", ")), in_component)
 
     def test_the_price_is_stated_as_the_total_a_buyer_pays(self, _tags):
         """支払総額, not 車両本体価格, and said where it is read before the click.

@@ -38,9 +38,30 @@ class RequestStatus(models.TextChoices):
 
 #: The widths every uploaded photo is resized to, in WebP.
 #:
-#: Four rather than three. 320/800/1600 left an eight-hundred-pixel gap in the middle,
-#: so a 390pt phone at 3x -- which is most of the traffic an advertisement brings --
-#: was handed the 1600 and threw most of it away. 640 and 1000 cover the two common
-#: phone widths; 1600 is the widest thing this site ever serves, and the original is
-#: never handed to a browser at all.
-DERIVATIVE_WIDTHS = (320, 640, 1000, 1600)
+#: **Pick these by working out which file a browser actually chooses**, which is the
+#: smallest candidate at least as wide as (CSS pixels x device pixel ratio). Round
+#: numbers that look well spaced are not the same thing, and the previous set proved
+#: it: 320/640/1000/1600 was chosen to close "the gap in the middle" and did the
+#: opposite, because 1000 is still below what the case it was aimed at needs.
+#:
+#:   context                    DPR  needs   320/800/1600   320/640/1000/1600
+#:   card or hero, phone 390     2     780      800            1000   <- heavier
+#:   card or hero, phone 390     3    1170     1600            1600   <- unchanged
+#:   hero, desktop               1     700      800            1000   <- heavier
+#:
+#: So it made the commonest case bigger and fixed nothing. 1200 is the width that
+#: case actually wants: a 390pt phone at 3x asks for 1170 and now gets 1200 instead
+#: of 1600, roughly 40% fewer bytes, and a phone advertisement is most of this site's
+#: traffic. 800 stays because it is exactly right at 2x, and keeping it means the
+#: copies already in S3 stay valid rather than becoming orphans.
+#:
+#: 320 is the gallery thumbnail, pinned. 1600 is the widest thing this site serves --
+#: the lightbox, and a desktop hero at 2x -- and the original is never handed to a
+#: browser at all.
+#:
+#: **Changing this tuple is not a code change on its own.** Every photo already in S3
+#: keeps the widths it was built with, so the site goes on serving the old set while
+#: the code claims the new one; `manage.py rebuild_derivatives --all` is what makes
+#: them agree, followed by a CDN invalidation. That gap sat in production unnoticed
+#: once already.
+DERIVATIVE_WIDTHS = (320, 800, 1200, 1600)

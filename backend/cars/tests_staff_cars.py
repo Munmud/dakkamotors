@@ -545,7 +545,7 @@ class StaffCarPhotoTests(FakeCognito, DynamoReset, SimpleTestCase):
         self.assertEqual(len(photos), 1)
         # Queued and run inline, so the resized copies exist by the time we look.
         self.assertTrue(photos[0].derivatives_ready)
-        self.assertEqual(photos[0].available_widths, [320, 640, 1000])
+        self.assertEqual(photos[0].available_widths, [320, 800])
 
     def test_a_photo_becomes_the_listing_card(self):
         self.post(images={"images-0-image": a_jpeg()})
