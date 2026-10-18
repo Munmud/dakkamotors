@@ -299,6 +299,14 @@
   font-weight: 700;
   line-height: 1.12;
   letter-spacing: -0.015em;
+  /* Japanese breaks between almost any two characters by default, which split
+     every katakana model name mid-word on a phone -- "トヨタ ヴェルファ / イア",
+     "日産 NV100クリ / ッパー". `keep-all` holds a katakana run together so the line
+     breaks at the space between maker and model instead, which is where a Japanese
+     reader expects it. `break-word` is the escape hatch: a single word genuinely
+     wider than the card still breaks rather than overflowing. */
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 
